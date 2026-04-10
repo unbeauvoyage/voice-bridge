@@ -35,6 +35,7 @@ async function loadRecentItems() {
             <a class="item-title" href="${escapeAttr(item.url)}" title="${escapeAttr(item.title)}">${escapeHtml(item.title)}</a>
             <div class="item-date">${formatDate(item.dateAdded)}</div>
           </div>
+          <button class="visit-btn" data-url="${escapeAttr(item.url)}" title="Open original">↗</button>
           <button class="read-btn" data-id="${escapeAttr(item.id)}">Read</button>
         </div>`
       )
@@ -45,6 +46,10 @@ async function loadRecentItems() {
         e.preventDefault();
         chrome.tabs.create({ url: a.href });
       });
+    });
+
+    list.querySelectorAll('.visit-btn').forEach((btn) => {
+      btn.addEventListener('click', () => chrome.tabs.create({ url: btn.dataset.url }));
     });
 
     list.querySelectorAll('.read-btn').forEach((btn) => {
