@@ -16,6 +16,7 @@ export interface KnowledgeItem {
   transcript: string;
   status: 'queued' | 'processing' | 'done' | 'error';
   error?: string;
+  readAt?: string;
 }
 
 export interface ExtractedContent {

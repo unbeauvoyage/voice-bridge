@@ -1,8 +1,11 @@
 import { watch } from 'node:fs';
 import { extractYoutube } from './extract/youtube.ts';
 import { extractWeb } from './extract/web.ts';
-import { summarize } from './summarize.ts';
-import { getItem, getItemByUrl, insertItem, itemExistsByUrl, listItems, updateItem } from './db.ts';
+import { summarize, suggestTags } from './summarize.ts';
+import {
+  getItem, getItemByUrl, insertItem, itemExistsByUrl, listItems, updateItem, markRead,
+  getApprovedTags, getRejectedTags, getPendingTagsWithItems, upsertTag, approveTag, rejectTag,
+} from './db.ts';
 
 function isYouTubeUrl(url: string): boolean {
   return /youtube\.com|youtu\.be/.test(url);
@@ -23,7 +26,12 @@ async function processItem(id: string, url: string): Promise<void> {
   try {
     const type: 'youtube' | 'web' = isYouTubeUrl(url) ? 'youtube' : 'web';
     const extracted = type === 'youtube' ? await extractYoutube(url) : await extractWeb(url);
-    const { summary, sections, tags } = await summarize(extracted);
+    const approved = getApprovedTags();
+    const rejected = getRejectedTags();
+    const { summary, sections, tags } = await summarize(extracted, approved, rejected);
+
+    // Register new tags as pending (won't downgrade already-approved ones)
+    for (const tag of tags) upsertTag(tag, 'pending');
 
     updateItem(id, {
       title: extracted.title,
@@ -41,6 +49,17 @@ async function processItem(id: string, url: string): Promise<void> {
       error: err instanceof Error ? err.message : String(err),
     });
   }
+}
+
+async function retag(itemId: string): Promise<void> {
+  const item = getItem(itemId);
+  if (!item || !item.transcript) return;
+  const approved = getApprovedTags();
+  const rejected = getRejectedTags();
+  const newTags = await suggestTags(item.transcript, approved, rejected);
+  if (!newTags.length) return;
+  for (const tag of newTags) upsertTag(tag, 'pending');
+  updateItem(itemId, { tags: newTags });
 }
 
 function enqueue(url: string): { id: string; status: string } {
@@ -89,6 +108,10 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
+async function parseBody<T>(req: Request): Promise<T | null> {
+  try { return (await req.json()) as T; } catch { return null; }
+}
+
 Bun.serve({
   hostname: '127.0.0.1',
   port: 3737,
@@ -105,6 +128,14 @@ Bun.serve({
 
     if (req.method === 'GET' && url.pathname === '/items') {
       return json(listItems());
+    }
+
+    // POST /items/:id/read — must come before GET /items/:id
+    if (req.method === 'POST' && url.pathname.match(/^\/items\/[^/]+\/read$/)) {
+      const id = url.pathname.slice('/items/'.length, -'/read'.length);
+      if (!getItem(id)) return json({ error: 'Item not found' }, 404);
+      markRead(id);
+      return json({ ok: true });
     }
 
     if (req.method === 'GET' && url.pathname.startsWith('/items/')) {
@@ -124,17 +155,35 @@ Bun.serve({
     }
 
     if (req.method === 'POST' && url.pathname === '/process') {
-      let body: { url?: string };
-      try {
-        body = (await req.json()) as { url?: string };
-      } catch {
-        return json({ error: 'Invalid JSON body' }, 400);
-      }
-      if (!body.url || typeof body.url !== 'string') {
-        return json({ error: 'Missing url field' }, 400);
-      }
-      const result = enqueue(body.url);
-      return json(result);
+      const body = await parseBody<{ url?: string }>(req);
+      if (!body) return json({ error: 'Invalid JSON body' }, 400);
+      if (!body.url || typeof body.url !== 'string') return json({ error: 'Missing url field' }, 400);
+      return json(enqueue(body.url));
+    }
+
+    // ── Tag endpoints ──────────────────────────────────────────────────────────
+
+    if (req.method === 'GET' && url.pathname === '/tags') {
+      return json({
+        approved: getApprovedTags(),
+        pending: getPendingTagsWithItems(),
+        rejected: getRejectedTags(),
+      });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/tags/approve') {
+      const body = await parseBody<{ tag?: string }>(req);
+      if (!body?.tag) return json({ error: 'Missing tag field' }, 400);
+      approveTag(body.tag);
+      return json({ ok: true });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/tags/reject') {
+      const body = await parseBody<{ tag?: string; itemId?: string }>(req);
+      if (!body?.tag) return json({ error: 'Missing tag field' }, 400);
+      rejectTag(body.tag);
+      if (body.itemId) retag(body.itemId).catch(() => {});
+      return json({ ok: true });
     }
 
     return json({ error: 'Not found' }, 404);

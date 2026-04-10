@@ -14,8 +14,40 @@ function truncate(text: string): string {
   return text.slice(0, MAX_CONTENT_CHARS) + '\n\n[Content truncated for summarization]';
 }
 
-export async function summarize(extracted: ExtractedContent): Promise<SummarizeResult> {
+async function ollamaChat(prompt: string): Promise<string> {
   const model = process.env['OLLAMA_MODEL'] ?? 'llama3.2';
+  let res: Response;
+  try {
+    res = await fetch(OLLAMA_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, stream: false, messages: [{ role: 'user', content: prompt }] }),
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('ECONNREFUSED') || msg.includes('Connection refused') || msg.includes('connect')) {
+      throw new Error('Ollama not running — start with: ollama serve');
+    }
+    throw err;
+  }
+  if (!res.ok) throw new Error(`Ollama returned HTTP ${res.status}`);
+  const data = await res.json() as { message: { content: string } };
+  return data.message.content;
+}
+
+export async function summarize(
+  extracted: ExtractedContent,
+  approvedTags: string[] = [],
+  rejectedTags: string[] = [],
+): Promise<SummarizeResult> {
+  const tagGuidance = [
+    approvedTags.length
+      ? `Preferred existing tags (reuse these when they fit — ordered general to specific): ${approvedTags.join(', ')}`
+      : '',
+    rejectedTags.length
+      ? `Never use these tags (rejected): ${rejectedTags.join(', ')}`
+      : '',
+  ].filter(Boolean).join('\n');
 
   const prompt = `You are a knowledge extraction assistant. Analyze the following content thoroughly and respond with ONLY valid JSON in this exact format:
 {
@@ -34,36 +66,14 @@ Rules:
 - Organize points into logical sections with descriptive titles
 - Each point should be a complete, informative sentence
 - Aim for 3-8 sections, each with 3-8 points
-- tags should be 3-6 short lowercase keywords
+- Generate 3-6 tags ordered from most general to most specific
+- Reuse preferred tags wherever they apply. Only create new tags when none of the preferred ones fit
+${tagGuidance}
 
 Content:
 ${truncate(extracted.content)}`;
 
-  let res: Response;
-  try {
-    res = await fetch(OLLAMA_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        stream: false,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('ECONNREFUSED') || msg.includes('Connection refused') || msg.includes('connect')) {
-      throw new Error('Ollama not running — start with: ollama serve');
-    }
-    throw err;
-  }
-
-  if (!res.ok) {
-    throw new Error(`Ollama returned HTTP ${res.status}`);
-  }
-
-  const data = await res.json() as { message: { content: string } };
-  const text = data.message.content;
+  const text = await ollamaChat(prompt);
 
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
@@ -82,4 +92,39 @@ ${truncate(extracted.content)}`;
     sections: Array.isArray(parsed.sections) ? parsed.sections : [],
     tags: Array.isArray(parsed.tags) ? parsed.tags : [],
   };
+}
+
+export async function suggestTags(
+  transcript: string,
+  approvedTags: string[] = [],
+  rejectedTags: string[] = [],
+): Promise<string[]> {
+  const tagGuidance = [
+    approvedTags.length
+      ? `Preferred existing tags (reuse these when they fit): ${approvedTags.join(', ')}`
+      : '',
+    rejectedTags.length
+      ? `Never use these tags (rejected): ${rejectedTags.join(', ')}`
+      : '',
+  ].filter(Boolean).join('\n');
+
+  const prompt = `Given the following content, suggest 3-6 topic tags ordered from most general to most specific.
+Reuse preferred tags wherever they apply. Only create new tags when none fit.
+${tagGuidance}
+
+Respond with ONLY a JSON array of strings, e.g.: ["tag1", "tag2", "tag3"]
+
+Content:
+${truncate(transcript)}`;
+
+  const text = await ollamaChat(prompt);
+
+  const arrayMatch = text.match(/\[[\s\S]*?\]/);
+  if (!arrayMatch) return [];
+  try {
+    const parsed = JSON.parse(arrayMatch[0]) as unknown[];
+    return parsed.filter((t): t is string => typeof t === 'string');
+  } catch {
+    return [];
+  }
 }

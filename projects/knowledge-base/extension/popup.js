@@ -1,6 +1,8 @@
 const SERVER = 'http://127.0.0.1:3737';
 
 let currentUrl = '';
+// tag status cache: tag name -> 'pending' | 'approved' | 'rejected'
+let tagStatusMap = {};
 
 async function checkServer() {
   try {
@@ -16,6 +18,8 @@ function formatDate(iso) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+// ── Items list ─────────────────────────────────────────────────────────────────
+
 async function loadRecentItems() {
   const list = document.getElementById('items-list');
   try {
@@ -26,19 +30,23 @@ async function loadRecentItems() {
       list.innerHTML = '<div class="empty-state">No items saved yet.</div>';
       return;
     }
-    const recent = items.slice(-5).reverse();
+    const recent = items.slice(0, 5);
     list.innerHTML = recent
-      .map(
-        (item) => `
+      .map((item) => {
+        const isRead = !!item.readAt;
+        const dot = isRead ? '<span class="read-dot" title="Read"></span>' : '';
+        const titleClass = isRead ? 'item-title is-read' : 'item-title';
+        return `
         <div class="item">
+          ${dot}
           <div class="item-body">
-            <a class="item-title" href="${escapeAttr(item.url)}" title="${escapeAttr(item.title)}">${escapeHtml(item.title)}</a>
+            <a class="${titleClass}" href="${escapeAttr(item.url)}" title="${escapeAttr(item.title)}">${escapeHtml(item.title)}</a>
             <div class="item-date">${formatDate(item.dateAdded)}</div>
           </div>
           <button class="visit-btn" data-url="${escapeAttr(item.url)}" title="Open original">↗</button>
           <button class="read-btn" data-id="${escapeAttr(item.id)}">Read</button>
-        </div>`
-      )
+        </div>`;
+      })
       .join('');
 
     list.querySelectorAll('.item-title').forEach((a) => {
@@ -60,16 +68,105 @@ async function loadRecentItems() {
   }
 }
 
+// ── Tag review section ─────────────────────────────────────────────────────────
+
+async function loadPendingTags() {
+  try {
+    const res = await fetch(`${SERVER}/tags`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    // Rebuild tag status cache for the modal
+    tagStatusMap = {};
+    for (const t of data.approved) tagStatusMap[t] = 'approved';
+    for (const t of data.rejected) tagStatusMap[t] = 'rejected';
+    for (const p of data.pending) tagStatusMap[p.tag] = 'pending';
+
+    const section = document.getElementById('tags-section');
+    const list = document.getElementById('tags-list');
+
+    if (!data.pending.length) {
+      section.style.display = 'none';
+      return;
+    }
+
+    section.style.display = '';
+    list.innerHTML = data.pending.map((p) => `
+      <div class="tag-row" data-tag="${escapeAttr(p.tag)}" data-item-id="${escapeAttr(p.itemId)}">
+        <span class="tag-name">${escapeHtml(p.tag)}</span>
+        <span class="tag-item-title">${escapeHtml(p.itemTitle || '—')}</span>
+        <button class="tag-approve-btn" title="Approve">✓</button>
+        <button class="tag-reject-btn" title="Reject">✗</button>
+      </div>`).join('');
+
+    list.querySelectorAll('.tag-approve-btn').forEach((btn) => {
+      const row = btn.closest('.tag-row');
+      btn.addEventListener('click', async () => {
+        const tag = row.dataset.tag;
+        await fetch(`${SERVER}/tags/approve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tag }),
+        });
+        row.remove();
+        tagStatusMap[tag] = 'approved';
+        if (!list.children.length) section.style.display = 'none';
+      });
+    });
+
+    list.querySelectorAll('.tag-reject-btn').forEach((btn) => {
+      const row = btn.closest('.tag-row');
+      btn.addEventListener('click', async () => {
+        const tag = row.dataset.tag;
+        const itemId = row.dataset.itemId;
+        btn.textContent = '...';
+        btn.disabled = true;
+        await fetch(`${SERVER}/tags/reject`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tag, itemId }),
+        });
+        row.remove();
+        tagStatusMap[tag] = 'rejected';
+        if (!list.children.length) section.style.display = 'none';
+        // Reload after a moment — retag may produce new pending tags
+        setTimeout(() => loadPendingTags(), 3000);
+      });
+    });
+  } catch {
+    // non-fatal
+  }
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+
 async function openModal(id) {
   const overlay = document.getElementById('modal-overlay');
   const titleEl = document.getElementById('modal-title');
   const bodyEl = document.getElementById('modal-body');
 
-  // Show with loading state
   titleEl.textContent = 'Loading...';
   bodyEl.innerHTML = '';
   overlay.classList.add('visible');
   overlay.scrollTop = 0;
+
+  // Mark as read — fire and forget, update UI optimistically
+  fetch(`${SERVER}/items/${encodeURIComponent(id)}/read`, { method: 'POST' })
+    .then(() => {
+      const readBtn = document.querySelector(`.read-btn[data-id="${CSS.escape(id)}"]`);
+      if (readBtn) {
+        const itemEl = readBtn.closest('.item');
+        const titleLink = itemEl?.querySelector('.item-title');
+        if (titleLink) titleLink.classList.add('is-read');
+        if (itemEl && !itemEl.querySelector('.read-dot')) {
+          const dot = document.createElement('span');
+          dot.className = 'read-dot';
+          dot.title = 'Read';
+          itemEl.insertBefore(dot, itemEl.firstChild);
+        }
+      }
+    })
+    .catch(() => {});
 
   try {
     const res = await fetch(`${SERVER}/items/${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(5000) });
@@ -78,43 +175,97 @@ async function openModal(id) {
 
     titleEl.textContent = item.title ?? id;
 
+    let html = '';
+
     // Summary
-    let html = `<p class="modal-summary">${escapeHtml(item.summary ?? '')}</p>`;
+    if (item.summary) {
+      html += `<p class="modal-summary">${escapeHtml(item.summary)}</p>`;
+    }
 
     // Sections
     if (Array.isArray(item.sections) && item.sections.length) {
-      html += item.sections
-        .map((s) => {
-          const points = Array.isArray(s.points) ? s.points : [];
-          return `<h3 class="modal-section-title">${escapeHtml(s.title)}</h3>
-            <ul class="modal-points">${points.map((p) => `<li>${escapeHtml(p)}</li>`).join('')}</ul>`;
-        })
-        .join('');
+      html += item.sections.map((s) => {
+        const points = Array.isArray(s.points) ? s.points : [];
+        return `<h3 class="modal-section-title">${escapeHtml(s.title)}</h3>
+          <ul class="modal-points">${points.map((p) => `<li>${escapeHtml(p)}</li>`).join('')}</ul>`;
+      }).join('');
     }
 
-    // Tags
+    // Tags with status colours + inline approve/reject for pending ones
     if (Array.isArray(item.tags) && item.tags.length) {
-      html += `<div class="modal-tags">${item.tags.map((t) => `<span class="modal-tag">${escapeHtml(t)}</span>`).join('')}</div>`;
-    }
-
-    // Full transcript collapsible
-    if (item.content) {
-      html += `<details class="modal-transcript">
-        <summary>Full transcript</summary>
-        <pre>${escapeHtml(item.content)}</pre>
-      </details>`;
+      const visibleTags = item.tags.filter((t) => (tagStatusMap[t] ?? 'pending') !== 'rejected');
+      if (visibleTags.length) {
+        html += '<div class="modal-tags">';
+        for (const tag of visibleTags) {
+          const st = tagStatusMap[tag] ?? 'pending';
+          if (st === 'approved') {
+            html += `<span class="modal-tag approved">${escapeHtml(tag)}</span>`;
+          } else {
+            html += `<span class="modal-tag pending" data-tag="${escapeAttr(tag)}" data-item-id="${escapeAttr(item.id)}">` +
+              `${escapeHtml(tag)} ` +
+              `<button class="modal-tag-approve" title="Approve">✓</button>` +
+              `<button class="modal-tag-reject" title="Reject">✗</button>` +
+              `</span>`;
+          }
+        }
+        html += '</div>';
+      }
     }
 
     // Open original link
-    html += `<a class="modal-open-link" id="modal-open-link" href="#">Open original &rarr;</a>`;
+    if (item.url) {
+      html += `<a class="modal-open-link" data-url="${escapeAttr(item.url)}" href="#">Open original &rarr;</a>`;
+    }
+
+    // Full transcript (collapsible)
+    if (item.transcript) {
+      html += `<details class="modal-transcript">
+        <summary>Full transcript</summary>
+        <pre>${escapeHtml(item.transcript)}</pre>
+      </details>`;
+    }
 
     bodyEl.innerHTML = html;
 
-    const openLink = document.getElementById('modal-open-link');
-    openLink.addEventListener('click', (e) => {
-      e.preventDefault();
-      chrome.tabs.create({ url: item.url });
+    // Wire open-original
+    const openLink = bodyEl.querySelector('.modal-open-link');
+    if (openLink) {
+      openLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        chrome.tabs.create({ url: openLink.dataset.url });
+      });
+    }
+
+    // Wire inline tag approve/reject buttons
+    bodyEl.querySelectorAll('.modal-tag.pending').forEach((badge) => {
+      const tag = badge.dataset.tag;
+      const itemId = badge.dataset.itemId;
+
+      badge.querySelector('.modal-tag-approve')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await fetch(`${SERVER}/tags/approve`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tag }),
+        });
+        badge.classList.replace('pending', 'approved');
+        badge.querySelector('.modal-tag-approve')?.remove();
+        badge.querySelector('.modal-tag-reject')?.remove();
+        tagStatusMap[tag] = 'approved';
+        loadPendingTags();
+      });
+
+      badge.querySelector('.modal-tag-reject')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await fetch(`${SERVER}/tags/reject`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tag, itemId }),
+        });
+        badge.remove();
+        tagStatusMap[tag] = 'rejected';
+        loadPendingTags();
+      });
     });
+
   } catch (err) {
     bodyEl.innerHTML = `<p class="modal-summary" style="color:#ff6060">Error loading item: ${escapeHtml(err.message)}</p>`;
   }
@@ -142,6 +293,8 @@ function escapeAttr(str) {
   return String(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// ── Init ──────────────────────────────────────────────────────────────────────
+
 async function init() {
   document.getElementById('modal-close').addEventListener('click', closeModal);
 
@@ -163,7 +316,7 @@ async function init() {
     return;
   }
 
-  await loadRecentItems();
+  await Promise.all([loadRecentItems(), loadPendingTags()]);
 
   document.getElementById('save-btn').addEventListener('click', async () => {
     if (!currentUrl) { setStatus('No URL to save.', 'error'); return; }
@@ -184,7 +337,6 @@ async function init() {
         throw new Error(body.error ?? `HTTP ${res.status}`);
       }
 
-      // Fire-and-forget — don't poll, return immediately
       setStatus('Queued — processing in background', 'success');
     } catch (err) {
       setStatus(`Error: ${err.message}`, 'error');
