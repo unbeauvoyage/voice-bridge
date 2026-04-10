@@ -3,7 +3,7 @@ import { extractYoutube } from './extract/youtube.ts';
 import { extractWeb } from './extract/web.ts';
 import { summarize, suggestTags } from './summarize.ts';
 import {
-  getItem, getItemByUrl, insertItem, itemExistsByUrl, listItems, updateItem, markRead,
+  getItem, getItemByUrl, insertItem, itemExistsByUrl, listItems, searchItems, updateItem, markRead,
   getApprovedTags, getRejectedTags, getPendingTagsWithItems, upsertTag, approveTag, rejectTag,
 } from './db.ts';
 
@@ -28,7 +28,7 @@ async function processItem(id: string, url: string): Promise<void> {
     const extracted = type === 'youtube' ? await extractYoutube(url) : await extractWeb(url);
     const approved = getApprovedTags();
     const rejected = getRejectedTags();
-    const { summary, sections, tags } = await summarize(extracted, approved, rejected);
+    const { tldr, summary, sections, tags } = await summarize(extracted, approved, rejected);
 
     // Register new tags as pending (won't downgrade already-approved ones)
     for (const tag of tags) upsertTag(tag, 'pending');
@@ -38,6 +38,7 @@ async function processItem(id: string, url: string): Promise<void> {
       author: extracted.author,
       type,
       transcript: extracted.content,
+      tldr,
       summary,
       sections,
       tags,
@@ -128,6 +129,13 @@ Bun.serve({
 
     if (req.method === 'GET' && url.pathname === '/items') {
       return json(listItems());
+    }
+
+    if (req.method === 'GET' && url.pathname === '/search') {
+      const q = url.searchParams.get('q') ?? '';
+      const tag = url.searchParams.get('tag') ?? '';
+      if (!q && !tag) return json([]);
+      return json(searchItems(q, tag));
     }
 
     // POST /items/:id/read — must come before GET /items/:id

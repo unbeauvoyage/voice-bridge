@@ -1,6 +1,7 @@
 import type { ExtractedContent, KnowledgeSection } from './types.ts';
 
 interface SummarizeResult {
+  tldr: string[];
   summary: string;
   sections: KnowledgeSection[];
   tags: string[];
@@ -51,6 +52,11 @@ export async function summarize(
 
   const prompt = `You are a knowledge extraction assistant. Analyze the following content thoroughly and respond with ONLY valid JSON in this exact format:
 {
+  "tldr": [
+    "One-liner that captures the core message of the whole piece",
+    "Second key takeaway the author wants you to leave with",
+    "Third essential point"
+  ],
   "summary": "2-3 sentence overview of the entire content",
   "sections": [
     {
@@ -62,6 +68,7 @@ export async function summarize(
 }
 
 Rules:
+- tldr: 3-5 bullet points, each a single punchy sentence. Capture what the author is fundamentally trying to say — not just facts, but the point. Reading the tldr alone should give a complete understanding of the content. Write from the author's perspective: "The author argues...", "The key insight is...", etc.
 - Cover EVERY significant point in the content — do not skip anything
 - Organize points into logical sections with descriptive titles
 - Each point should be a complete, informative sentence
@@ -77,17 +84,18 @@ ${truncate(extracted.content)}`;
 
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
-    return { summary: text.slice(0, 200), sections: [], tags: [] };
+    return { tldr: [], summary: text.slice(0, 200), sections: [], tags: [] };
   }
 
   let parsed: SummarizeResult;
   try {
     parsed = JSON.parse(jsonMatch[0]) as SummarizeResult;
   } catch {
-    return { summary: text.slice(0, 200), sections: [], tags: [] };
+    return { tldr: [], summary: text.slice(0, 200), sections: [], tags: [] };
   }
 
   return {
+    tldr: Array.isArray(parsed.tldr) ? parsed.tldr : [],
     summary: parsed.summary ?? '',
     sections: Array.isArray(parsed.sections) ? parsed.sections : [],
     tags: Array.isArray(parsed.tags) ? parsed.tags : [],

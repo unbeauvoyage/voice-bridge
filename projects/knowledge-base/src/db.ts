@@ -21,11 +21,13 @@ db.run(`CREATE TABLE IF NOT EXISTS items (
   tags        TEXT,
   error       TEXT,
   date_added  TEXT NOT NULL,
-  read_at     TEXT
+  read_at     TEXT,
+  tldr        TEXT
 )`);
 
-// Add read_at to existing DBs that predate this column
+// Add columns to existing DBs that predate them
 try { db.run(`ALTER TABLE items ADD COLUMN read_at TEXT`); } catch { /* already exists */ }
+try { db.run(`ALTER TABLE items ADD COLUMN tldr TEXT`); } catch { /* already exists */ }
 
 db.run(`CREATE TABLE IF NOT EXISTS tags (
   name        TEXT PRIMARY KEY,
@@ -49,6 +51,7 @@ interface DBRow {
   error: string | null;
   date_added: string;
   read_at: string | null;
+  tldr: string | null;
 }
 
 function rowToItem(row: DBRow): KnowledgeItem {
@@ -56,6 +59,8 @@ function rowToItem(row: DBRow): KnowledgeItem {
   try { sections = row.sections ? JSON.parse(row.sections) : []; } catch { sections = []; }
   let tags: string[] = [];
   try { tags = row.tags ? JSON.parse(row.tags) : []; } catch { tags = []; }
+  let tldr: string[] = [];
+  try { tldr = row.tldr ? JSON.parse(row.tldr) : []; } catch { tldr = []; }
   return {
     id: row.id,
     url: row.url,
@@ -64,6 +69,7 @@ function rowToItem(row: DBRow): KnowledgeItem {
     author: row.author ?? undefined,
     dateAdded: row.date_added,
     tags,
+    tldr,
     summary: row.summary ?? '',
     sections,
     transcript: row.transcript ?? '',
@@ -92,6 +98,7 @@ export function updateItem(id: string, fields: Partial<Omit<KnowledgeItem, 'id'>
     error: 'error',
     type: 'type',
     readAt: 'read_at',
+    tldr: 'tldr',
   };
   const setClauses: string[] = [];
   const values: unknown[] = [];
@@ -123,7 +130,7 @@ export function getItemByUrl(url: string): KnowledgeItem | null {
 
 export function listItems(): KnowledgeItem[] {
   const rows = db.query<DBRow, []>(
-    `SELECT id, url, type, title, author, status, NULL as transcript, summary, sections, tags, error, date_added, read_at
+    `SELECT id, url, type, title, author, status, NULL as transcript, summary, sections, tags, error, date_added, read_at, tldr
      FROM items WHERE status = 'done' ORDER BY date_added DESC`
   ).all();
   return rows.map(rowToItem);
@@ -132,6 +139,29 @@ export function listItems(): KnowledgeItem[] {
 export function itemExistsByUrl(url: string): boolean {
   const row = db.query<{ id: string }, [string]>('SELECT id FROM items WHERE url = ?').get(url);
   return row !== null;
+}
+
+export function searchItems(q: string, tag: string): KnowledgeItem[] {
+  const conditions: string[] = [`status = 'done'`];
+  const values: unknown[] = [];
+
+  if (q) {
+    const like = `%${q}%`;
+    conditions.push(`(title LIKE ? OR summary LIKE ? OR transcript LIKE ? OR sections LIKE ?)`);
+    values.push(like, like, like, like);
+  }
+
+  if (tag) {
+    // tags is a JSON array — match exact tag name as a JSON string value
+    conditions.push(`tags LIKE ?`);
+    values.push(`%"${tag}"%`);
+  }
+
+  const rows = db.query<DBRow, unknown[]>(
+    `SELECT id, url, type, title, author, status, NULL as transcript, summary, sections, tags, error, date_added, read_at, tldr
+     FROM items WHERE ${conditions.join(' AND ')} ORDER BY date_added DESC`
+  ).all(...values);
+  return rows.map(rowToItem);
 }
 
 // ── Tag functions ─────────────────────────────────────────────────────────────

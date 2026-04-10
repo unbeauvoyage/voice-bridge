@@ -229,6 +229,13 @@ async function openModal(id) {
 
     let html = '';
 
+    // TL;DR
+    if (Array.isArray(item.tldr) && item.tldr.length) {
+      html += '<div class="modal-tldr">' +
+        item.tldr.map((line) => `<div class="modal-tldr-line">${escapeHtml(line)}</div>`).join('') +
+        '</div>';
+    }
+
     // Summary
     if (item.summary) {
       html += `<p class="modal-summary">${escapeHtml(item.summary)}</p>`;

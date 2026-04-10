@@ -11,6 +11,7 @@ export interface KnowledgeItem {
   author?: string;
   dateAdded: string;
   tags: string[];
+  tldr: string[];
   summary: string;
   sections: KnowledgeSection[];
   transcript: string;

@@ -442,6 +442,34 @@
       flex: 1;
     }
 
+    .modal-tldr {
+      margin-bottom: 14px;
+      padding: 10px 12px;
+      background: #0e1830;
+      border-left: 3px solid #3b5fc0;
+      border-radius: 0 5px 5px 0;
+    }
+
+    .modal-tldr-line {
+      font-size: 13px;
+      color: #93c5fd;
+      line-height: 1.55;
+      padding-left: 14px;
+      position: relative;
+      margin-bottom: 5px;
+    }
+
+    .modal-tldr-line:last-child {
+      margin-bottom: 0;
+    }
+
+    .modal-tldr-line::before {
+      content: "•";
+      position: absolute;
+      left: 0;
+      color: #3b82f6;
+    }
+
     .modal-summary {
       font-size: 12px;
       color: #a0b4d0;
