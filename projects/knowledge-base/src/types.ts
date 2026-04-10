@@ -13,7 +13,9 @@ export interface KnowledgeItem {
   tags: string[];
   summary: string;
   sections: KnowledgeSection[];
-  content: string;
+  transcript: string;
+  status: 'queued' | 'processing' | 'done' | 'error';
+  error?: string;
 }
 
 export interface ExtractedContent {

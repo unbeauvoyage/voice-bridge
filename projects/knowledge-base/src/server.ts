@@ -2,51 +2,7 @@ import { watch } from 'node:fs';
 import { extractYoutube } from './extract/youtube.ts';
 import { extractWeb } from './extract/web.ts';
 import { summarize } from './summarize.ts';
-import { saveItem, loadIndex, loadItem, itemExists } from './storage.ts';
-import type { KnowledgeItem } from './types.ts';
-
-type JobStatus = 'queued' | 'processing' | 'done' | 'error';
-
-interface Job {
-  id: string;
-  url: string;
-  status: JobStatus;
-  title?: string;
-  summary?: string;
-  error?: string;
-}
-
-const jobs = new Map<string, Job>();
-
-function queueUrl(url: string): Job {
-  const id = `job-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const job: Job = { id, url, status: 'queued' };
-  jobs.set(id, job);
-  processJob(job).catch(() => {});
-  return job;
-}
-
-const URLS_FILE = 'urls.txt';
-
-async function processUrlsFile(): Promise<void> {
-  const file = Bun.file(URLS_FILE);
-  if (!(await file.exists())) return;
-  const text = await file.text();
-  const urls = text.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
-  for (const url of urls) {
-    if (!(await itemExists(url))) {
-      console.log(`[watcher] New URL detected: ${url}`);
-      queueUrl(url);
-    }
-  }
-}
-
-// Run once on startup, then watch for changes
-processUrlsFile();
-watch(URLS_FILE, { persistent: false }, () => {
-  console.log('[watcher] urls.txt changed — checking for new URLs...');
-  processUrlsFile();
-});
+import { getItem, getItemByUrl, insertItem, itemExistsByUrl, listItems, updateItem } from './db.ts';
 
 function isYouTubeUrl(url: string): boolean {
   return /youtube\.com|youtu\.be/.test(url);
@@ -62,45 +18,63 @@ function slugify(title: string): string {
     .slice(0, 80);
 }
 
-async function processJob(job: Job): Promise<void> {
-  job.status = 'processing';
+async function processItem(id: string, url: string): Promise<void> {
+  updateItem(id, { status: 'processing' });
   try {
-    if (await itemExists(job.url)) {
-      const index = await loadIndex();
-      const existing = index.find((i) => i.url === job.url);
-      job.status = 'done';
-      job.title = existing?.title ?? 'Already saved';
-      job.summary = existing?.summary ?? '';
-      return;
-    }
-
-    const type: 'youtube' | 'web' = isYouTubeUrl(job.url) ? 'youtube' : 'web';
-    const extracted = type === 'youtube' ? await extractYoutube(job.url) : await extractWeb(job.url);
+    const type: 'youtube' | 'web' = isYouTubeUrl(url) ? 'youtube' : 'web';
+    const extracted = type === 'youtube' ? await extractYoutube(url) : await extractWeb(url);
     const { summary, sections, tags } = await summarize(extracted);
 
-    const id = slugify(extracted.title) || `item-${Date.now()}`;
-    const item: KnowledgeItem = {
-      id,
-      url: job.url,
-      type,
+    updateItem(id, {
       title: extracted.title,
       author: extracted.author,
-      dateAdded: new Date().toISOString(),
-      tags,
+      type,
+      transcript: extracted.content,
       summary,
       sections,
-      content: extracted.content,
-    };
-
-    await saveItem(item);
-    job.status = 'done';
-    job.title = extracted.title;
-    job.summary = summary;
+      tags,
+      status: 'done',
+    });
   } catch (err) {
-    job.status = 'error';
-    job.error = err instanceof Error ? err.message : String(err);
+    updateItem(id, {
+      status: 'error',
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
+
+function enqueue(url: string): { id: string; status: string } {
+  const existing = getItemByUrl(url);
+  if (existing) {
+    return { id: existing.id, status: existing.status };
+  }
+  const id = `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  insertItem({ id, url, type: isYouTubeUrl(url) ? 'youtube' : 'web', dateAdded: new Date().toISOString() });
+  processItem(id, url).catch(() => {});
+  return { id, status: 'queued' };
+}
+
+// urls.txt watcher — queue any new URLs on file change
+const URLS_FILE = 'urls.txt';
+
+async function processUrlsFile(): Promise<void> {
+  const file = Bun.file(URLS_FILE);
+  if (!(await file.exists())) return;
+  const text = await file.text();
+  const urls = text.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+  for (const url of urls) {
+    if (!itemExistsByUrl(url)) {
+      console.log(`[watcher] Queuing: ${url}`);
+      enqueue(url);
+    }
+  }
+}
+
+processUrlsFile();
+watch(URLS_FILE, { persistent: false }, () => {
+  console.log('[watcher] urls.txt changed — checking for new URLs...');
+  processUrlsFile();
+});
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -130,32 +104,23 @@ Bun.serve({
     }
 
     if (req.method === 'GET' && url.pathname === '/items') {
-      const index = await loadIndex();
-      return json(index);
+      return json(listItems());
     }
 
     if (req.method === 'GET' && url.pathname.startsWith('/items/')) {
       const id = url.pathname.slice('/items/'.length);
       if (id) {
-        const index = await loadIndex();
-        const item = index.find((i) => i.id === id);
+        const item = getItem(id);
         if (!item) return json({ error: 'Item not found' }, 404);
-        // Load full transcript from markdown file — extract ## Content section
-        const raw = await loadItem(id);
-        let content = '';
-        if (raw) {
-          const contentMatch = raw.match(/^##\s+Content\s*\n([\s\S]*)$/m);
-          content = contentMatch ? contentMatch[1].trim() : '';
-        }
-        return json({ ...item, content });
+        return json(item);
       }
     }
 
     if (req.method === 'GET' && url.pathname.startsWith('/status/')) {
       const id = url.pathname.slice('/status/'.length);
-      const job = jobs.get(id);
-      if (!job) return json({ error: 'Job not found' }, 404);
-      return json(job);
+      const item = getItem(id);
+      if (!item) return json({ error: 'Item not found' }, 404);
+      return json({ id: item.id, status: item.status, title: item.title, summary: item.summary, error: item.error });
     }
 
     if (req.method === 'POST' && url.pathname === '/process') {
@@ -165,13 +130,11 @@ Bun.serve({
       } catch {
         return json({ error: 'Invalid JSON body' }, 400);
       }
-
       if (!body.url || typeof body.url !== 'string') {
         return json({ error: 'Missing url field' }, 400);
       }
-
-      const job = queueUrl(body.url);
-      return json({ id: job.id, status: 'queued' });
+      const result = enqueue(body.url);
+      return json(result);
     }
 
     return json({ error: 'Not found' }, 404);
