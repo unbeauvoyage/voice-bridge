@@ -214,7 +214,7 @@ async function runSearch(q) {
   }
 }
 
-// ── Tag review section ─────────────────────────────────────────────────────────
+// ── Tag pending banner ────────────────────────────────────────────────────────
 
 async function loadPendingTags() {
   try {
@@ -228,57 +228,17 @@ async function loadPendingTags() {
     for (const t of data.rejected) tagStatusMap[t] = 'rejected';
     for (const p of data.pending) tagStatusMap[p.tag] = 'pending';
 
-    const section = document.getElementById('tags-section');
-    const list = document.getElementById('tags-list');
+    const bar = document.getElementById('tags-pending-bar');
+    const countEl = document.getElementById('tags-pending-count');
+    const count = data.pending.length;
 
-    if (!data.pending.length) {
-      section.style.display = 'none';
+    if (!count) {
+      bar.classList.add('hidden');
       return;
     }
 
-    section.style.display = '';
-    list.innerHTML = data.pending.map((p) => `
-      <div class="tag-row" data-tag="${escapeAttr(p.tag)}" data-item-id="${escapeAttr(p.itemId)}">
-        <span class="tag-name">${escapeHtml(p.tag)}</span>
-        <span class="tag-item-title">${escapeHtml(p.itemTitle || '\u2014')}</span>
-        <button class="tag-approve-btn" title="Approve">\u2713</button>
-        <button class="tag-reject-btn" title="Reject">\u2717</button>
-      </div>`).join('');
-
-    list.querySelectorAll('.tag-approve-btn').forEach((btn) => {
-      const row = btn.closest('.tag-row');
-      btn.addEventListener('click', async () => {
-        const tag = row.dataset.tag;
-        await fetch(`${SERVER}/tags/approve`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tag }),
-        });
-        row.remove();
-        tagStatusMap[tag] = 'approved';
-        if (!list.children.length) section.style.display = 'none';
-      });
-    });
-
-    list.querySelectorAll('.tag-reject-btn').forEach((btn) => {
-      const row = btn.closest('.tag-row');
-      btn.addEventListener('click', async () => {
-        const tag = row.dataset.tag;
-        const itemId = row.dataset.itemId;
-        btn.textContent = '...';
-        btn.disabled = true;
-        await fetch(`${SERVER}/tags/reject`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tag, itemId }),
-        });
-        row.remove();
-        tagStatusMap[tag] = 'rejected';
-        if (!list.children.length) section.style.display = 'none';
-        // Reload after a moment — retag may produce new pending tags
-        setTimeout(() => loadPendingTags(), 3000);
-      });
-    });
+    bar.classList.remove('hidden');
+    countEl.textContent = `${count} tag${count !== 1 ? 's' : ''} pending review`;
   } catch {
     // non-fatal
   }
@@ -473,6 +433,11 @@ async function init() {
 
   // Refresh button
   document.getElementById('items-refresh-btn').addEventListener('click', loadAllItems);
+
+  // Tags pending bar — "Review →" opens web app
+  document.getElementById('tags-pending-review-btn').addEventListener('click', () => {
+    chrome.tabs.create({ url: 'http://127.0.0.1:3737/' });
+  });
 
   // Date filter buttons
   document.querySelectorAll('.date-filter-btn').forEach((btn) => {

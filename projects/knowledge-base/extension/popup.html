@@ -255,6 +255,46 @@
       border-color: #2a4a80;
     }
 
+    /* Compact pending tags banner */
+    .tags-pending-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 16px;
+      background: #1a1808;
+      border-bottom: 1px solid #3a3010;
+      font-size: 11px;
+      color: #a09040;
+    }
+
+    .tags-pending-bar.hidden {
+      display: none;
+    }
+
+    .tags-pending-icon {
+      flex-shrink: 0;
+    }
+
+    #tags-pending-count {
+      flex: 1;
+    }
+
+    .tags-pending-review-btn {
+      background: none;
+      border: 1px solid #4a4010;
+      border-radius: 3px;
+      color: #d0a030;
+      font-size: 10px;
+      padding: 2px 7px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .tags-pending-review-btn:hover {
+      background: #2a2008;
+      color: #e0c050;
+    }
+
     /* Item tag chips (shown in list rows) */
     .item-tags {
       display: flex;
@@ -735,6 +775,12 @@
     <div id="status"></div>
   </div>
 
+  <div class="tags-pending-bar hidden" id="tags-pending-bar">
+    <span class="tags-pending-icon">⚑</span>
+    <span id="tags-pending-count"></span>
+    <button class="tags-pending-review-btn" id="tags-pending-review-btn">Review &#x2192;</button>
+  </div>
+
   <div class="search-section">
     <div class="search-wrap">
       <span class="search-icon">⌕</span>
@@ -764,11 +810,6 @@
       <button class="items-refresh-btn" id="items-refresh-btn" title="Refresh">&#x21BB;</button>
     </div>
     <div id="items-list"><div class="empty-state">Loading...</div></div>
-  </div>
-
-  <div class="tags-section" id="tags-section" style="display:none">
-    <h2>Tags to review</h2>
-    <div id="tags-list"></div>
   </div>
 
   <div id="modal-overlay">

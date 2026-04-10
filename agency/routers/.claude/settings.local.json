@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:kakaku.com)",
+      "WebFetch(domain:www.michaelinasia.com)",
+      "WebFetch(domain:galaco.me)",
+      "WebFetch(domain:sakidori.co)",
+      "WebFetch(domain:www.amazon.co.jp)",
+      "WebFetch(domain:24wireless.info)",
+      "WebFetch(domain:volx.jp)",
+      "WebFetch(domain:store.asus.com)",
+      "mcp__plugin_relay-channel_relay-channel__hub_reply"
+    ]
+  }
+}

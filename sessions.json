@@ -1,0 +1,38 @@
+{
+  "command": {
+    "uuid": "f54b472b-25d0-4e29-a7fd-a400ce91b754",
+    "hub_agent_name": "command",
+    "permission_mode": "bypassPermissions",
+    "resume": false,
+    "cwd": "/Users/riseof/environment",
+    "note": "Primary meta-manager — cannot self-restart, needs external restart"
+  },
+  "consul": {
+    "uuid": "a87a7ce9-987e-45da-a392-fc3cebbd1962",
+    "hub_agent_name": "consul",
+    "permission_mode": "bypassPermissions",
+    "resume": true,
+    "cwd": "/Users/riseof/environment"
+  },
+  "productivitesse": {
+    "uuid": "5ff9b28e-d6d4-4529-90d3-d3df8bee30d3",
+    "hub_agent_name": "productivitesse",
+    "permission_mode": "acceptEdits",
+    "resume": true,
+    "cwd": "/Users/riseof/environment/productivitesse"
+  },
+  "agency-routers": {
+    "uuid": "7c0b6d82-3d7f-429c-b638-7232dcb4e26b",
+    "hub_agent_name": "agency-routers",
+    "permission_mode": "default",
+    "resume": true,
+    "cwd": "/Users/riseof/environment/agency/routers"
+  },
+  "agency-biz": {
+    "uuid": "90eea091-8af8-41b3-bd90-4d0bc06a7f64",
+    "hub_agent_name": "agency-biz",
+    "permission_mode": "default",
+    "resume": true,
+    "cwd": "/Users/riseof/environment/agency/business-opportunities"
+  }
+}

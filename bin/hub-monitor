@@ -1,0 +1,138 @@
+#!/bin/bash
+# hub-monitor — periodic pane scanner for all interactive sessions
+# Detects: permission prompts, agent questions, errors, stuck states
+# Auto-approves safe prompts, alerts COMMAND for risky ones
+#
+# Usage: hub-monitor [--interval 30]
+# Run in background: nohup hub-monitor > /tmp/hub-monitor.log 2>&1 &
+
+INTERVAL="${1:-30}"
+HUB_URL="${HUB_URL:-http://localhost:8765}"
+ALERT_FILE="/tmp/hub-monitor-alerted.txt"
+
+# Track what we've already alerted on (avoid spam)
+touch "$ALERT_FILE"
+
+hub_alert() {
+  local from="$1" body="$2"
+  curl -s -X POST "$HUB_URL/send" \
+    -H "Content-Type: application/json" \
+    -d "$(python3 -c "import json; print(json.dumps({'from': '$from', 'to': 'command', 'type': 'waiting-for-input', 'body': '$body'}))")" \
+    > /dev/null 2>&1
+}
+
+auto_approve() {
+  local ws="$1"
+  cmux send --workspace "$ws" "2" > /dev/null 2>&1
+  cmux send-key --workspace "$ws" Enter > /dev/null 2>&1
+}
+
+already_alerted() {
+  local key="$1"
+  grep -qF "$key" "$ALERT_FILE" 2>/dev/null
+}
+
+mark_alerted() {
+  local key="$1"
+  echo "$key" >> "$ALERT_FILE"
+}
+
+# Clear alert history every hour (allow re-alerts)
+clear_old_alerts() {
+  local age
+  age=$(find "$ALERT_FILE" -mmin +60 2>/dev/null | head -1)
+  if [ -n "$age" ]; then
+    > "$ALERT_FILE"
+  fi
+}
+
+scan_workspace() {
+  local ws="$1"
+  local pane
+  pane=$(cmux capture-pane --workspace "$ws" --lines 15 2>/dev/null)
+
+  if [ -z "$pane" ]; then
+    return
+  fi
+
+  # Infer agent name from workspace content or name
+  local ws_name
+  ws_name=$(cmux list-workspaces 2>/dev/null | grep "$ws" | sed 's/^[* ]*//' | sed "s/$ws//" | xargs)
+  local agent_name="${ws_name:-$ws}"
+
+  # Detect numbered permission prompt (1. Yes, 2. Yes don't ask, 3. No)
+  if echo "$pane" | grep -qE '^\s*(❯\s*)?[1-3]\.\s*(Yes|No|Allow)'; then
+    local alert_key="${ws}-permission"
+
+    # Check if it's a safe prompt we can auto-approve
+    # Safe: Read, WebSearch, WebFetch, Glob, Grep, MCP tools
+    if echo "$pane" | grep -qE '(Read|WebSearch|WebFetch|Glob|Grep|mcp__)'; then
+      if ! already_alerted "${alert_key}-auto"; then
+        echo "[$(date '+%H:%M:%S')] Auto-approving safe prompt in $ws ($agent_name)"
+        auto_approve "$ws"
+        mark_alerted "${alert_key}-auto"
+      fi
+    # Safe: Edit/Write within the agent's own project
+    elif echo "$pane" | grep -qE '(Edit|Write).*environment/(agency|projects|productivity)'; then
+      if ! already_alerted "${alert_key}-auto"; then
+        echo "[$(date '+%H:%M:%S')] Auto-approving Edit/Write in own project: $ws ($agent_name)"
+        auto_approve "$ws"
+        mark_alerted "${alert_key}-auto"
+      fi
+    else
+      # Risky prompt — alert COMMAND
+      if ! already_alerted "$alert_key"; then
+        local detail
+        detail=$(echo "$pane" | grep -E '(Bash|Edit|Write|Tool)' | head -1 | tr "'" " " | cut -c1-150)
+        echo "[$(date '+%H:%M:%S')] ALERT: Risky permission prompt in $ws ($agent_name): $detail"
+        hub_alert "monitor" "Permission prompt in $agent_name ($ws): $detail"
+        mark_alerted "$alert_key"
+      fi
+    fi
+  fi
+
+  # Detect agent asking a question (? at end of a line, or "What would you" / "Should I" patterns)
+  if echo "$pane" | grep -qE '(What would you|Should I|Do you want|Which .* prefer|Please choose|please confirm)'; then
+    # Only alert if agent is idle (has prompt visible)
+    if echo "$pane" | grep -qE '❯'; then
+      local alert_key="${ws}-question"
+      if ! already_alerted "$alert_key"; then
+        local question
+        question=$(echo "$pane" | grep -E '(What would you|Should I|Do you want|Which .* prefer|Please choose|please confirm)' | tail -1 | tr "'" " " | cut -c1-150)
+        echo "[$(date '+%H:%M:%S')] ALERT: Agent question in $ws ($agent_name): $question"
+        hub_alert "monitor" "Agent $agent_name is asking: $question"
+        mark_alerted "$alert_key"
+      fi
+    fi
+  fi
+
+  # Detect errors
+  if echo "$pane" | grep -qiE '(Error:|FATAL|panic|Traceback|ECONNREFUSED)'; then
+    local alert_key="${ws}-error"
+    if ! already_alerted "$alert_key"; then
+      local error_line
+      error_line=$(echo "$pane" | grep -iE '(Error:|FATAL|panic|Traceback|ECONNREFUSED)' | tail -1 | tr "'" " " | cut -c1-150)
+      echo "[$(date '+%H:%M:%S')] ALERT: Error in $ws ($agent_name): $error_line"
+      hub_alert "monitor" "Error in $agent_name ($ws): $error_line"
+      mark_alerted "$alert_key"
+    fi
+  fi
+}
+
+echo "[hub-monitor] Starting pane scanner (interval: ${INTERVAL}s)"
+echo "[hub-monitor] Hub: $HUB_URL"
+echo "[hub-monitor] PID: $$"
+
+while true; do
+  clear_old_alerts
+
+  # Get all workspaces
+  workspaces=$(cmux list-workspaces 2>/dev/null | grep -oE 'workspace:[0-9]+' | grep -v "workspace:25")
+  # Skip workspace:25 (COMMAND itself)
+
+  for ws in $workspaces; do
+    scan_workspace "$ws"
+  done
+
+  sleep "$INTERVAL"
+done

@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# restart-session <session-name>
+# Kills the existing Claude session process and relaunches it in a fresh workspace.
+# Reads session config from ~/environment/sessions.json.
+# Managers (bypassPermissions) can call this directly; they don't need user approval.
+
+set -euo pipefail
+
+SESSION="${1:-}"
+if [[ -z "$SESSION" ]]; then
+  echo "Usage: restart-session <session-name>"
+  echo "Known sessions: $(python3 -c "import json; d=json.load(open('$HOME/environment/sessions.json')); print(' '.join(d.keys()))")"
+  exit 1
+fi
+
+CONFIG="$HOME/environment/sessions.json"
+if ! python3 -c "import json; json.load(open('$CONFIG'))['$SESSION']" 2>/dev/null; then
+  echo "Unknown session: $SESSION"
+  echo "Known sessions: $(python3 -c "import json; d=json.load(open('$CONFIG')); print(' '.join(d.keys()))")"
+  exit 1
+fi
+
+UUID=$(python3 -c "import json; print(json.load(open('$CONFIG'))['$SESSION']['uuid'])")
+HUB_AGENT=$(python3 -c "import json; print(json.load(open('$CONFIG'))['$SESSION']['hub_agent_name'])")
+PERM_MODE=$(python3 -c "import json; print(json.load(open('$CONFIG'))['$SESSION']['permission_mode'])")
+RESUME=$(python3 -c "import json; print(json.load(open('$CONFIG'))['$SESSION']['resume'])")
+CWD=$(python3 -c "import json; print(json.load(open('$CONFIG'))['$SESSION']['cwd'])")
+
+echo "[restart-session] Restarting: $SESSION (UUID: $UUID)"
+
+# Kill existing claude process for this session
+OLD_PID=$(pgrep -f "$UUID" 2>/dev/null | head -1 || true)
+if [[ -n "$OLD_PID" ]]; then
+  echo "[restart-session] Killing old process PID $OLD_PID..."
+  kill "$OLD_PID" 2>/dev/null || true
+  sleep 1
+fi
+
+# Build launch command
+if [[ "$RESUME" == "True" ]]; then
+  RESUME_FLAG="--resume $UUID"
+else
+  RESUME_FLAG="--session-id $UUID"
+fi
+
+LAUNCH_CMD="HUB_AGENT_NAME=$HUB_AGENT HUB_SESSION_ID=$UUID claude --dangerously-load-development-channels plugin:hub-channel@hub-plugins $RESUME_FLAG --permission-mode $PERM_MODE --remote-control"
+
+echo "[restart-session] Launch command: $LAUNCH_CMD"
+
+# Create new workspace
+WS=$(cmux new-workspace --cwd "$CWD" --command "$LAUNCH_CMD" 2>/dev/null | sed 's/OK //')
+if [[ -z "$WS" ]]; then
+  echo "[restart-session] ERROR: failed to create workspace"
+  exit 1
+fi
+
+cmux rename-workspace --workspace "$WS" "$SESSION" 2>/dev/null || true
+
+# Approve the initial "local development" channel prompt
+sleep 1
+cmux send --workspace "$WS" "1" && cmux send-key --workspace "$WS" Enter
+
+echo "[restart-session] Done — $SESSION restarted in $WS"

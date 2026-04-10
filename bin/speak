@@ -1,0 +1,15 @@
+#!/bin/bash
+# speak — natural TTS using edge-tts (Microsoft neural voices)
+# Usage: speak "text to say"
+# Voice: en-US-JennyNeural (American female)
+
+TEXT="$1"
+if [ -z "$TEXT" ]; then
+  echo "Usage: speak \"text to say\"" >&2
+  exit 1
+fi
+
+OUTFILE="/tmp/tts-$(date +%s).mp3"
+touch /tmp/wake-word-pause
+/Users/riseof/environment/.venv-tts/bin/edge-tts --voice en-US-JennyNeural --text "$TEXT" --write-media "$OUTFILE" 2>/dev/null && afplay "$OUTFILE" && rm -f "$OUTFILE"
+rm -f /tmp/wake-word-pause

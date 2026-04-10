@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Logs
+*.log
+logs/
+
+# Runtime data
+queues/
+tmp/
+*.pid
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+
+# Claude Code local state
+.claude/settings.local.json
+
+# Research cache
+.research/
+
+# Attachments (binary/media)
+attachments/
+
+# Scheduled scripts (generated)
+scheduled_*.sh

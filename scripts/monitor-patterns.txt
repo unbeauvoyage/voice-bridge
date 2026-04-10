@@ -1,0 +1,18 @@
+# Dynamic pattern file — read by monitor-agents.sh (Tier 1) and written by monitor-llm.sh (Tier 2)
+# Each line is a grep-compatible string matched against the full pane content
+# New patterns are auto-added by the LLM when it approves an unknown dialog
+# Audit new entries in pattern-discoveries.log
+
+hub_reply
+relay_reply
+relay_send
+codex exec
+codex:rescue
+bun install
+bun run
+npm install
+npm run
+npx
+playwright
+WebFetch
+WebSearch

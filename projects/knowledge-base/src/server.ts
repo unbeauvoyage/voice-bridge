@@ -6,6 +6,7 @@ import {
   getItem, getItemByUrl, insertItem, itemExistsByUrl, listItems, searchItems, updateItem, markRead,
   getApprovedTags, getRejectedTags, getPendingTagsWithItems, upsertTag, approveTag, rejectTag,
 } from './db.ts';
+import webIndex from '../web/index.html';
 
 function isYouTubeUrl(url: string): boolean {
   return /youtube\.com|youtu\.be/.test(url);
@@ -128,6 +129,9 @@ async function parseBody<T>(req: Request): Promise<T | null> {
 Bun.serve({
   hostname: '127.0.0.1',
   port: 3737,
+  routes: {
+    '/': webIndex,
+  },
   async fetch(req) {
     const url = new URL(req.url);
 

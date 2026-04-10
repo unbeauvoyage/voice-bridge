@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__plugin_hub-channel_hub-channel__hub_reply",
+      "mcp__plugin_relay-channel_relay-channel__hub_reply",
+      "Skill(codex:rescue)"
+    ]
+  }
+}

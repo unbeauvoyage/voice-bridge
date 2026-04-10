@@ -1,0 +1,1 @@
+- [Coin Laundry Business Research State](project_coin_laundry.md) — Settled numbers, open data gaps, franchise status, best entry path for Kansai coin laundry

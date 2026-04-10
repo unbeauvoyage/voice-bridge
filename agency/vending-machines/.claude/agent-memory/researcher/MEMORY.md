@@ -1,0 +1,2 @@
+- [Vending Machine Market Research — Kansai](project_vending_market_research.md) — foundational yen figures for revenue, costs, gashapon, legal, operator splits (researched 2026-04-09)
+- [TYPE C Opportunities — Route Sales & Distressed Deals](project_type_c_research.md) — used machine prices, gashapon sourcing, location brokers, Nara/Kyoto mapping (researched 2026-04-09)

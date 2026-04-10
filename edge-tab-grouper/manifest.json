@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Tab Grouper",
+  "version": "1.0",
+  "description": "Auto-group tabs by topic",
+  "permissions": ["tabs", "tabGroups"],
+  "action": {
+    "default_title": "Group Tabs"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

@@ -1,4 +1,21 @@
-# Team Management Rules (All Projects)
+# Common Rules for All Projects
+
+## RELATION TO CLAUDE.MD HIERARCHY
+
+**This is the COMMON MODULE referenced by all project CLAUDE.md files (environment, productivitesse, voice-bridge, agencies, etc.).**
+
+**Hierarchy:**
+- **~/environment/CLAUDE.md** — Environment-scoped rules (meta-manager behavior, session management, agent types for environment only)
+- **~/.claude/CLAUDE-common-to-all-projects.md** (THIS FILE) — Rules shared by all projects: team management, agent spawning, communication, task coordination
+- **Project CLAUDE.md files** (e.g., productivitesse/CLAUDE.md) — Project-specific extensions that reference both parent files
+
+**Update relationship:**
+- When team management practices change → update THIS file
+- All projects inherit these rules automatically
+- Project CLAUDE.md files reference this file with `See .claude/CLAUDE-common-to-all-projects.md`
+- Projects should NOT duplicate these rules — reference them instead
+
+---
 
 This file defines how teams work across all projects. Every project CLAUDE.md references this.
 
@@ -107,3 +124,4 @@ Agent(
 **Key difference:**
 - `Agent` without `team_name` = one-shot, fire-and-forget, no follow-ups
 - `Agent` with `team_name` = persistent, can receive messages, can be managed like a teammate
+

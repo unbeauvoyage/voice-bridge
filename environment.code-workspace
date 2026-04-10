@@ -1,0 +1,17 @@
+{
+  "folders": [
+    {
+      "name": "environment",
+      "path": "/Users/riseof/environment"
+    },
+    {
+      "name": ".claude (agents & config)",
+      "path": "/Users/riseof/.claude"
+    }
+  ],
+  "settings": {
+    "editor.recentlyOpenedMax": 200,
+    "workbench.quickOpen.includeHistory": true,
+    "explorer.autoReveal": true
+  }
+}

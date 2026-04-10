@@ -1,0 +1,29 @@
+#!/bin/bash
+# hub-send — send a message to another agent via the message hub
+# Usage: hub-send <target> "<message>" [--type message|done|escalate|waiting-for-input|status]
+#
+# Agent name is inferred from the current working directory (basename).
+# Override with: HUB_FROM=myname hub-send <target> "<message>"
+
+TO="$1"
+BODY="$2"
+TYPE_ARG="${3:---type message}"
+TYPE_VAL=$(echo "$TYPE_ARG" | sed 's/--type //')
+
+if [ -z "$TO" ] || [ -z "$BODY" ]; then
+  echo "Usage: hub-send <target> \"<message>\" [--type message|done|escalate|waiting-for-input|status]" >&2
+  exit 1
+fi
+
+# Infer sender from cwd basename, stripping trailing slash
+if [ -n "$HUB_FROM" ]; then
+  SELF="$HUB_FROM"
+else
+  SELF=$(basename "$(pwd)" | sed 's/\/$//')
+fi
+
+RESULT=$(curl -s -X POST http://localhost:8765/send \
+  -H "Content-Type: application/json" \
+  -d "{\"from\":\"$SELF\",\"to\":\"$TO\",\"type\":\"$TYPE_VAL\",\"body\":\"$BODY\"}")
+
+echo "$RESULT"
