@@ -1,5 +1,5 @@
 import { watch } from 'node:fs';
-import { extractYoutube } from './extract/youtube.ts';
+import { extractYoutube, type YoutubeExtractedContent } from './extract/youtube.ts';
 import { extractWeb } from './extract/web.ts';
 import { summarize, suggestTags } from './summarize.ts';
 import {
@@ -26,6 +26,18 @@ async function processItem(id: string, url: string): Promise<void> {
   try {
     const type: 'youtube' | 'web' = isYouTubeUrl(url) ? 'youtube' : 'web';
     const extracted = type === 'youtube' ? await extractYoutube(url) : await extractWeb(url);
+
+    // YouTube: if transcript couldn't be fetched, save as error immediately
+    if ('extractionError' in extracted && extracted.extractionError) {
+      updateItem(id, {
+        title: extracted.title,
+        type,
+        status: 'error',
+        error: (extracted as YoutubeExtractedContent).extractionError,
+      });
+      return;
+    }
+
     const approved = getApprovedTags();
     const rejected = getRejectedTags();
     const { tldr, summary, sections, tags } = await summarize(extracted, approved, rejected);

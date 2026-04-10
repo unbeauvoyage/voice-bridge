@@ -17,19 +17,27 @@ function truncate(text: string): string {
 
 async function ollamaChat(prompt: string): Promise<string> {
   const model = process.env['OLLAMA_MODEL'] ?? 'llama3.2';
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000);
   let res: Response;
   try {
     res = await fetch(OLLAMA_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, stream: false, messages: [{ role: 'user', content: prompt }] }),
+      signal: controller.signal,
     });
   } catch (err: unknown) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error('Ollama timed out — is it still running?');
+    }
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('ECONNREFUSED') || msg.includes('Connection refused') || msg.includes('connect')) {
       throw new Error('Ollama not running — start with: ollama serve');
     }
     throw err;
+  } finally {
+    clearTimeout(timeout);
   }
   if (!res.ok) throw new Error(`Ollama returned HTTP ${res.status}`);
   const data = await res.json() as { message: { content: string } };

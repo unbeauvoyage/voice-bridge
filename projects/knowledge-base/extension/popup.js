@@ -5,6 +5,11 @@ let currentUrl = '';
 let tagStatusMap = {};
 let searchDebounce = null;
 
+// ── Client-side filter state ───────────────────────────────────────────────────
+let allItems = [];           // full list from GET /items, refreshed on load
+let activeTagFilters = [];   // string[] — AND match
+let activeDays = 0;          // 0 = all, 1 = today, 2/3/4 = last N days
+
 async function checkServer() {
   try {
     const res = await fetch(`${SERVER}/health`, { signal: AbortSignal.timeout(2000) });
@@ -19,6 +24,114 @@ function formatDate(iso) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+// ── Filter logic ──────────────────────────────────────────────────────────────
+
+function applyFilters(items) {
+  let result = items;
+
+  if (activeTagFilters.length) {
+    result = result.filter((item) =>
+      activeTagFilters.every((tag) => (item.tags || []).includes(tag))
+    );
+  }
+
+  if (activeDays > 0) {
+    const now = Date.now();
+    const cutoff = now - activeDays * 24 * 60 * 60 * 1000;
+    result = result.filter((item) => new Date(item.dateAdded).getTime() >= cutoff);
+  }
+
+  return result;
+}
+
+function hasActiveFilters() {
+  return activeTagFilters.length > 0 || activeDays > 0;
+}
+
+function updateFilterBar() {
+  const tagsRow = document.getElementById('filter-tags-row');
+
+  // Remove existing chips (keep label and clear button)
+  tagsRow.querySelectorAll('.filter-tag-chip').forEach((c) => c.remove());
+
+  // Show tags row only when there are active tag filters
+  if (activeTagFilters.length > 0) {
+    tagsRow.classList.remove('hidden');
+  } else {
+    tagsRow.classList.add('hidden');
+  }
+
+  // Insert chips before the clear button
+  const clearBtn = document.getElementById('filter-clear-btn');
+  for (const tag of activeTagFilters) {
+    const chip = document.createElement('span');
+    chip.className = 'filter-tag-chip';
+    chip.innerHTML = `${escapeHtml(tag)}<button class="filter-tag-remove" data-tag="${escapeAttr(tag)}" title="Remove">&times;</button>`;
+    chip.querySelector('.filter-tag-remove').addEventListener('click', () => removeTagFilter(tag));
+    tagsRow.insertBefore(chip, clearBtn);
+  }
+
+  // Update date buttons
+  document.querySelectorAll('.date-filter-btn').forEach((btn) => {
+    btn.classList.toggle('active', Number(btn.dataset.days) === activeDays);
+  });
+}
+
+function addTagFilter(tag) {
+  if (!activeTagFilters.includes(tag)) {
+    activeTagFilters.push(tag);
+  }
+  updateFilterBar();
+  applyAndRender();
+}
+
+function removeTagFilter(tag) {
+  activeTagFilters = activeTagFilters.filter((t) => t !== tag);
+  updateFilterBar();
+  applyAndRender();
+}
+
+function setDayFilter(days) {
+  activeDays = days;
+  updateFilterBar();
+  applyAndRender();
+}
+
+function clearAllFilters() {
+  activeTagFilters = [];
+  activeDays = 0;
+  const searchInput = document.getElementById('search-input');
+  const searchClear = document.getElementById('search-clear');
+  searchInput.value = '';
+  searchClear.classList.remove('visible');
+  clearTimeout(searchDebounce);
+  updateFilterBar();
+  applyAndRender();
+}
+
+function applyAndRender() {
+  const searchInput = document.getElementById('search-input');
+  const q = searchInput.value.trim();
+
+  if (q) {
+    // Text search: hit server, then apply client filters to result
+    runSearch(q);
+    return;
+  }
+
+  const filtered = applyFilters(allItems);
+  const heading = buildHeading();
+  renderItems(filtered, { heading, emptyMsg: 'No items match the current filters.' });
+}
+
+function buildHeading() {
+  if (!hasActiveFilters()) return 'Recent Items';
+  const parts = [];
+  if (activeTagFilters.length) parts.push(activeTagFilters.map((t) => `#${t}`).join(' + '));
+  if (activeDays > 0) parts.push(activeDays === 1 ? 'Today' : `Last ${activeDays}d`);
+  return `Filtered: ${parts.join(', ')}`;
+}
+
 // ── Items list ─────────────────────────────────────────────────────────────────
 
 function renderItems(items, { heading = 'Recent Items', emptyMsg = 'No items saved yet.' } = {}) {
@@ -28,11 +141,11 @@ function renderItems(items, { heading = 'Recent Items', emptyMsg = 'No items sav
     list.innerHTML = `<div class="empty-state">${escapeHtml(emptyMsg)}</div>`;
     return;
   }
-  list.innerHTML = items.slice(0, 20).map((item) => {
+  list.innerHTML = items.slice(0, 50).map((item) => {
     const isRead = !!item.readAt;
     const dot = isRead ? '<span class="read-dot" title="Read"></span>' : '';
     const titleClass = isRead ? 'item-title is-read' : 'item-title';
-    // Approved tag chips (clickable filter)
+    // Approved tag chips (clickable — adds to filter)
     const approvedTags = (item.tags || []).filter((t) => (tagStatusMap[t] ?? 'pending') === 'approved');
     const tagChips = approvedTags.length
       ? `<div class="item-tags">${approvedTags.map((t) =>
@@ -62,62 +175,43 @@ function renderItems(items, { heading = 'Recent Items', emptyMsg = 'No items sav
     btn.addEventListener('click', () => openModal(btn.dataset.id));
   });
   list.querySelectorAll('.item-tag').forEach((chip) => {
-    chip.addEventListener('click', () => filterByTag(chip.dataset.tag));
+    chip.addEventListener('click', () => addTagFilter(chip.dataset.tag));
   });
 }
 
-async function loadRecentItems() {
+async function loadAllItems() {
   const list = document.getElementById('items-list');
   try {
     const res = await fetch(`${SERVER}/items`, { signal: AbortSignal.timeout(3000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const items = await res.json();
-    renderItems(items.slice(0, 5));
+    allItems = await res.json();
+    applyAndRender();
   } catch {
     list.innerHTML = '<div class="empty-state">Could not load items.</div>';
   }
 }
 
-async function runSearch(q, tag) {
+async function runSearch(q) {
   const list = document.getElementById('items-list');
-  if (!q && !tag) { await loadRecentItems(); return; }
-  list.innerHTML = '<div class="empty-state">Searching…</div>';
+  if (!q) { applyAndRender(); return; }
+  list.innerHTML = '<div class="empty-state">Searching\u2026</div>';
   try {
-    const params = new URLSearchParams();
-    if (q) params.set('q', q);
-    if (tag) params.set('tag', tag);
+    const params = new URLSearchParams({ q });
     const res = await fetch(`${SERVER}/search?${params}`, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const items = await res.json();
-    const headingParts = [];
-    if (q) headingParts.push(`"${q}"`);
-    if (tag) headingParts.push(`#${tag}`);
+    let items = await res.json();
+    // Apply client-side tag + date filters on top of server text results
+    items = applyFilters(items);
+    const headingParts = [`"${q}"`];
+    if (activeTagFilters.length) headingParts.push(activeTagFilters.map((t) => `#${t}`).join(' + '));
+    if (activeDays > 0) headingParts.push(activeDays === 1 ? 'Today' : `Last ${activeDays}d`);
     renderItems(items, {
-      heading: `Results for ${headingParts.join(' + ')}`,
+      heading: `Results for ${headingParts.join(' ')}`,
       emptyMsg: 'No results found.',
     });
   } catch {
     list.innerHTML = '<div class="empty-state">Search failed.</div>';
   }
-}
-
-function filterByTag(tag) {
-  const input = document.getElementById('search-input');
-  const clearBtn = document.getElementById('search-clear');
-  input.value = '';
-  clearBtn.classList.add('visible');
-  // Store tag filter in a data attribute on the input
-  input.dataset.tagFilter = tag;
-  runSearch('', tag);
-}
-
-function clearSearch() {
-  const input = document.getElementById('search-input');
-  const clearBtn = document.getElementById('search-clear');
-  input.value = '';
-  delete input.dataset.tagFilter;
-  clearBtn.classList.remove('visible');
-  loadRecentItems();
 }
 
 // ── Tag review section ─────────────────────────────────────────────────────────
@@ -146,9 +240,9 @@ async function loadPendingTags() {
     list.innerHTML = data.pending.map((p) => `
       <div class="tag-row" data-tag="${escapeAttr(p.tag)}" data-item-id="${escapeAttr(p.itemId)}">
         <span class="tag-name">${escapeHtml(p.tag)}</span>
-        <span class="tag-item-title">${escapeHtml(p.itemTitle || '—')}</span>
-        <button class="tag-approve-btn" title="Approve">✓</button>
-        <button class="tag-reject-btn" title="Reject">✗</button>
+        <span class="tag-item-title">${escapeHtml(p.itemTitle || '\u2014')}</span>
+        <button class="tag-approve-btn" title="Approve">\u2713</button>
+        <button class="tag-reject-btn" title="Reject">\u2717</button>
       </div>`).join('');
 
     list.querySelectorAll('.tag-approve-btn').forEach((btn) => {
@@ -262,8 +356,8 @@ async function openModal(id) {
           } else {
             html += `<span class="modal-tag pending" data-tag="${escapeAttr(tag)}" data-item-id="${escapeAttr(item.id)}">` +
               `${escapeHtml(tag)} ` +
-              `<button class="modal-tag-approve" title="Approve">✓</button>` +
-              `<button class="modal-tag-reject" title="Reject">✗</button>` +
+              `<button class="modal-tag-approve" title="Approve">\u2713</button>` +
+              `<button class="modal-tag-reject" title="Reject">\u2717</button>` +
               `</span>`;
           }
         }
@@ -363,15 +457,27 @@ async function init() {
 
   searchInput.addEventListener('input', () => {
     const q = searchInput.value.trim();
-    searchClear.classList.toggle('visible', q.length > 0 || !!searchInput.dataset.tagFilter);
+    searchClear.classList.toggle('visible', q.length > 0);
     clearTimeout(searchDebounce);
-    searchDebounce = setTimeout(() => {
-      delete searchInput.dataset.tagFilter;
-      runSearch(q, '');
-    }, 300);
+    searchDebounce = setTimeout(() => runSearch(q), 300);
   });
 
-  searchClear.addEventListener('click', clearSearch);
+  searchClear.addEventListener('click', () => {
+    searchInput.value = '';
+    searchClear.classList.remove('visible');
+    applyAndRender();
+  });
+
+  // Filter bar — clear button
+  document.getElementById('filter-clear-btn').addEventListener('click', clearAllFilters);
+
+  // Refresh button
+  document.getElementById('items-refresh-btn').addEventListener('click', loadAllItems);
+
+  // Date filter buttons
+  document.querySelectorAll('.date-filter-btn').forEach((btn) => {
+    btn.addEventListener('click', () => setDayFilter(Number(btn.dataset.days)));
+  });
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   currentUrl = tab?.url ?? '';
@@ -391,7 +497,7 @@ async function init() {
     return;
   }
 
-  await Promise.all([loadRecentItems(), loadPendingTags()]);
+  await Promise.all([loadAllItems(), loadPendingTags()]);
 
   document.getElementById('save-btn').addEventListener('click', async () => {
     if (!currentUrl) { setStatus('No URL to save.', 'error'); return; }
@@ -412,7 +518,7 @@ async function init() {
         throw new Error(body.error ?? `HTTP ${res.status}`);
       }
 
-      setStatus('Queued — processing in background', 'success');
+      setStatus('Queued \u2014 processing in background', 'success');
     } catch (err) {
       setStatus(`Error: ${err.message}`, 'error');
     } finally {

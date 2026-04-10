@@ -154,6 +154,107 @@
       color: #a0b0d0;
     }
 
+    /* Filter bar */
+    .filter-bar {
+      padding: 8px 16px;
+      border-bottom: 1px solid #2a2a4a;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .filter-tags-row.hidden {
+      display: none;
+    }
+
+    .filter-tags-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 4px;
+      min-height: 22px;
+    }
+
+    .filter-tag-label {
+      font-size: 10px;
+      color: #40507a;
+      flex-shrink: 0;
+      margin-right: 2px;
+    }
+
+    .filter-tag-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 10px;
+      color: #93c5fd;
+      background: #0e1a30;
+      border: 1px solid #2a4a80;
+      border-radius: 10px;
+      padding: 1px 7px 1px 8px;
+      cursor: default;
+    }
+
+    .filter-tag-remove {
+      background: none;
+      border: none;
+      color: #4a6aaa;
+      font-size: 12px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0;
+      margin-left: 1px;
+    }
+
+    .filter-tag-remove:hover {
+      color: #93c5fd;
+    }
+
+    .filter-clear-btn {
+      margin-left: auto;
+      background: none;
+      border: 1px solid #2a3050;
+      border-radius: 4px;
+      color: #506080;
+      font-size: 10px;
+      padding: 2px 7px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .filter-clear-btn:hover {
+      color: #a0b0d0;
+      border-color: #4a5080;
+    }
+
+    .filter-date-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .date-filter-btn {
+      background: #12122a;
+      border: 1px solid #2a2a4a;
+      border-radius: 4px;
+      color: #506080;
+      font-size: 10px;
+      padding: 2px 8px;
+      cursor: pointer;
+      transition: background 0.1s, color 0.1s, border-color 0.1s;
+    }
+
+    .date-filter-btn:hover {
+      color: #a0b0d0;
+      border-color: #3a4a70;
+    }
+
+    .date-filter-btn.active {
+      background: #1a2a50;
+      color: #93c5fd;
+      border-color: #2a4a80;
+    }
+
     /* Item tag chips (shown in list rows) */
     .item-tags {
       display: flex;
@@ -182,13 +283,33 @@
       padding: 10px 16px 12px;
     }
 
+    .items-heading-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
     .recent-section h2 {
       font-size: 11px;
       font-weight: 600;
       color: #5060a0;
       text-transform: uppercase;
       letter-spacing: 0.06em;
-      margin-bottom: 8px;
+      flex: 1;
+    }
+
+    .items-refresh-btn {
+      background: none;
+      border: none;
+      color: #3a4a6a;
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0 2px;
+    }
+
+    .items-refresh-btn:hover {
+      color: #7080b0;
     }
 
     .item {
@@ -622,8 +743,26 @@
     </div>
   </div>
 
+  <div class="filter-bar" id="filter-bar">
+    <div class="filter-tags-row hidden" id="filter-tags-row">
+      <span class="filter-tag-label">Tags:</span>
+      <!-- active tag chips injected here -->
+      <button class="filter-clear-btn" id="filter-clear-btn">&#x2715; clear</button>
+    </div>
+    <div class="filter-date-row" id="filter-date-row">
+      <button class="date-filter-btn active" data-days="0">All</button>
+      <button class="date-filter-btn" data-days="1">Today</button>
+      <button class="date-filter-btn" data-days="2">2d</button>
+      <button class="date-filter-btn" data-days="3">3d</button>
+      <button class="date-filter-btn" data-days="4">4d</button>
+    </div>
+  </div>
+
   <div class="recent-section">
-    <h2 id="items-heading">Recent Items</h2>
+    <div class="items-heading-row">
+      <h2 id="items-heading">Recent Items</h2>
+      <button class="items-refresh-btn" id="items-refresh-btn" title="Refresh">&#x21BB;</button>
+    </div>
     <div id="items-list"><div class="empty-state">Loading...</div></div>
   </div>
 
