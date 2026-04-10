@@ -1,0 +1,2 @@
+# Add URLs here — one per line — server processes them automatically
+# YouTube and web pages both supported

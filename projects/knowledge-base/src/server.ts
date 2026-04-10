@@ -1,3 +1,4 @@
+import { watch } from 'node:fs';
 import { extractYoutube } from './extract/youtube.ts';
 import { extractWeb } from './extract/web.ts';
 import { summarize } from './summarize.ts';
@@ -16,6 +17,36 @@ interface Job {
 }
 
 const jobs = new Map<string, Job>();
+
+function queueUrl(url: string): Job {
+  const id = `job-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const job: Job = { id, url, status: 'queued' };
+  jobs.set(id, job);
+  processJob(job).catch(() => {});
+  return job;
+}
+
+const URLS_FILE = 'urls.txt';
+
+async function processUrlsFile(): Promise<void> {
+  const file = Bun.file(URLS_FILE);
+  if (!(await file.exists())) return;
+  const text = await file.text();
+  const urls = text.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+  for (const url of urls) {
+    if (!(await itemExists(url))) {
+      console.log(`[watcher] New URL detected: ${url}`);
+      queueUrl(url);
+    }
+  }
+}
+
+// Run once on startup, then watch for changes
+processUrlsFile();
+watch(URLS_FILE, { persistent: false }, () => {
+  console.log('[watcher] urls.txt changed — checking for new URLs...');
+  processUrlsFile();
+});
 
 function isYouTubeUrl(url: string): boolean {
   return /youtube\.com|youtu\.be/.test(url);
@@ -139,14 +170,8 @@ Bun.serve({
         return json({ error: 'Missing url field' }, 400);
       }
 
-      const id = `job-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      const job: Job = { id, url: body.url, status: 'queued' };
-      jobs.set(id, job);
-
-      // Fire and forget — do not await
-      processJob(job).catch(() => {});
-
-      return json({ id, status: 'queued' });
+      const job = queueUrl(body.url);
+      return json({ id: job.id, status: 'queued' });
     }
 
     return json({ error: 'Not found' }, 404);
