@@ -95,29 +95,20 @@ if [ -n "$EXISTING" ]; then
   exit 1
 fi
 
-# Check relay channel registration
-CHANNEL_PORT=$(curl -s --max-time 2 http://localhost:8765/channels 2>/dev/null | python3 -c "
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    port = data.get('channels', {}).get('$NAME')
-    if port:
-        print(port)
-except: pass
-" 2>/dev/null)
-
-if [ -n "$CHANNEL_PORT" ]; then
-  # Check if the registered port is actually alive
-  HEALTH=$(curl -s --max-time 2 "http://127.0.0.1:${CHANNEL_PORT}/health" 2>/dev/null || true)
-  if echo "$HEALTH" | grep -q '"status":"ok"'; then
-    echo "ERROR: Agent '$NAME' already has a live channel on port $CHANNEL_PORT."
-    echo "  Kill the existing session first, or pick a different name."
-    exit 1
-  else
-    echo "WARNING: Stale channel registration for '$NAME' on port $CHANNEL_PORT (dead). Cleaning up..."
-    curl -s -X POST http://localhost:8765/unregister-channel \
-      -H 'Content-Type: application/json' \
-      -d "{\"agent\":\"$NAME\"}" 2>/dev/null || true
+# Check http-plugin port file (new architecture — port file = presence)
+PORT_FILE="$HOME/.claude/relay-channel/${NAME}.port"
+if [ -f "$PORT_FILE" ]; then
+  PLUGIN_PORT=$(python3 -c "import json; d=json.load(open('$PORT_FILE')); print(d.get('port',''))" 2>/dev/null)
+  if [ -n "$PLUGIN_PORT" ]; then
+    HEALTH=$(curl -s --max-time 2 "http://127.0.0.1:${PLUGIN_PORT}/health" 2>/dev/null || true)
+    if echo "$HEALTH" | grep -q "alive"; then
+      echo "ERROR: Agent '$NAME' already has a live HTTP plugin on port $PLUGIN_PORT."
+      echo "  Kill the existing session first, or pick a different name."
+      exit 1
+    else
+      echo "WARNING: Stale port file for '$NAME' (port $PLUGIN_PORT dead). Removing..."
+      rm -f "$PORT_FILE"
+    fi
   fi
 fi
 
@@ -136,17 +127,9 @@ if [ -n "$EXISTING_CLAUDE_PIDS" ]; then
   sleep 2  # Wait for child processes (bun plugins) to die
 fi
 
-# Kill any orphaned channel plugin processes for this agent name
-ORPHAN_PID_FILE="/tmp/relay-channel-${NAME}.pid"
-if [ -f "$ORPHAN_PID_FILE" ]; then
-  OLD_PID=$(cat "$ORPHAN_PID_FILE" 2>/dev/null)
-  if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
-    echo "WARNING: Killing orphaned channel plugin PID $OLD_PID for '$NAME'"
-    kill "$OLD_PID" 2>/dev/null || true
-    sleep 1
-  fi
-  rm -f "$ORPHAN_PID_FILE"
-fi
+# Clean up any stale port files for this agent (http-plugin architecture)
+# The old /tmp/relay-channel-*.pid files are no longer used; port files are in ~/.claude/relay-channel/
+rm -f "/tmp/relay-channel-${NAME}.pid" 2>/dev/null || true
 
 # Ensure agent definition is accessible from session's CWD
 # Claude Code resolves --agent relative to the session's working directory
