@@ -93,6 +93,91 @@
       background: #2a2a4a;
     }
 
+    /* Search bar */
+    .search-section {
+      padding: 10px 16px;
+      border-bottom: 1px solid #2a2a4a;
+    }
+
+    .search-wrap {
+      display: flex;
+      align-items: center;
+      background: #12122a;
+      border: 1px solid #2a2a4a;
+      border-radius: 6px;
+      padding: 0 10px;
+      gap: 6px;
+    }
+
+    .search-wrap:focus-within {
+      border-color: #4a6fff;
+    }
+
+    .search-icon {
+      color: #506080;
+      font-size: 13px;
+      flex-shrink: 0;
+      user-select: none;
+    }
+
+    #search-input {
+      flex: 1;
+      background: none;
+      border: none;
+      outline: none;
+      color: #c0d0e8;
+      font-size: 12px;
+      padding: 7px 0;
+    }
+
+    #search-input::placeholder {
+      color: #3a4a6a;
+    }
+
+    .search-clear {
+      background: none;
+      border: none;
+      color: #3a4a6a;
+      font-size: 14px;
+      cursor: pointer;
+      padding: 0;
+      line-height: 1;
+      display: none;
+    }
+
+    .search-clear.visible {
+      display: block;
+      color: #506080;
+    }
+
+    .search-clear:hover {
+      color: #a0b0d0;
+    }
+
+    /* Item tag chips (shown in list rows) */
+    .item-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3px;
+      margin-top: 3px;
+    }
+
+    .item-tag {
+      font-size: 9px;
+      color: #506080;
+      background: #14182e;
+      border: 1px solid #252a40;
+      border-radius: 3px;
+      padding: 0 5px;
+      cursor: pointer;
+      transition: color 0.1s, border-color 0.1s;
+    }
+
+    .item-tag:hover {
+      color: #a0b4ff;
+      border-color: #3a4a70;
+    }
+
     .recent-section {
       padding: 10px 16px 12px;
     }
@@ -501,8 +586,16 @@
     <div id="status"></div>
   </div>
 
+  <div class="search-section">
+    <div class="search-wrap">
+      <span class="search-icon">⌕</span>
+      <input id="search-input" type="text" placeholder="Search titles, summaries, transcripts…" autocomplete="off" />
+      <button class="search-clear" id="search-clear" title="Clear">&times;</button>
+    </div>
+  </div>
+
   <div class="recent-section">
-    <h2>Recent Items</h2>
+    <h2 id="items-heading">Recent Items</h2>
     <div id="items-list"><div class="empty-state">Loading...</div></div>
   </div>
 

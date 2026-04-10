@@ -3,6 +3,7 @@ const SERVER = 'http://127.0.0.1:3737';
 let currentUrl = '';
 // tag status cache: tag name -> 'pending' | 'approved' | 'rejected'
 let tagStatusMap = {};
+let searchDebounce = null;
 
 async function checkServer() {
   try {
@@ -20,52 +21,103 @@ function formatDate(iso) {
 
 // ── Items list ─────────────────────────────────────────────────────────────────
 
+function renderItems(items, { heading = 'Recent Items', emptyMsg = 'No items saved yet.' } = {}) {
+  document.getElementById('items-heading').textContent = heading;
+  const list = document.getElementById('items-list');
+  if (!items.length) {
+    list.innerHTML = `<div class="empty-state">${escapeHtml(emptyMsg)}</div>`;
+    return;
+  }
+  list.innerHTML = items.slice(0, 20).map((item) => {
+    const isRead = !!item.readAt;
+    const dot = isRead ? '<span class="read-dot" title="Read"></span>' : '';
+    const titleClass = isRead ? 'item-title is-read' : 'item-title';
+    // Approved tag chips (clickable filter)
+    const approvedTags = (item.tags || []).filter((t) => (tagStatusMap[t] ?? 'pending') === 'approved');
+    const tagChips = approvedTags.length
+      ? `<div class="item-tags">${approvedTags.map((t) =>
+          `<span class="item-tag" data-tag="${escapeAttr(t)}">${escapeHtml(t)}</span>`
+        ).join('')}</div>`
+      : '';
+    return `
+    <div class="item">
+      ${dot}
+      <div class="item-body">
+        <a class="${titleClass}" href="${escapeAttr(item.url)}" title="${escapeAttr(item.title)}">${escapeHtml(item.title)}</a>
+        <div class="item-date">${formatDate(item.dateAdded)}</div>
+        ${tagChips}
+      </div>
+      <button class="visit-btn" data-url="${escapeAttr(item.url)}" title="Open original">↗</button>
+      <button class="read-btn" data-id="${escapeAttr(item.id)}">Read</button>
+    </div>`;
+  }).join('');
+
+  list.querySelectorAll('.item-title').forEach((a) => {
+    a.addEventListener('click', (e) => { e.preventDefault(); chrome.tabs.create({ url: a.href }); });
+  });
+  list.querySelectorAll('.visit-btn').forEach((btn) => {
+    btn.addEventListener('click', () => chrome.tabs.create({ url: btn.dataset.url }));
+  });
+  list.querySelectorAll('.read-btn').forEach((btn) => {
+    btn.addEventListener('click', () => openModal(btn.dataset.id));
+  });
+  list.querySelectorAll('.item-tag').forEach((chip) => {
+    chip.addEventListener('click', () => filterByTag(chip.dataset.tag));
+  });
+}
+
 async function loadRecentItems() {
   const list = document.getElementById('items-list');
   try {
     const res = await fetch(`${SERVER}/items`, { signal: AbortSignal.timeout(3000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const items = await res.json();
-    if (!items.length) {
-      list.innerHTML = '<div class="empty-state">No items saved yet.</div>';
-      return;
-    }
-    const recent = items.slice(0, 5);
-    list.innerHTML = recent
-      .map((item) => {
-        const isRead = !!item.readAt;
-        const dot = isRead ? '<span class="read-dot" title="Read"></span>' : '';
-        const titleClass = isRead ? 'item-title is-read' : 'item-title';
-        return `
-        <div class="item">
-          ${dot}
-          <div class="item-body">
-            <a class="${titleClass}" href="${escapeAttr(item.url)}" title="${escapeAttr(item.title)}">${escapeHtml(item.title)}</a>
-            <div class="item-date">${formatDate(item.dateAdded)}</div>
-          </div>
-          <button class="visit-btn" data-url="${escapeAttr(item.url)}" title="Open original">↗</button>
-          <button class="read-btn" data-id="${escapeAttr(item.id)}">Read</button>
-        </div>`;
-      })
-      .join('');
-
-    list.querySelectorAll('.item-title').forEach((a) => {
-      a.addEventListener('click', (e) => {
-        e.preventDefault();
-        chrome.tabs.create({ url: a.href });
-      });
-    });
-
-    list.querySelectorAll('.visit-btn').forEach((btn) => {
-      btn.addEventListener('click', () => chrome.tabs.create({ url: btn.dataset.url }));
-    });
-
-    list.querySelectorAll('.read-btn').forEach((btn) => {
-      btn.addEventListener('click', () => openModal(btn.dataset.id));
-    });
+    renderItems(items.slice(0, 5));
   } catch {
     list.innerHTML = '<div class="empty-state">Could not load items.</div>';
   }
+}
+
+async function runSearch(q, tag) {
+  const list = document.getElementById('items-list');
+  if (!q && !tag) { await loadRecentItems(); return; }
+  list.innerHTML = '<div class="empty-state">Searching…</div>';
+  try {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (tag) params.set('tag', tag);
+    const res = await fetch(`${SERVER}/search?${params}`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const items = await res.json();
+    const headingParts = [];
+    if (q) headingParts.push(`"${q}"`);
+    if (tag) headingParts.push(`#${tag}`);
+    renderItems(items, {
+      heading: `Results for ${headingParts.join(' + ')}`,
+      emptyMsg: 'No results found.',
+    });
+  } catch {
+    list.innerHTML = '<div class="empty-state">Search failed.</div>';
+  }
+}
+
+function filterByTag(tag) {
+  const input = document.getElementById('search-input');
+  const clearBtn = document.getElementById('search-clear');
+  input.value = '';
+  clearBtn.classList.add('visible');
+  // Store tag filter in a data attribute on the input
+  input.dataset.tagFilter = tag;
+  runSearch('', tag);
+}
+
+function clearSearch() {
+  const input = document.getElementById('search-input');
+  const clearBtn = document.getElementById('search-clear');
+  input.value = '';
+  delete input.dataset.tagFilter;
+  clearBtn.classList.remove('visible');
+  loadRecentItems();
 }
 
 // ── Tag review section ─────────────────────────────────────────────────────────
@@ -297,6 +349,22 @@ function escapeAttr(str) {
 
 async function init() {
   document.getElementById('modal-close').addEventListener('click', closeModal);
+
+  // Search bar
+  const searchInput = document.getElementById('search-input');
+  const searchClear = document.getElementById('search-clear');
+
+  searchInput.addEventListener('input', () => {
+    const q = searchInput.value.trim();
+    searchClear.classList.toggle('visible', q.length > 0 || !!searchInput.dataset.tagFilter);
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => {
+      delete searchInput.dataset.tagFilter;
+      runSearch(q, '');
+    }, 300);
+  });
+
+  searchClear.addEventListener('click', clearSearch);
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   currentUrl = tab?.url ?? '';
