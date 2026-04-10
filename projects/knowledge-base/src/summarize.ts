@@ -1,12 +1,12 @@
-import type { ExtractedContent } from './types.ts';
+import type { ExtractedContent, KnowledgeSection } from './types.ts';
 
 interface SummarizeResult {
   summary: string;
-  keyPoints: string[];
+  sections: KnowledgeSection[];
   tags: string[];
 }
 
-const MAX_CONTENT_CHARS = 6000;
+const MAX_CONTENT_CHARS = 12000;
 const OLLAMA_URL = 'http://127.0.0.1:11434/api/chat';
 
 function truncate(text: string): string {
@@ -17,8 +17,24 @@ function truncate(text: string): string {
 export async function summarize(extracted: ExtractedContent): Promise<SummarizeResult> {
   const model = process.env['OLLAMA_MODEL'] ?? 'llama3.2';
 
-  const prompt = `Summarize the following content. Respond with ONLY valid JSON in this exact format:
-{"summary":"one sentence","keyPoints":["point1","point2","point3"],"tags":["tag1","tag2"]}
+  const prompt = `You are a knowledge extraction assistant. Analyze the following content thoroughly and respond with ONLY valid JSON in this exact format:
+{
+  "summary": "2-3 sentence overview of the entire content",
+  "sections": [
+    {
+      "title": "Section Title",
+      "points": ["detailed point 1", "detailed point 2", "..."]
+    }
+  ],
+  "tags": ["tag1", "tag2", "tag3"]
+}
+
+Rules:
+- Cover EVERY significant point in the content — do not skip anything
+- Organize points into logical sections with descriptive titles
+- Each point should be a complete, informative sentence
+- Aim for 3-8 sections, each with 3-8 points
+- tags should be 3-6 short lowercase keywords
 
 Content:
 ${truncate(extracted.content)}`;
@@ -51,19 +67,19 @@ ${truncate(extracted.content)}`;
 
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
-    return { summary: text.slice(0, 200), keyPoints: [], tags: [] };
+    return { summary: text.slice(0, 200), sections: [], tags: [] };
   }
 
   let parsed: SummarizeResult;
   try {
     parsed = JSON.parse(jsonMatch[0]) as SummarizeResult;
   } catch {
-    return { summary: text.slice(0, 200), keyPoints: [], tags: [] };
+    return { summary: text.slice(0, 200), sections: [], tags: [] };
   }
 
   return {
     summary: parsed.summary ?? '',
-    keyPoints: Array.isArray(parsed.keyPoints) ? parsed.keyPoints : [],
+    sections: Array.isArray(parsed.sections) ? parsed.sections : [],
     tags: Array.isArray(parsed.tags) ? parsed.tags : [],
   };
 }

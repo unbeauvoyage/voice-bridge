@@ -31,47 +31,98 @@ async function loadRecentItems() {
       .map(
         (item) => `
         <div class="item">
-          <a class="item-title" href="${escapeAttr(item.url)}" title="${escapeAttr(item.title)}">${escapeHtml(item.title)}</a>
-          <div class="item-date">${formatDate(item.dateAdded)}</div>
+          <div class="item-body">
+            <a class="item-title" href="${escapeAttr(item.url)}" title="${escapeAttr(item.title)}">${escapeHtml(item.title)}</a>
+            <div class="item-date">${formatDate(item.dateAdded)}</div>
+          </div>
+          <button class="read-btn" data-id="${escapeAttr(item.id)}">Read</button>
         </div>`
       )
       .join('');
 
-    // Open links in a new tab
     list.querySelectorAll('.item-title').forEach((a) => {
       a.addEventListener('click', (e) => {
         e.preventDefault();
         chrome.tabs.create({ url: a.href });
       });
     });
+
+    list.querySelectorAll('.read-btn').forEach((btn) => {
+      btn.addEventListener('click', () => openModal(btn.dataset.id));
+    });
   } catch {
     list.innerHTML = '<div class="empty-state">Could not load items.</div>';
   }
+}
+
+async function openModal(id) {
+  const overlay = document.getElementById('modal-overlay');
+  const titleEl = document.getElementById('modal-title');
+  const bodyEl = document.getElementById('modal-body');
+
+  // Show with loading state
+  titleEl.textContent = 'Loading...';
+  bodyEl.innerHTML = '';
+  overlay.classList.add('visible');
+  overlay.scrollTop = 0;
+
+  try {
+    const res = await fetch(`${SERVER}/items/${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const item = await res.json();
+
+    titleEl.textContent = item.title ?? id;
+
+    // Summary
+    let html = `<p class="modal-summary">${escapeHtml(item.summary ?? '')}</p>`;
+
+    // Sections
+    if (Array.isArray(item.sections) && item.sections.length) {
+      html += item.sections
+        .map((s) => {
+          const points = Array.isArray(s.points) ? s.points : [];
+          return `<h3 class="modal-section-title">${escapeHtml(s.title)}</h3>
+            <ul class="modal-points">${points.map((p) => `<li>${escapeHtml(p)}</li>`).join('')}</ul>`;
+        })
+        .join('');
+    }
+
+    // Tags
+    if (Array.isArray(item.tags) && item.tags.length) {
+      html += `<div class="modal-tags">${item.tags.map((t) => `<span class="modal-tag">${escapeHtml(t)}</span>`).join('')}</div>`;
+    }
+
+    // Full transcript collapsible
+    if (item.content) {
+      html += `<details class="modal-transcript">
+        <summary>Full transcript</summary>
+        <pre>${escapeHtml(item.content)}</pre>
+      </details>`;
+    }
+
+    // Open original link
+    html += `<a class="modal-open-link" id="modal-open-link" href="#">Open original &rarr;</a>`;
+
+    bodyEl.innerHTML = html;
+
+    const openLink = document.getElementById('modal-open-link');
+    openLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      chrome.tabs.create({ url: item.url });
+    });
+  } catch (err) {
+    bodyEl.innerHTML = `<p class="modal-summary" style="color:#ff6060">Error loading item: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('visible');
 }
 
 function setStatus(msg, type = '') {
   const el = document.getElementById('status');
   el.textContent = msg;
   el.className = type;
-}
-
-async function pollStatus(id, pollInterval = 1500) {
-  return new Promise((resolve) => {
-    const timer = setInterval(async () => {
-      try {
-        const res = await fetch(`${SERVER}/status/${id}`, { signal: AbortSignal.timeout(3000) });
-        if (!res.ok) { clearInterval(timer); resolve({ status: 'error', error: `HTTP ${res.status}` }); return; }
-        const job = await res.json();
-        if (job.status === 'done' || job.status === 'error') {
-          clearInterval(timer);
-          resolve(job);
-        }
-      } catch {
-        clearInterval(timer);
-        resolve({ status: 'error', error: 'Lost connection to server' });
-      }
-    }, pollInterval);
-  });
 }
 
 function escapeHtml(str) {
@@ -87,7 +138,8 @@ function escapeAttr(str) {
 }
 
 async function init() {
-  // Get current tab URL
+  document.getElementById('modal-close').addEventListener('click', closeModal);
+
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   currentUrl = tab?.url ?? '';
   const urlEl = document.getElementById('current-url');
@@ -113,7 +165,6 @@ async function init() {
 
     const btn = document.getElementById('save-btn');
     btn.disabled = true;
-    setStatus('Saving...');
 
     try {
       const res = await fetch(`${SERVER}/process`, {
@@ -128,15 +179,8 @@ async function init() {
         throw new Error(body.error ?? `HTTP ${res.status}`);
       }
 
-      const { id } = await res.json();
-      const job = await pollStatus(id);
-
-      if (job.status === 'done') {
-        setStatus(`Saved: ${job.title ?? currentUrl}`, 'success');
-        await loadRecentItems();
-      } else {
-        setStatus(`Error: ${job.error ?? 'Unknown error'}`, 'error');
-      }
+      // Fire-and-forget — don't poll, return immediately
+      setStatus('Queued — processing in background', 'success');
     } catch (err) {
       setStatus(`Error: ${err.message}`, 'error');
     } finally {

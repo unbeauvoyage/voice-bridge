@@ -1,7 +1,7 @@
 import { extractYoutube } from './extract/youtube.ts';
 import { extractWeb } from './extract/web.ts';
 import { summarize } from './summarize.ts';
-import { saveItem, loadIndex, itemExists } from './storage.ts';
+import { saveItem, loadIndex, loadItem, itemExists } from './storage.ts';
 import type { KnowledgeItem } from './types.ts';
 
 type JobStatus = 'queued' | 'processing' | 'done' | 'error';
@@ -45,7 +45,7 @@ async function processJob(job: Job): Promise<void> {
 
     const type: 'youtube' | 'web' = isYouTubeUrl(job.url) ? 'youtube' : 'web';
     const extracted = type === 'youtube' ? await extractYoutube(job.url) : await extractWeb(job.url);
-    const { summary, keyPoints, tags } = await summarize(extracted);
+    const { summary, sections, tags } = await summarize(extracted);
 
     const id = slugify(extracted.title) || `item-${Date.now()}`;
     const item: KnowledgeItem = {
@@ -57,7 +57,7 @@ async function processJob(job: Job): Promise<void> {
       dateAdded: new Date().toISOString(),
       tags,
       summary,
-      keyPoints,
+      sections,
       content: extracted.content,
     };
 
@@ -101,6 +101,23 @@ Bun.serve({
     if (req.method === 'GET' && url.pathname === '/items') {
       const index = await loadIndex();
       return json(index);
+    }
+
+    if (req.method === 'GET' && url.pathname.startsWith('/items/')) {
+      const id = url.pathname.slice('/items/'.length);
+      if (id) {
+        const index = await loadIndex();
+        const item = index.find((i) => i.id === id);
+        if (!item) return json({ error: 'Item not found' }, 404);
+        // Load full transcript from markdown file — extract ## Content section
+        const raw = await loadItem(id);
+        let content = '';
+        if (raw) {
+          const contentMatch = raw.match(/^##\s+Content\s*\n([\s\S]*)$/m);
+          content = contentMatch ? contentMatch[1].trim() : '';
+        }
+        return json({ ...item, content });
+      }
     }
 
     if (req.method === 'GET' && url.pathname.startsWith('/status/')) {
