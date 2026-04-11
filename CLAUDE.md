@@ -242,7 +242,8 @@ The system automatically detects Q&A signals in CEO messages (wonder, curious, q
 
 ## Model Policy
 - **Project managers** (atlas, sentinel) — **Sonnet**. Route, file, track, and handle moderate complexity. Spawn specialists for deep thinking.
-- **Command** — **Sonnet**. Chief of staff — same type as PMs (`project-manager`) but with `--model sonnet` for handling ambiguity and complex breakdowns.
+- **Command** — **Sonnet**. Strategic router and coordinator — same type as PMs (`project-manager`) but with `--model sonnet` for handling ambiguity and complex breakdowns.
+- **Chief of Staff** (`chief-of-staff`) — **Sonnet**. Cross-project coding manager — owns code quality, standards, and architecture across all projects.
 - **All persistent session agents** (domain experts, team leads, engineers) — **Sonnet** by default.
 - **Spawned teammates** — **Sonnet** by default. Managers and team leads may spawn **Opus** only when they judge a task is genuinely hard or has been stuck. Do not default to Opus speculatively.
 - **Escalation pattern:** if a Sonnet agent is struggling mid-task, spawn a second agent named `{original-name}-temporary_senior` (Opus). It assists and disappears when the task unblocks. Never rename the original agent.

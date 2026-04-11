@@ -29,6 +29,10 @@
 - **ai-gamedev next steps** — Phase 1 & 2 research complete (REPORT.md + PIPELINE-REPORT.md). Prototype? Deep dive? Template project?
 - **productivity-helper/rshift** — Activation latency fix still pending
 
+- **productivitesse quality follow-up pass (6 items)** — quality-auditor shipped TESTING-POLICY.md + structured logger + 3 critical silent catch fixes (2d6770c). Remaining: (1) 7 more silent catches in api.ts, VoicePage, VoiceRecordingDrawer, ComposeBar, shared/relay.ts; (2) migrate 43 ad-hoc console.* to structured logger; (3) route 14 components calling raw fetch() through relayGet/relayPost typed wrapper; (4) standardize spec frontmatter in 10 specs to match Rule 13 template; (5) add platform adapter contract tests (every PlatformAPI method verified in every adapter); (6) evaluate queue.ts `completed` flag pattern for runner/queue code. Assign to productivitesse team when ready.
+- **agentName stale for live WS clients** (MINOR) — sessions discovered before port file exists get agentName:null and never refresh. Fix: after 5s port-file refresh, re-check null-name sessions and emit `jsonl_session_name_updated` event. Low priority — new WS connections self-heal.
+- **onAppUrlOpen double-fire** (MINOR) — hashchange + popstate can both fire on same URL change. Deduplicate with popstate-only or 0ms debounce. No correctness bug for current callers.
+
 ## Active
 <!-- CEO approved. COMMAND plans, manages, executes, iterates. -->
 - **UX Audit: Notification Stack** (**Approved 2026-04-04, BLOCKED** — productivitesse in emergency mode) — escalations invisible among updates. Assign to productivitesse after dashboard crisis is resolved. Proposal: ~/environment/proposals/2026-04-04-ux-audit-notification-urgency-differentiation.md

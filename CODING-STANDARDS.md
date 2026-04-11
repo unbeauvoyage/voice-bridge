@@ -1436,4 +1436,111 @@ These caps are not negotiable on a per-project basis. They are negotiable on a p
 
 ---
 
-**End of document.** For questions, consult `researcher` or `agentflow-expert` via relay.
+## Section 13 — Unified Architecture: One Template For All Projects
+
+**CEO directive (2026-04-11):** All projects — current and future — share a single, complete architecture. There is no "small project" exception. Every project starts with the full structure, even when empty. This mirrors the Kotlin Multiplatform approach: the scaffold is always there, you just fill it in.
+
+### 13.1 Why this matters in the AI era
+
+Human developers debate whether a small project "warrants" full architecture. LLM agents don't — they read the structure to orient themselves. An agent starting a new session in a project with inconsistent structure wastes tokens reconstructing context. An agent starting in a project with the canonical structure is productive immediately.
+
+**Uniformity is a force multiplier.** When every project looks the same, every agent knows where everything is without reading docs.
+
+### 13.2 Single source of truth — no rules duplicated per project
+
+**Rules live in one place only:**
+
+| Location | What lives there |
+|---|---|
+| `~/environment/CODING-STANDARDS.md` (this file) | All tooling, file size, complexity, commit, test standards |
+| `~/.claude/modules/code-standards.md` | AI agent behavior standards (folder structure, naming, testing, adapters, browser parity) |
+| `~/.claude/CLAUDE-common-to-all-projects.md` | Agent team management, communication, task tracking |
+
+**Project `CLAUDE.md` files MUST:**
+- Reference the above three files — not copy them
+- Only add project-specific overrides with documented rationale
+- Never duplicate a rule that already exists in the central files
+
+If a rule is worth having, it goes in the central file and all projects inherit it automatically. The era of each project maintaining its own version of the rules is over.
+
+### 13.3 The canonical project structure
+
+Every new project — regardless of size — starts with this full structure:
+
+```
+<project>/
+  package.json
+  tsconfig.json               ← strict: true, no any
+  eslint.config.js            ← ESLint 9 flat config
+  CLAUDE.md                   ← references central standards, project-specific only
+  TESTING-POLICY.md           ← mandatory (see code-standards Rule 7)
+  specs/                      ← feature specs (one .md per feature)
+  tests/                      ← E2E tests (Playwright)
+  src/
+    features/                 ← vertical slice, one folder per feature
+      <feature>/
+        components/
+        hooks/
+        store.ts              ← Zustand slice (feature-scoped)
+        api.ts                ← relay/network calls
+        types.ts
+        __tests__/            ← integration tests co-located
+    platform/                 ← platform adapter layer
+      types.ts                ← PlatformAPI contract (features depend on this only)
+      index.ts                ← detectPlatform() + getPlatformAPI()
+      web-adapter.ts          ← real browser implementations (Rule 9: no stubs)
+      mobile-adapter.ts       ← Capacitor (or future Tauri Mobile)
+      desktop-adapter.ts      ← Electron (or future Tauri)
+    shared/                   ← cross-feature utilities only
+    relay/
+      relay.ts                ← WebSocket connection to lean relay (8767)
+      types.ts                ← relay event types
+```
+
+**For multi-platform apps (Capacitor + Electron):**
+
+```
+  electron/                   ← desktop shell (main process only)
+  ios/                        ← Capacitor iOS (generated, not edited)
+  android/                    ← Capacitor Android (generated, not edited)
+```
+
+### 13.4 Platform adapter: always all three adapters
+
+Even if a project currently only runs in the browser, the three adapter files must exist from day one:
+- `web-adapter.ts` — real browser API implementations
+- `mobile-adapter.ts` — Capacitor stubs (filled when mobile is added)
+- `desktop-adapter.ts` — Electron stubs (filled when desktop is added)
+
+**Why:** When mobile is added later, the coder knows exactly where to implement. No architecture decision needed mid-feature. The contract (`types.ts`) is already defined.
+
+### 13.5 Relay integration: always present
+
+Every project that has a UI connects to the lean relay (port 8767). The `src/relay/` folder is mandatory, not optional. Projects that don't need real-time updates still scaffold it — the connection just stays dormant.
+
+### 13.6 Template repository vs specification
+
+Two options for implementing this:
+
+**Option A — Template repo** (preferred for new UI projects):
+A reference repo (`~/environment/projects/template-app/`) that is always kept up to date with the canonical structure, latest tool versions, and working platform adapters. New projects clone it. When standards evolve, the template is updated and projects migrate at their own pace via a migration checklist.
+
+**Option B — Hard specification** (for non-UI or backend projects):
+The structure above is the spec. No template repo needed. Agents read this section and scaffold accordingly.
+
+Current projects use Option B. A template repo is on the backlog for when we need to bootstrap a third UI project.
+
+### 13.7 Quality auditor role
+
+A dedicated `quality-auditor` agent runs cross-project audits:
+- Reads improvements made in one project (e.g. knowledge-base error message standardization, testing improvements)
+- Identifies which improvements are generalizable
+- Extracts patterns into central standards (this file, code-standards.md)
+- Implements the improvements in all other projects
+- Ensures new projects start compliant
+
+This agent is the connective tissue between projects. Without it, improvements stay local.
+
+---
+
+**End of document.** For questions, consult `researcher` or `chief-of-staff` via relay.
