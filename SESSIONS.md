@@ -28,7 +28,7 @@
 | command | f54b472b-25d0-4e29-a7fd-a400ce91b754 | workspace:60 | **Channel** | Primary meta-manager | Active — bypassPermissions, cwd: ~/environment |
 | consul | a87a7ce9-987e-45da-a392-fc3cebbd1962 | workspace:62 | **Channel** | Secondary meta-manager (CEO session) | Active — bypassPermissions, cwd: ~/environment |
 | productivitesse | 5ff9b28e-d6d4-4529-90d3-d3df8bee30d3 | workspace:productivitesse | **Channel** | Productivitesse (RRv7 + Electron + Capacitor) | Active — acceptEdits, cwd: ~/environment/projects/productivitesse |
-| relay-server | — | — | — | Message relay (pm2-managed, port 8765) | Active — `pm2 status`, `pm2 logs message-relay` |
+| relay-server | — | — | — | Lean relay (pm2-managed, HTTP :8767, HTTPS :8768) | Active — `pm2 status`, `pm2 logs message-relay-lean` |
 | hq | d1d8eace-b3bd-4e49-bf9f-71c7987428e1 | workspace:69 | **Channel** | Meta-manager peer | Active — bypassPermissions, cwd: ~/environment/hq |
 | agency-bicycles | 3e1a569b-117f-4d2e-a893-a289d0ec6df1 | workspace:36 | **Channel** | Bicycle resale research — build profitable customer business model | Active — bypassPermissions, cwd: ~/environment/agency/bicycles |
 | agency-cars | 96edbd5f-f78d-442e-84c7-643c2675463e | workspace:35 | **Channel** | Car dealership research — build profitable customer business model | Active — bypassPermissions, cwd: ~/environment/agency/cars |
@@ -44,7 +44,7 @@
 | ux-expert | — | workspace:8 | **Channel** | Consultant: CEO experience, dashboard UX, information architecture | Active — bypassPermissions, cwd: ~/environment |
 | system-expert | — | — | **Channel** | Consultant: system architecture, CLAUDE.md files, BACKLOG hygiene, relay design, data formats | Active — bypassPermissions, cwd: ~/environment |
 
-| agentflow-expert | — | workspace:126 | **Channel** | Research: AgentFlow deep study — renderer verdict, license, Next.js, Unity analysis, productivitesse opinion incorporated | Active — bypassPermissions, sonnet, cwd: ~/environment |
+| chief-of-staff | d27b5433-2f32-4273-b783-aefee1654f37 | workspace:132 | **Channel** | Chief of Staff — cross-project coding manager. Owns code quality, standards, architecture (TypeScript/linting/vertical slice) across relay, productivitesse, knowledge-base and all future projects. | Active — bypassPermissions, sonnet, cwd: ~/environment |
 | cline-kanban-expert | — | workspace:17 | **Channel** | Research: Cline Kanban deep study — task model, auto-activation, agent comm, gap list, implementation plan | Active — bypassPermissions, sonnet, output: ~/.research/cline-kanban/ |
 
 ## Non-Interactive Sessions (workspaces gone — UUIDs may be resumable)
