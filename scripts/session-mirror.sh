@@ -8,7 +8,7 @@ set -euo pipefail
 # Skip if no relay identity
 [[ -z "${RELAY_AGENT_NAME:-}" ]] && exit 0
 
-RELAY_URL="${RELAY_HTTP_URL:-http://localhost:8765}"
+RELAY_URL="${RELAY_HTTP_URL:-http://localhost:8767}"
 
 # Read hook payload from stdin
 HOOK_INPUT=$(cat)

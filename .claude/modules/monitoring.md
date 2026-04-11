@@ -23,7 +23,7 @@ Start on system boot or after cmux restart. Check if running: `pgrep -fa monitor
 - Claude Code `PostToolUse` / pre-permission hooks fire before any permission prompt
 - Hook POSTs to relay → relay pushes to consul channel instantly → consul approves/denies
 - Zero polling, zero lag, works even when agent is mid-task
-- Endpoint: `POST http://localhost:8765/hook/permission/approve` or `/deny`
+- Endpoint: `POST http://localhost:8767/hook/permission/approve` or `/deny`
 
 **Priority:** Tier 3 is the end goal. Tier 1 is the safety net while Tier 3 is built out.
 **Ownership:** relay-server project owns Tiers 2 and 3 implementation. Meta-managers own Tier 1 deployment.

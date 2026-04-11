@@ -42,7 +42,7 @@ Use the relay when you have something worth reporting. Don't spam — one messag
 python3 -c "
 import urllib.request, json
 payload = json.dumps({'from':'agentflow-expert','to':'command','type':'done','body':'FINDING: ...'}).encode()
-req = urllib.request.Request('http://localhost:8765/send', data=payload, headers={'Content-Type':'application/json'}, method='POST')
+req = urllib.request.Request('http://localhost:8767/send', data=payload, headers={'Content-Type':'application/json'}, method='POST')
 urllib.request.urlopen(req)
 "
 ```

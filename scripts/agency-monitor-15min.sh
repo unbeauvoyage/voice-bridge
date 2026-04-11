@@ -33,7 +33,7 @@ mkdir -p "$(dirname "$LOG_FILE")"
   echo "Session health:"
   
   # Check if agencies are still connected to relay
-  relay_agents=$(curl -s http://localhost:8765/status 2>/dev/null | grep -o '"name":"agency-[^"]*"' | wc -l)
+  relay_agents=$(curl -s http://localhost:8767/status 2>/dev/null | grep -o '"name":"agency-[^"]*"' | wc -l)
   echo "  Agencies connected to relay: $relay_agents/7"
   
   # Check workspace status

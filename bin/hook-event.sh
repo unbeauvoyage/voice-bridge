@@ -4,7 +4,7 @@
 # Reads JSON from stdin (hook payload), POSTs to relay. Fire-and-forget, never blocks Claude.
 
 EVENT_TYPE="${1:-unknown}"
-RELAY="http://localhost:8765"
+RELAY="http://localhost:8767"
 AGENT_NAME="${HUB_AGENT_NAME:-${RELAY_AGENT_NAME:-unknown}}"
 
 INPUT=$(cat)

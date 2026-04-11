@@ -25,7 +25,7 @@ send_nudge() {
   python3 -c "
 import urllib.request, json, sys
 payload = json.dumps({'from':'command','to':'$agent','type':'message','body':'''$msg'''}).encode()
-req = urllib.request.Request('http://localhost:8765/send', data=payload, headers={'Content-Type':'application/json'}, method='POST')
+req = urllib.request.Request('http://localhost:8767/send', data=payload, headers={'Content-Type':'application/json'}, method='POST')
 try:
     urllib.request.urlopen(req, timeout=5)
     print('ok')
@@ -48,7 +48,7 @@ for agent in "${!AGENTS[@]}"; do
   fi
 
   # Worklog is stale — check relay state
-  relay_state=$(curl -s http://localhost:8765/status 2>/dev/null | python3 -c "
+  relay_state=$(curl -s http://localhost:8767/status 2>/dev/null | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
 print(d.get('agents',{}).get('$agent',{}).get('state','unknown'))

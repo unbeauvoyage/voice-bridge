@@ -3,7 +3,7 @@
 # Called by Claude Code UserPromptSubmit hook
 # Stdin: JSON payload like {"prompt": "...", "session_id": "...", ...}
 
-RELAY_URL="http://localhost:8765"
+RELAY_URL="http://localhost:8767"
 
 # Read JSON from stdin
 INPUT=$(cat)

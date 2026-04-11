@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-RELAY_URL="${HUB_URL:-http://localhost:8765}"
+RELAY_URL="${HUB_URL:-http://localhost:8767}"
 AGENT="${RELAY_AGENT_NAME:-${HUB_AGENT_NAME:-unknown}}"
 
 # Read hook payload from stdin (Claude Code passes JSON)

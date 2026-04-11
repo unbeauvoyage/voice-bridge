@@ -34,7 +34,7 @@ Use the relay when you have something worth reporting.
 python3 -c "
 import urllib.request, json
 payload = json.dumps({'from':'chief-of-staff','to':'command','type':'done','body':'...'}).encode()
-req = urllib.request.Request('http://localhost:8765/send', data=payload, headers={'Content-Type':'application/json'}, method='POST')
+req = urllib.request.Request('http://localhost:8767/send', data=payload, headers={'Content-Type':'application/json'}, method='POST')
 urllib.request.urlopen(req)
 "
 ```

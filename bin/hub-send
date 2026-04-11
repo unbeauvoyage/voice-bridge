@@ -22,7 +22,7 @@ else
   SELF=$(basename "$(pwd)" | sed 's/\/$//')
 fi
 
-RESULT=$(curl -s -X POST http://localhost:8765/send \
+RESULT=$(curl -s -X POST http://localhost:8767/send \
   -H "Content-Type: application/json" \
   -d "{\"from\":\"$SELF\",\"to\":\"$TO\",\"type\":\"$TYPE_VAL\",\"body\":\"$BODY\"}")
 

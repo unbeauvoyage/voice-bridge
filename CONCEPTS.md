@@ -229,14 +229,14 @@ Every manager that spawns a sub-agent MUST register it in the relay hierarchy so
 
 **Before spawning:**
 ```bash
-curl -X POST http://localhost:8765/agents/register \
+curl -X POST http://localhost:8767/agents/register \
   -H "Content-Type: application/json" \
   -d '{"name":"[parent]-writer-1","parent":"[your-name]","role":"writer","state":"active"}'
 ```
 
 **After the agent finishes:**
 ```bash
-curl -X POST http://localhost:8765/agents/[parent]-writer-1/state \
+curl -X POST http://localhost:8767/agents/[parent]-writer-1/state \
   -H "Content-Type: application/json" \
   -d '{"state":"done"}'
 ```

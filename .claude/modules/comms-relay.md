@@ -1,6 +1,6 @@
 # Communication Mode: Relay
 
-All inter-agent communication routes through the relay server (port 8765) via Claude Code Channels (MCP push).
+All inter-agent communication routes through the relay server (port 8767) via Claude Code Channels (MCP push).
 
 ## Session Types & Communication
 
@@ -31,7 +31,7 @@ cmux send --workspace "$WS" "1" && cmux send-key --workspace "$WS" Enter
 ```
 
 ## Messaging Architecture
-Relay (port 8765) routes messages via Claude Code Channels (MCP push):
+Relay (port 8767) routes messages via Claude Code Channels (MCP push):
 1. Agent calls `relay_send(to: "name", ...)` or `relay_reply`
 2. Relay checks if target has a registered channel → HTTP POST → MCP notification → instant delivery
 3. No channel: message queued on disk, delivered when agent re-registers
@@ -46,11 +46,11 @@ When an agent needs to send a message or reach another agent, try each level in 
 |-------|--------|-------------|
 | 1 | `relay_send` / `relay_reply` (MCP tool) | Default — relay is up, target has channel |
 | 2 | `relay_send` with `type: "queued"` | Relay is up but target has no channel (relay queues it) |
-| 3 | `POST http://localhost:8765/send` directly | MCP tool unavailable, relay is up |
+| 3 | `POST http://localhost:8767/send` directly | MCP tool unavailable, relay is up |
 | 4 | Tell a manager via channel | Relay is down, but your own channel is alive |
 | 5 | `cmux send` terminal injection | All messaging down — emergency only, log the reason |
 
-**How to detect relay is down:** `curl -s http://localhost:8765/health` returns error or times out.
+**How to detect relay is down:** `curl -s http://localhost:8767/health` returns error or times out.
 **How to detect target has no channel:** `GET /channels` — target name not listed.
 **No channel plugin on your session?** You won't have `relay_reply` tool. Use `relay_send` via MCP or HTTP directly.
 
@@ -74,7 +74,7 @@ Agents **cannot** register their own channel mid-session — the channel plugin 
 4. Once restarted, the heartbeat re-registers within 30s
 
 ### Relay Down Response
-If relay itself is down (`curl -s http://localhost:8765/health` fails):
+If relay itself is down (`curl -s http://localhost:8767/health` fails):
 1. **Any agent that discovers this** must alert managers immediately via cmux fallback
 2. Relay runs under pm2 — it should auto-restart. If it doesn't, managers investigate (`pm2 logs message-relay`)
 3. After relay comes back, all channel heartbeats re-register within 30s — no manual action needed

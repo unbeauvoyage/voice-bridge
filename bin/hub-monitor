@@ -7,7 +7,7 @@
 # Run in background: nohup hub-monitor > /tmp/hub-monitor.log 2>&1 &
 
 INTERVAL="${1:-30}"
-HUB_URL="${HUB_URL:-http://localhost:8765}"
+HUB_URL="${HUB_URL:-http://localhost:8767}"
 ALERT_FILE="/tmp/hub-monitor-alerted.txt"
 
 # Track what we've already alerted on (avoid spam)

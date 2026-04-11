@@ -29,7 +29,7 @@ Where everything lives in the system. One page, always up to date.
 | Channel | Purpose | Tool |
 |---|---|---|
 | Relay messages | Agent ↔ agent, CEO ↔ agent | relay_send / relay_reply |
-| WebSocket (ws://localhost:8765/ws) | Dashboard live updates | Auto-broadcast |
+| WebSocket (ws://localhost:8767/dashboard) | Dashboard live updates | Auto-broadcast |
 | .worklog/ files | Detailed work logs | File write |
 | DONE messages | Completion signals | relay_send |
 

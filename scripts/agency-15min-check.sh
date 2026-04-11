@@ -21,7 +21,7 @@ for agency in "${AGENCIES[@]}"; do
 done
 
 # Check relay connectivity
-RELAY_AGENTS=$(curl -s http://localhost:8765/status 2>/dev/null | grep -o '"name":"agency-' | wc -l)
+RELAY_AGENTS=$(curl -s http://localhost:8767/status 2>/dev/null | grep -o '"name":"agency-' | wc -l)
 
 # Log result with research summary
 echo "[$TIMESTAMP] RESEARCH: $UPDATED/7 teams | $RELAY_AGENTS/7 relay | total $TOTAL_NEW_LINES lines" >> "$LOG_FILE"
@@ -33,7 +33,7 @@ if [ $UPDATED -lt 5 ]; then
   for agency in "${AGENCIES[@]}"; do
     worklog="/Users/riseof/environment/agency/$agency/.worklog/${agency%-*}-lead.md"
     if [ ! -f "$worklog" ] || ! find "$worklog" -newermt "15 minutes ago" 2>/dev/null | grep -q .; then
-      curl -s -X POST "http://localhost:8765/send" \
+      curl -s -X POST "http://localhost:8767/send" \
         -H "Content-Type: application/json" \
         -d "{\"from\":\"command\",\"to\":\"agency-${agency}\",\"type\":\"message\",\"body\":\"Research check: Keep iterating. Identify gaps, pipe Codex research, log findings, find more gaps. Never stop.\"}" \
         > /dev/null 2>&1

@@ -9,10 +9,10 @@
 #   Format B (project permission): "Do you want to proceed?" + "1. Yes"
 
 # Step 1: Approve all pending relay hook requests
-curl -s http://localhost:8765/hook/permission/pending 2>/dev/null | \
+curl -s http://localhost:8767/hook/permission/pending 2>/dev/null | \
   python3 -c "import json,sys;d=json.load(sys.stdin);[print(k) for k in d]" 2>/dev/null | \
   while read id; do
-    curl -s -X POST http://localhost:8765/hook/permission/approve \
+    curl -s -X POST http://localhost:8767/hook/permission/approve \
       -H "Content-Type: application/json" \
       -d "{\"id\":\"$id\"}" > /dev/null 2>&1
   done
@@ -52,7 +52,7 @@ for WS in $WORKSPACES; do
   cmux send-key --workspace "$WS" Enter 2>/dev/null
 
   # Notify command
-  curl -s -X POST http://localhost:8765/send \
+  curl -s -X POST http://localhost:8767/send \
     -H "Content-Type: application/json" \
     -d "{\"from\":\"monitor\",\"to\":\"command\",\"type\":\"info\",\"body\":\"Auto-approved pane prompt in $WS: $(echo "$DESCRIPTION" | cut -c1-120)\"}" 2>/dev/null
   echo "[monitor] Approved in $WS: $DESCRIPTION"

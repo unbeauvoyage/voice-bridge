@@ -173,7 +173,7 @@ except Exception as e:
       fi
 
       SNIPPET=$(echo "$PANE" | tail -10 | tr '\n' ' ')
-      curl -s -X POST http://localhost:8765/send \
+      curl -s -X POST http://localhost:8767/send \
         -H "Content-Type: application/json" \
         -d "{\"from\":\"llm-monitor\",\"to\":\"command\",\"type\":\"alert\",\"body\":\"Pane prompt in $WS — LLM says safe (suggested choice $choice): $reason — $(echo "$SNIPPET" | cut -c1-150)\"}" 2>/dev/null
       ;;
@@ -182,7 +182,7 @@ except Exception as e:
       IFS='|' read -r _ reason <<< "$DECISION"
       echo "[llm-monitor] ESCALATE in $WS: $reason"
       SNIPPET=$(echo "$PANE" | tail -10 | tr '\n' ' ')
-      curl -s -X POST http://localhost:8765/send \
+      curl -s -X POST http://localhost:8767/send \
         -H "Content-Type: application/json" \
         -d "{\"from\":\"llm-monitor\",\"to\":\"command\",\"type\":\"alert\",\"body\":\"ESCALATE $WS: $reason — $(echo "$SNIPPET" | cut -c1-150)\"}" 2>/dev/null
       ;;
