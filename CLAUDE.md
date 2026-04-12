@@ -215,21 +215,28 @@ CEO decides whether to read the worklog. Never summarize research content unprom
 ## Postmortem Rule
 When you fix a production problem (dashboard down, relay broken, CEO blocked), you MUST write a postmortem entry in `~/environment/PROBLEM-LOG.md` before the session ends. Same session, same agent that fixed it. Format is in the file. No exceptions for recurring failures — if it happened before, the entry must include a systemic fix.
 
-## Specs as Shared Memory
+## TDD Workflow (Absolute Rule)
 
-**Problem:** Context compaction loses CEO-to-lead conversations. New sessions start blind, causing behavior regressions.
-**Solution:** Every CEO behavior request gets written to `specs/behaviors/{name}.md` BEFORE implementation. Specs are permanent; context is ephemeral.
+**Tests are the single source of truth. No separate spec files. Tests ARE the spec.**
 
-### Workflow (mandatory for all team leads)
-1. **Spec first** — team lead writes `specs/behaviors/{name}.md` capturing what CEO said, what the behavior IS and IS NOT, before any coder is spawned
-2. **Delegate by spec** — coder prompt says "implement per specs/behaviors/x.md" — not re-explained inline
-3. **Test that guards the spec** — coder writes a test that fails if the behavior regresses; spec + test survive compaction
-4. **Index check** — before writing a new spec, check `specs/behaviors/INDEX.md` to avoid duplicates
+CEO rationale: agents are good at reading tests. Tests are unambiguous. Specs drift; tests fail.
 
-### Hard rules
-- No coder starts without a spec file path in their prompt
-- No feature done without a test that guards the specified behavior
-- Every project maintains `specs/behaviors/INDEX.md` — one-liner per behavior, updated when specs are added
+### How it works
+1. Team lead forwards CEO request in plain English to coder
+2. Coder writes a **failing test first** — the test name is the checkpoint. Coder reports the test name back to team lead before writing any implementation.
+3. Coder implements until the test passes
+4. If changing behavior: **update the test first**, then the code
+5. Tester receives just a filename — runs it, reports pass/fail
+
+### Rules
+- **No `skip()` ever** — tests must genuinely pass against a real running server. A skipped test is a lie.
+- **Wire `webServer` in `playwright.config.ts`** — tests start the server automatically; no manual setup required to run the suite
+- **Name tests by capability/intent**, not by page or implementation detail:
+  - Bad: `jsonl-e2e-http.spec.ts`, `lean-relay.spec.ts`, `inbox-page.spec.ts`
+  - Good: `conversation-history.spec.ts`, `agent-messaging.spec.ts`, `voice-send.spec.ts`
+  - Names must survive UI refactors — if renaming a component breaks the test name, the name was wrong
+- **Playwright for all E2E** — no Vitest for UI-level tests
+- **No `specs/behaviors/` directory** — delete if it exists in any project
 
 ## Output Formats
 All output files (proposals, Q&A, issues, worklogs, knowledge) use **frontmatter + markdown body**.
