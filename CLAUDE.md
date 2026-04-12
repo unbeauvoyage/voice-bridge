@@ -239,6 +239,20 @@ CEO rationale: agents are good at reading tests. Tests are unambiguous. Specs dr
 - **No `specs/behaviors/` directory** — delete if it exists in any project
 - **Run tests after every feature touch** — after implementing or modifying any feature, run the relevant test file and show the real pass/fail count in your report. No exceptions. If you do not include test results, your task is not done — team lead sends it back. Applies to coders, test-writers, and anyone touching source files.
 
+## Database Architecture Standard
+
+**ORM:** Drizzle — all database work uses Drizzle ORM. No raw SQL in application code.
+
+**Default driver:** SQLite via `drizzle-orm/bun-sqlite` — zero install, works on any machine without setup.
+
+**Power driver:** PostgreSQL via `drizzle-orm/node-postgres` — for production deployments that need scale. Same schema, same queries — swapping is a one-line driver change.
+
+**Design rule:** Write schema and queries once. They must work against both SQLite and PostgreSQL without modification. Never use driver-specific SQL features.
+
+**Migration path:** When switching from SQLite to PostgreSQL, run an automated data migration script (not manual). Script reads from SQLite, writes to PostgreSQL. No manual data handling.
+
+**Schema:** Every project with a database has a `src/db/schema.ts` defining all tables with Drizzle. Migrations managed with `drizzle-kit`. No ad-hoc `CREATE TABLE IF NOT EXISTS` in application code.
+
 ## Output Formats
 All output files (proposals, Q&A, issues, worklogs, knowledge) use **frontmatter + markdown body**.
 Frontmatter = machine-readable fields for dashboard cards. Body = prose for humans and LLMs.
