@@ -237,6 +237,7 @@ CEO rationale: agents are good at reading tests. Tests are unambiguous. Specs dr
   - Names must survive UI refactors — if renaming a component breaks the test name, the name was wrong
 - **Playwright for all E2E** — no Vitest for UI-level tests
 - **No `specs/behaviors/` directory** — delete if it exists in any project
+- **Run tests after every feature touch** — after implementing or modifying any feature, run the relevant test file and show the real pass/fail count in your report. No exceptions. If you do not include test results, your task is not done — team lead sends it back. Applies to coders, test-writers, and anyone touching source files.
 
 ## Output Formats
 All output files (proposals, Q&A, issues, worklogs, knowledge) use **frontmatter + markdown body**.
