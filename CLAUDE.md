@@ -132,6 +132,9 @@ Agents MUST read the active modules below on startup. Modules contain detailed i
 ### Code Standards (AI-Optimized)
 **Active:** `.claude/modules/code-standards.md`
 
+### Testing Discipline (ABSOLUTE RULE)
+**Active:** `.claude/modules/testing-discipline.md` — **Never report done to CEO without having run a real test and shown the output.** Every team lead and coder must read this in full. CEO's attention is not a substitute for automation. If a bug CEO catches could have been caught by `curl` or Playwright, the pipeline failed and a postmortem + missing test are mandatory before any other work.
+
 ---
 
 ## Project Manager Rules
@@ -211,6 +214,22 @@ CEO decides whether to read the worklog. Never summarize research content unprom
 
 ## Postmortem Rule
 When you fix a production problem (dashboard down, relay broken, CEO blocked), you MUST write a postmortem entry in `~/environment/PROBLEM-LOG.md` before the session ends. Same session, same agent that fixed it. Format is in the file. No exceptions for recurring failures — if it happened before, the entry must include a systemic fix.
+
+## Specs as Shared Memory
+
+**Problem:** Context compaction loses CEO-to-lead conversations. New sessions start blind, causing behavior regressions.
+**Solution:** Every CEO behavior request gets written to `specs/behaviors/{name}.md` BEFORE implementation. Specs are permanent; context is ephemeral.
+
+### Workflow (mandatory for all team leads)
+1. **Spec first** — team lead writes `specs/behaviors/{name}.md` capturing what CEO said, what the behavior IS and IS NOT, before any coder is spawned
+2. **Delegate by spec** — coder prompt says "implement per specs/behaviors/x.md" — not re-explained inline
+3. **Test that guards the spec** — coder writes a test that fails if the behavior regresses; spec + test survive compaction
+4. **Index check** — before writing a new spec, check `specs/behaviors/INDEX.md` to avoid duplicates
+
+### Hard rules
+- No coder starts without a spec file path in their prompt
+- No feature done without a test that guards the specified behavior
+- Every project maintains `specs/behaviors/INDEX.md` — one-liner per behavior, updated when specs are added
 
 ## Output Formats
 All output files (proposals, Q&A, issues, worklogs, knowledge) use **frontmatter + markdown body**.
