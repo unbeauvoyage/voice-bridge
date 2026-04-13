@@ -9,8 +9,9 @@ OUTPUT=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); r=
 
 # Detect test commands
 if echo "$COMMAND" | grep -qE "playwright|bun test|npx test|vitest|jest|pytest"; then
-  TESTED_FILE="/tmp/tg-tested-${SESSION}"
-  DIRTY_FILE="/tmp/tg-dirty-${SESSION}"
+  CWD_HASH=$(echo "$PWD" | md5sum | cut -c1-8)
+  TESTED_FILE="/tmp/tg-tested-${SESSION}-${CWD_HASH}"
+  DIRTY_FILE="/tmp/tg-dirty-${SESSION}-${CWD_HASH}"
 
   # Check if tests passed
   if echo "$OUTPUT" | grep -qE "passed|✓|PASS|all tests"; then

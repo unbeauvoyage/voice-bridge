@@ -9,7 +9,8 @@ FILE=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); ti=d
 
 # Only track source code files (not docs, not CLAUDE.md, not .md files)
 if [[ "$FILE" =~ \.(ts|tsx|js|jsx|py|swift|go|rs)$ ]]; then
-  DIRTY_FILE="/tmp/tg-dirty-${SESSION}"
+  CWD_HASH=$(echo "$PWD" | md5sum | cut -c1-8)
+  DIRTY_FILE="/tmp/tg-dirty-${SESSION}-${CWD_HASH}"
   echo "$(date +%s) $FILE" >> "$DIRTY_FILE"
 fi
 exit 0

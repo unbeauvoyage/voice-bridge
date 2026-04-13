@@ -5,7 +5,8 @@
 INPUT=$(cat)
 SESSION=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('session_id','unknown'))" 2>/dev/null)
 
-DIRTY_FILE="/tmp/tg-dirty-${SESSION}"
+CWD_HASH=$(echo "$PWD" | md5sum | cut -c1-8)
+DIRTY_FILE="/tmp/tg-dirty-${SESSION}-${CWD_HASH}"
 
 # Only block if there are dirty (edited but untested) code files
 if [ -f "$DIRTY_FILE" ] && [ -s "$DIRTY_FILE" ]; then
