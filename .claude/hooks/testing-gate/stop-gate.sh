@@ -14,4 +14,13 @@ if [ -f "$DIRTY_FILE" ] && [ -s "$DIRTY_FILE" ]; then
   FILES=$(cat "$DIRTY_FILE" | awk '{print $2}' | sort -u | head -5 | tr '\n' ', ' | sed 's/,$//')
   echo '{"decision":"block","reason":"You modified '"$DIRTY_COUNT"' source file(s) ('"$FILES"') but have not run tests since. Run the relevant test suite and show pass/fail output before finishing."}'
 fi
+# Log agent status on every clean stop (not blocked)
+if [ -n "$RELAY_AGENT_NAME" ]; then
+  STATUS_LOG="$HOME/.worklog/heartbeats/${RELAY_AGENT_NAME}.md"
+  mkdir -p "$(dirname "$STATUS_LOG")"
+  TS=$(date "+%Y-%m-%dT%H:%M:%S")
+  # Extract a brief status hint from the last assistant message if available
+  LAST_MSG=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(str(d.get('last_assistant_message',''))[:120])" 2>/dev/null | tr '\n' ' ')
+  echo "[$TS] $LAST_MSG" >> "$STATUS_LOG"
+fi
 exit 0
