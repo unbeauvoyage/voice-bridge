@@ -11,7 +11,7 @@ mkdir -p "$LOG_DIR"
 # Agents to skip — system/infrastructure, not decision-makers
 SKIP_AGENTS="heartbeat system relay jarvis ceo command consul hq"
 
-HEARTBEAT_MSG="Heartbeat. What are you currently working on? If you have tasks in progress, continue them. If you are idle: check ~/environment/BACKLOG.md for items in your domain, pick one and start, or write a proposal in ~/environment/proposals/ toward the direction the CEO is moving. Log your status to ~/.worklog/heartbeats/\$(echo \$RELAY_AGENT_NAME).md in one sentence. If you are idle with no clear next action and no relevant BACKLOG items — message the CEO right now via relay (type: waiting-for-input) and ask what you should be doing. Do not stay silent."
+HEARTBEAT_MSG="Heartbeat. What are you currently working on? If you have tasks in progress, continue them. If you are idle: check ~/environment/BACKLOG.md for items in your domain, pick one and start, or write a proposal in ~/environment/proposals/ toward the direction the CEO is moving. Log your status to ~/.worklog/heartbeats/\$(echo \$RELAY_AGENT_NAME).md in one sentence. If you are idle with no clear next action and no relevant BACKLOG items — message the CEO right now via relay (type: waiting-for-input) and ask what you should be doing. Do not stay silent. For context on what the CEO is building toward, read: ~/.worklog/ceo-direction.md — use it to align your proposals and work."
 
 send_to_agent() {
   local agent="$1"
