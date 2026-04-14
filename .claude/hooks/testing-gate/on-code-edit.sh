@@ -157,6 +157,44 @@ if [[ -n "$TSCONFIG" ]]; then
   fi
 fi
 
+# Run ESLint on the edited file — catches architectural boundary violations immediately
+# (no-restricted-imports, eslint-plugin-boundaries) — same as IDE red squiggles
+ESLINT_CONFIG=""
+if [[ -f "$PROJECT_ROOT/eslint.config.mjs" ]]; then
+  ESLINT_CONFIG="$PROJECT_ROOT/eslint.config.mjs"
+elif [[ -f "$PROJECT_ROOT/eslint.config.js" ]]; then
+  ESLINT_CONFIG="$PROJECT_ROOT/eslint.config.js"
+elif [[ -f "$PROJECT_ROOT/.eslintrc.js" ]]; then
+  ESLINT_CONFIG="$PROJECT_ROOT/.eslintrc.js"
+fi
+
+if [[ -n "$ESLINT_CONFIG" ]]; then
+  ESLINT_OUTFILE=$(mktemp /tmp/hook-eslint-XXXXXX)
+  (cd "$PROJECT_ROOT" && bunx eslint --no-fix --max-warnings=0 "$FILE" > "$ESLINT_OUTFILE" 2>&1) &
+  ESLINT_PID=$!
+  (
+    sleep 20
+    kill "$ESLINT_PID" 2>/dev/null
+    echo "TIMEOUT" >> "$ESLINT_OUTFILE"
+  ) &
+  EWATCHER_PID=$!
+  wait "$ESLINT_PID" 2>/dev/null
+  ESLINT_EXIT=$?
+  kill "$EWATCHER_PID" 2>/dev/null
+  wait "$EWATCHER_PID" 2>/dev/null
+  ESLINT_OUTPUT=$(cat "$ESLINT_OUTFILE")
+  rm -f "$ESLINT_OUTFILE"
+
+  if grep -q "^TIMEOUT$" <<< "$ESLINT_OUTPUT" 2>/dev/null; then
+    echo ""
+    echo "=== eslint — TIMEOUT ==="
+  elif [[ $ESLINT_EXIT -ne 0 ]]; then
+    echo ""
+    echo "=== eslint violations in $(basename "$FILE") ==="
+    echo "$ESLINT_OUTPUT" | head -40
+  fi
+fi
+
 # Run matching test file if it exists
 FILE_DIR=$(dirname "$FILE")
 FILE_BASE=$(basename "$FILE" .tsx)
@@ -190,5 +228,42 @@ if [[ -n "$TEST_FILE" ]]; then
   cat "$TEST_OUTFILE"
   rm -f "$TEST_OUTFILE"
 fi
+
+# POST telemetry to relay for dashboard visibility
+AGENT_NAME="${RELAY_AGENT_NAME:-unknown}"
+TSC_ERRORS_JSON="[]"
+ESLINT_ERRORS_JSON="[]"
+
+if [[ -n "$FILTERED" ]]; then
+  # Escape and JSON-encode tsc errors (one per line → JSON array)
+  TSC_ERRORS_JSON=$(echo "$FILTERED" | python3 -c "
+import sys, json
+lines = [l.rstrip() for l in sys.stdin if l.strip()]
+print(json.dumps(lines))
+" 2>/dev/null || echo "[]")
+fi
+
+if [[ -n "$ESLINT_OUTPUT" && $ESLINT_EXIT -ne 0 ]]; then
+  ESLINT_ERRORS_JSON=$(echo "$ESLINT_OUTPUT" | head -20 | python3 -c "
+import sys, json
+lines = [l.rstrip() for l in sys.stdin if l.strip()]
+print(json.dumps(lines))
+" 2>/dev/null || echo "[]")
+fi
+
+# Fire-and-forget POST to relay telemetry endpoint
+python3 -c "
+import urllib.request, json, os, sys
+payload = json.dumps({
+  'agent': os.environ.get('RELAY_AGENT_NAME', 'unknown'),
+  'file': sys.argv[1],
+  'tscErrors': json.loads(sys.argv[2]),
+  'eslintErrors': json.loads(sys.argv[3]),
+}).encode()
+try:
+  req = urllib.request.Request('http://localhost:8767/hook/telemetry', data=payload, headers={'Content-Type':'application/json'}, method='POST')
+  urllib.request.urlopen(req, timeout=2)
+except: pass
+" "$FILE" "$TSC_ERRORS_JSON" "$ESLINT_ERRORS_JSON" 2>/dev/null &
 
 exit 0
