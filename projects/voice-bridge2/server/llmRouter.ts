@@ -5,7 +5,7 @@
  * Falls back gracefully if Ollama is offline, slow, or returns bad JSON.
  */
 
-const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434/api/generate";
+const DEFAULT_OLLAMA_URL = "http://localhost:11434/api/generate";
 const OLLAMA_TIMEOUT_MS = 10_000;
 const OLLAMA_MODEL = "llama3.2:latest";
 
@@ -87,7 +87,8 @@ export async function llmRoute(
     `Respond with JSON {"agent": string | null}`;
 
   try {
-    const res = await fetch(OLLAMA_URL, {
+    const ollamaUrl = process.env.OLLAMA_URL ?? DEFAULT_OLLAMA_URL;
+    const res = await fetch(ollamaUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
