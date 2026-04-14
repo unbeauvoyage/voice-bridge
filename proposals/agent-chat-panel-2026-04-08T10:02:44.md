@@ -2,7 +2,7 @@
 title: "Agent Chat Panel: Per-Agent Chat History in Right Panel"
 proposedBy: prism
 agent: productivitesse
-status: pending
+status: proposed
 ts: 2026-04-08T10:02:44
 updated: 2026-04-08T10:02:44
 summary: "Replace the AgentDetailPanel (last 3 messages) with a full chat interface when the CEO clicks a planet. CEO messages right-aligned in gold, agent messages left-aligned with type color accents. Compose bar locked to selected agent. Limited message window to start, infinite scroll later."

@@ -2,7 +2,7 @@
 title: "Dashboard: Show Known-but-Absent Agents as Offline"
 proposedBy: prism
 agent: productivitesse
-status: pending
+status: proposed
 ts: 2026-04-07T08:55:40
 updated: 2026-04-07T08:55:40
 summary: "After the relay WebSocket refactor, agents are either connected or absent from /channels. The dashboard should cross-reference the relay's known-agent registry against live connections to display expected-but-missing agents as 'offline' rather than simply not showing them — giving the CEO a meaningful, actionable status signal."

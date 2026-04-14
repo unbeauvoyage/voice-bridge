@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command // \"\"' | grep -q 'git commit' && bash /Users/riseof/environment/projects/knowledge-base/scripts/restart-server.sh 2>/dev/null || true",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/riseof/environment/projects/knowledge-base/scripts/tsc-hook.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

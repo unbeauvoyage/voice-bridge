@@ -2,7 +2,7 @@
 title: "Image Attachment in Dashboard Input + Voice Recording"
 proposedBy: ux-lead
 agent: productivitesse
-status: pending
+status: proposed
 ts: 2026-04-04T07:17:34
 ---
 

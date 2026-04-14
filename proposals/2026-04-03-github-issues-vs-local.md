@@ -1,7 +1,7 @@
 ---
 title: GitHub Issues vs ISSUES.md
 date: 2026-04-03
-status: pending
+status: proposed
 ---
 
 # GitHub Issues vs ISSUES.md

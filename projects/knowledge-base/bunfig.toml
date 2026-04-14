@@ -1,0 +1,3 @@
+[test]
+# Only run bun-native tests; Playwright tests in tests/ are run via `bun run test`
+root = "./src"

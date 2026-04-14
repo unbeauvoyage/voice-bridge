@@ -1,7 +1,7 @@
 ---
 title: Philosophy & Literature Exploration System
 date: 2026-04-03
-status: pending
+status: proposed
 ---
 
 # Philosophy & Literature Exploration System

@@ -1,7 +1,7 @@
 ---
 title: Rules — Proposal vs Message
 date: 2026-04-03
-status: pending
+status: proposed
 ---
 
 # Rules: When Does Something Become a Proposal vs a Message?

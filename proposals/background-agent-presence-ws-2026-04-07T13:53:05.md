@@ -2,7 +2,7 @@
 title: "Background Agent Presence: Status-Only WebSocket Registration"
 proposedBy: prism
 agent: productivitesse
-status: pending
+status: proposed
 ts: 2026-04-07T13:53:05
 updated: 2026-04-07T13:53:05
 summary: "Non-interactive background agents are currently invisible to the dashboard — they never appear in /channels because they don't need to receive messages. A lightweight status-only WebSocket connection (no channel plugin, no message handling) would let these agents register presence with the relay, making them visible as alive vs absent without adding communication overhead."

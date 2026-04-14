@@ -1,8 +1,10 @@
 ---
 title: OpenTelemetry Token Tracking
 date: 2026-04-03
-status: pending
+status: needs-update
 ---
+
+> **NEEDS UPDATE (2026-04-13):** This proposal references old relay endpoints (`POST /tokens/report`, `GET /tokens/summary`) and old storage paths (`~/.relay/tokens/`). These were never implemented and the relay architecture has since changed (lean relay at port 8767). The core idea (token budget tracking + alerts) remains valid, but the implementation plan must be revised for the lean relay and the heartbeat-daemon infrastructure that now exists.
 
 ## Problem
 

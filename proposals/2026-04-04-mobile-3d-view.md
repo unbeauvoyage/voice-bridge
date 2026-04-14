@@ -2,7 +2,7 @@
 title: "3D Agent View on Mobile — Touch-Friendly Tab with Bottom Sheet Detail"
 proposedBy: ux-lead
 agent: productivitesse
-status: pending
+status: proposed
 ts: 2026-04-04T07:27:35
 ---
 

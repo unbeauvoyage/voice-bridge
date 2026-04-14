@@ -1,7 +1,7 @@
 ---
 title: Information Taxonomy
 date: 2026-04-03
-status: pending
+status: proposed
 ---
 
 # Proposal: Information Taxonomy

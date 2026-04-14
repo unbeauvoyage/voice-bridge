@@ -1,10 +1,12 @@
 ---
 title: Relay Delivery Confirmation — Agent Visibility into Message Receipt
 date: 2026-04-04
-status: pending
+status: needs-update
 author: system-lead
 priority: high
 ---
+
+> **NEEDS UPDATE (2026-04-13):** Phase 1 of this proposal (synchronous delivery status) was addressed by the lean relay + http-plugin: `POST /send` now calls the agent's HTTP port directly and returns the real HTTP status code. Phase 2 (availability probe at `GET /agents/:name/reachable`) and Phase 3 (end-to-end acknowledgment via `POST /messages/:id/ack`) are still unimplemented. The old relay architecture (WS-based, "always queued") described in Root Cause Analysis no longer applies. This proposal should be updated to reflect what remains to be done on top of the lean relay.
 
 # Relay Delivery Confirmation — Agent Visibility into Message Receipt
 

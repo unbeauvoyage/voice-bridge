@@ -98,12 +98,13 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
         // Overlay not running — best effort
       }
 
-      // TTS (macOS `say`)
+      // TTS via edge-tts (Microsoft Jenny neural voice)
       if (ttsEnabled) {
         const wordCount = msg.body.trim().split(/\s+/).length
         if (wordCount <= ttsWordLimit) {
           try {
-            spawn('say', ['-v', 'Samantha', msg.body], { stdio: 'ignore' })
+            // edge-tts --voice en-US-JennyNeural --text "..." --write-media /tmp/tts.mp3 && afplay /tmp/tts.mp3
+            spawn('sh', ['-c', `edge-tts --voice en-US-JennyNeural --text ${JSON.stringify(msg.body)} --write-media /tmp/vb2-tts.mp3 && afplay /tmp/vb2-tts.mp3`], { stdio: 'ignore' })
           } catch {
             // TTS unavailable — ignore
           }

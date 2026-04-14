@@ -1,7 +1,7 @@
 ---
 title: Proposal + Q&A Workflow Design
 date: 2026-04-03
-status: pending
+status: proposed
 ---
 
 # Proposal: Proposal + Q&A Workflow Design

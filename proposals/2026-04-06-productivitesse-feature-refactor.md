@@ -2,7 +2,7 @@
 type: proposal
 title: Productivitesse — Feature-Based Refactor for AI Efficiency
 summary: Decompose the monolithic dashboard folder and Zustand store into isolated feature modules so AI agents can navigate the codebase with fewer tokens per session.
-status: pending
+status: proposed
 author: command
 created: 2026-04-06T16:35:04
 priority: medium

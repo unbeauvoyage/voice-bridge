@@ -2,7 +2,7 @@
 id: llm-era-tech-stack
 type: proposal
 version: 1.0
-status: draft
+status: proposed
 created: 2026-04-09T21:32:12
 updated: 2026-04-09T21:32:12
 title: LLM-era tech stack — keep TypeScript, harden the boundaries

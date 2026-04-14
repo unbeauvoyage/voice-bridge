@@ -3,6 +3,7 @@ import { extractWeb } from './extract/web.ts';
 import { summarize } from './summarize.ts';
 import { saveItem, loadIndex, loadItem, itemExists } from './storage.ts';
 import type { KnowledgeItem } from './types.ts';
+import { asKnowledgeItemId } from './types.ts';
 
 function isYouTubeUrl(url: string): boolean {
   return /youtube\.com|youtu\.be/.test(url);
@@ -26,7 +27,7 @@ async function processUrl(url: string, index: number, total: number): Promise<vo
     return;
   }
 
-  const type: 'youtube' | 'web' = isYouTubeUrl(url) ? 'youtube' : 'web';
+  const type: 'youtube' | 'article' = isYouTubeUrl(url) ? 'youtube' : 'article';
 
   console.log(`  Extracting ${type} content...`);
   const extracted = type === 'youtube' ? await extractYoutube(url) : await extractWeb(url);
@@ -35,20 +36,21 @@ async function processUrl(url: string, index: number, total: number): Promise<vo
   console.log(`  Summarizing...`);
   const { summary, sections, tags } = await summarize(extracted);
 
-  const id = slugify(extracted.title) || `item-${Date.now()}`;
+  const id = asKnowledgeItemId(slugify(extracted.title) || `item-${Date.now()}`);
   const item: KnowledgeItem = {
     id,
     url,
     type,
     title: extracted.title,
-    author: extracted.author,
-    dateAdded: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
     tags,
+    tldr: [],
     summary,
     sections,
     transcript: extracted.content,
     status: 'done',
   };
+  if (extracted.author !== undefined) item.author = extracted.author;
 
   await saveItem(item);
   console.log(`  Saved: ${id}`);
@@ -66,7 +68,7 @@ async function listItems(): Promise<void> {
   for (const item of items) {
     console.log(`  [${item.type}] ${item.id}`);
     console.log(`    Title: ${item.title}`);
-    console.log(`    Date:  ${item.dateAdded.slice(0, 10)}`);
+    console.log(`    Date:  ${item.createdAt.slice(0, 10)}`);
     console.log(`    Tags:  ${item.tags.join(', ')}`);
     console.log(`    ${item.summary}`);
     console.log();
@@ -81,7 +83,7 @@ async function viewItem(id: string): Promise<void> {
   }
   console.log(`Title:   ${item.title}`);
   console.log(`URL:     ${item.url}`);
-  console.log(`Added:   ${item.dateAdded}`);
+  console.log(`Added:   ${item.createdAt}`);
   console.log(`Tags:    ${item.tags.join(', ')}`);
   console.log(`\nSummary:\n${item.summary}`);
   if (item.sections.length) {
@@ -157,8 +159,7 @@ async function main(): Promise<void> {
 
   const total = urls.length;
   let errors = 0;
-  for (let i = 0; i < urls.length; i++) {
-    const url = urls[i]!;
+  for (const [i, url] of urls.entries()) {
     try {
       await processUrl(url, i + 1, total);
     } catch (err) {

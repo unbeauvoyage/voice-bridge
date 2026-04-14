@@ -1,7 +1,7 @@
 ---
 title: Structured Event Logging (SQLite)
 date: 2026-04-03
-status: pending
+status: proposed
 ---
 
 ## Problem

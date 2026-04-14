@@ -1,0 +1,17 @@
+{
+  "name": "@env/domain",
+  "version": "0.1.0",
+  "description": "System-wide domain types — single source of truth",
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./agent": "./agent.ts",
+    "./message": "./message.ts",
+    "./session": "./session.ts",
+    "./permission": "./permission.ts",
+    "./knowledge": "./knowledge.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

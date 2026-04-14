@@ -1,7 +1,7 @@
 ---
 title: Persistent Codebase Expert Agents
 date: 2026-04-03
-status: pending
+status: proposed
 ---
 
 # Proposal: Persistent Codebase Expert Agents

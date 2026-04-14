@@ -62,6 +62,68 @@ Every postmortem must include a **Prevention** field. Prevention items that requ
 
 ## Log
 
+### 2026-04-15T06:40:00 [relay/channel-plugin] — Zombie channel: MCP bridge dies silently, HTTP server keeps accepting messages
+**Severity:** HIGH — causes silent message loss across the entire agent system
+**Reported by:** CEO (noticed chief-of-staff wasn't seeing knowledge-base's Phase 2 Codex review question, confirmed MCP plugin disconnected earlier in session)
+**Symptom:** Agent A sends `POST /send` to relay with `to: agent-B`. Relay returns 200. Delivery is marked successful at every layer. But agent-B never sees the message in its conversation — it's silently dropped. From agent-B's side, the only symptom is "teams look idle, nothing to work on." From agent-A's side, the send appears successful.
+
+**Exact failure chain:**
+```
+agent-A → POST /send (to: chief-of-staff)
+  → relay looks up chief-of-staff channel port (50825 — still registered)
+    → relay POSTs http://localhost:50825/message
+      → channel plugin HTTP server accepts with 200 OK ✅  [the send "succeeds" here]
+        → plugin attempts to push to Claude session via MCP bridge
+          → MCP bridge is dead ❌  [message silently disappears]
+```
+
+**Root cause:** The channel plugin runs as two layers:
+1. **HTTP server** — listens on a local port, receives messages from the relay. Long-lived process.
+2. **MCP bridge** — IPC connection from the plugin to the Claude Code CLI session. Delivers messages as `<channel>` tag injections in the agent's prompt.
+
+The HTTP server can (and does) outlive its MCP bridge. When the MCP IPC connection to Claude dies — crash, restart, IDE reload, stale subprocess, anything — the HTTP server keeps answering with 200 because its socket is still bound. The relay receives `{"status":"delivered"}`. It stops trying to deliver. Every subsequent message to that agent is silently discarded.
+
+The agent itself has NO way to know messages were lost. No error appears. The queue shows `delivered: true`. Other agents see their sends "succeed" and stop retrying.
+
+**Evidence observed in this session:**
+- Chief-of-staff's MCP bridge died early in session (system reminder: `plugin:relay-channel:relay-channel has disconnected`)
+- The `mcp__plugin_relay-channel_relay-channel__relay_reply` tool disappeared from available tools
+- Chief-of-staff's channel remained registered at port 50825 in `/channels`
+- Other agents (knowledge-base) started addressing chief-of-staff in message bodies but sending `to: ceo` instead — they had learned the channel was unreliable but had no other way to route
+- Knowledge-base waited for direction for hours because its Codex findings message was silently dropped
+
+**Why this is HIGH severity:**
+- Silent failures are the worst class of bug — nobody gets an error, nobody knows to retry
+- Affects every agent in the system, not just one
+- Makes the CEO think agents are idle when they're actually blocked waiting for responses
+- Creates zombie teams that appear to be working but are cut off from their lead
+
+**Fix — NOT YET DEPLOYED. Options:**
+
+1. **Plugin self-health check (preferred):** Channel plugin HTTP handler pings its own MCP connection before accepting a message. If the MCP side is dead, return 503 Service Unavailable. Relay then queues the message and retries later, or flags the channel as zombie and drops it from the registry.
+   - Implementation: in the plugin's `/message` handler, add `if (!mcpBridge.isAlive()) return 503`.
+   - Depends on: whether the plugin's MCP client library exposes a liveness signal.
+
+2. **End-to-end delivery confirmation:** Agent must ack messages via a separate path (not through the plugin). Relay tracks acks and considers a message undelivered if no ack arrives within N seconds. This is more invasive but catches every form of silent drop, not just zombie channels.
+
+3. **Relay periodic echo:** Relay sends a periodic `echo` message that agents must reply to within N seconds. Missing reply → mark channel zombie → drop from registry → agents resend. Simpler than per-message ack but introduces ongoing traffic.
+
+4. **Workaround (current):** Agents poll their own queue via HTTP GET periodically. Works but defeats the purpose of push delivery and wastes tokens on routine polling.
+
+**Related backlog items:**
+- "Zombie channel detection" (existing backlog, not implemented)
+- "Orphan plugin process cleanup" (related — old plugin processes surviving restart)
+- "Relay sender authentication" (separate issue, orthogonal)
+
+**Prevention until fix lands:**
+- Chief-of-staff polls `/queue/chief-of-staff` explicitly after every significant turn
+- If a CEO message mentions "agent X is waiting / idle / stuck", first action is poll X's inbox and my inbox before assuming state
+- Restart session is the nuclear fix — loses context but restores push delivery
+
+**CEO action taken:** Asked chief-of-staff to restart the session to restore push delivery. This problem log entry exists so the bug is tracked for proper fix later.
+
+---
+
 ### 2026-04-03 [productivitesse/relay] — Inbox showing duplicate messages
 **Severity:** Medium
 **Reported by:** CEO (screenshot)
@@ -69,6 +131,18 @@ Every postmortem must include a **Prevention** field. Prevention items that requ
 **Root cause:** `/history/ceo` endpoint returned messages in both directions: messages sent BY the CEO and messages sent TO the CEO. CEO's own sent messages appeared as incoming items alongside the real replies, making every exchange look doubled. (Initial diagnosis of ID field mismatch between WebSocket and REST was incorrect.)
 **Fix:** Filtered `/history/ceo` query to `m.to === 'ceo'` only — inbox now shows only messages addressed to CEO.
 **Prevention:** History endpoints should always filter by a single direction. Document direction convention in relay API.
+
+### 2026-04-12 [productivitesse] — Parallel xcodebuild runs collide on DerivedData lock
+**Severity:** Low (CEO noticed delay, builds eventually succeeded)
+**Reported by:** CEO (asked for postmortem)
+**Symptom:** Running LAN beta and TS beta xcodebuild in parallel caused both builds to fail silently — 0-byte output files, no install. A second restart attempt also failed until switched to sequential.
+**Root cause:** Xcode's DerivedData directory uses a file lock (`BuildCache.db`, `manifest.xcbuilddata`) per workspace. Two concurrent `xcodebuild` invocations targeting the same workspace (`ios/App/App.xcworkspace`) and the same DerivedData path race on this lock. One process wins, the other exits silently with no useful error output — especially when stdout is piped through `grep`.
+**Fix:** Ran builds sequentially (LAN → install → TS → install). Both succeeded.
+**Prevention:**
+- Rule added: **never run two xcodebuild invocations targeting the same workspace in parallel**. Each must complete (including install) before the next starts.
+- If parallel builds are needed in the future, they must use isolated `-derivedDataPath` values (e.g., `/tmp/derived-lan` and `/tmp/derived-ts`). However, this loses incremental build cache and is expensive.
+- Build scripts should explicitly serialize: `build_lan && install_lan && build_ts && install_ts`.
+- Add to CLAUDE.md productivitesse build rules: "Sequential only — never parallel xcodebuild on the same workspace."
 
 ---
 
@@ -351,6 +425,39 @@ Signal's actual findings (sent to CEO at 10:34): two critical relay issues — (
 
 ---
 
+### 2026-04-14T02:24:10 [voice-bridge] — Hey Jarvis wake-word detection broken after Python update + tccutil reset
+
+**Severity:** High — CEO's primary voice input path was unavailable for ~1 hour
+
+**Reported by:** CEO ("hey jarvis doesn't start recording")
+
+**Symptom:** Saying "hey jarvis" produced no response. The daemon was running (menubar icon visible), but `audio_level=0` on every frame with identical model scores (`5.096197e-06`) — indicating all-zero audio buffers, not just silence.
+
+**Root cause (two compounding causes):**
+
+1. **Python version mismatch in LaunchAgent.** Python was upgraded from `3.14.0` → `3.14.3_1` at some point. macOS TCC microphone permission was granted to the `3.14.3_1` bundle. The LaunchAgent plist (`com.riseof.wake-word.plist`) hardcoded the old path (`3.14.0`). The old binary ran without error but macOS silently returned zero audio (TCC denied, no dialog for background process).
+
+2. **Unnecessary `tccutil reset Microphone` during debugging.** A coder agent ran `tccutil reset Microphone` attempting to diagnose the issue, which cleared ALL microphone permissions system-wide including what was working. This made the already-broken situation worse and forced CEO to re-grant permission manually.
+
+3. **LaunchAgent context fundamentally cannot get mic audio.** Even after fixing the Python path and re-granting TCC permission, the LaunchAgent process (background daemon context, no GUI session) receives all-zero audio buffers from macOS. This is macOS's CoreAudio/TCC enforcement: background processes without a proper GUI session ancestor are denied real microphone data even if TCC shows "allowed." Only processes spawned from a GUI session (terminal, Electron app, etc.) get real audio.
+
+**Compounding factor:** Three instances of the daemon had been accumulating (LaunchAgent + 2 manually-started processes). The 2 manual instances had real mic access (started from terminal/GUI session). When we killed all 3 to fix the "3x TTS summaries" issue, only the LaunchAgent instance survived. It was always broken but had been masked by the working manual instances.
+
+**Fix applied (2026-04-14T02:24:10, chief-of-staff):**
+1. Updated LaunchAgent plist and `run_wake.sh` to use Python `3.14.3_1`
+2. Added lockfile (`/tmp/wake-word.lock` via `fcntl.LOCK_EX`) to prevent duplicate instances
+3. Disabled LaunchAgent (`launchctl bootout`) — it cannot get mic access anyway
+4. Started daemon via `nohup` from Claude Code's process (which has GUI session mic inheritance)
+5. TCC permission re-granted by CEO after `tccutil reset` damage
+
+**Prevention:**
+- **Never run `tccutil reset Microphone` without CEO approval** — it's system-wide and breaks everything. Add this to a "forbidden commands" list for coder agents.
+- **The daemon must not be a LaunchAgent.** It needs to run from a GUI session context. Long-term fix: make the voice-bridge Electron app spawn the daemon at startup (proper Login Item pattern). The Electron app as parent → daemon as child inherits mic access.
+- **ISSUE created:** voice-bridge team must implement proper daemon lifecycle in the Electron app so wake_word.py is spawned by the Electron process on startup, not managed by LaunchAgent/pm2.
+- **Rule for run_wake.sh / plist:** never hardcode a Cellar version path. Use the symlink (`/opt/homebrew/bin/python3`) which always points to the current version.
+
+---
+
 ### 2026-04-09T23:15:54 [relay] — command agent connection churn (386+ reconnects/hour)
 
 **Severity:** Medium — command was receiving messages (all delivered:true) but the relay log was dominated by `command` reconnection noise, masking real issues. A sustained churn like this risks brief delivery gaps during reconnect windows.
@@ -379,3 +486,86 @@ The PID file at `/tmp/relay-channel-command.pid` pointed to 18220 (the orphan), 
 - signal should run a periodic orphan sweep (every 30 min) as part of standard relay health monitoring — add to startup routine.
 - Consider adding relay-side duplicate detection: if a session_id changes for the same agent name more than N times/minute, emit a warning log that is easy to grep.
 
+
+---
+
+## 2026-04-14T13:35:00 — AgentMessage field rename broke mobile app at runtime
+
+**What broke:** App crashed on open with `undefined.localeCompare()` inside `useMemo` in `AgentGrid.tsx`. Root cause: `AgentMessage.timestamp` and `.content` were renamed to `.ts` and `.body` in the interface, but 9+ consumer files still used the old field names.
+
+**Why TypeScript missed it:** The rename commit ran `tsc --noEmit` only in its own worktree where only the type definition file was changed. The consumer files (AgentGrid.tsx, MessageFeed.tsx, etc.) were not in that worktree. TypeScript in isolation never saw the broken callers. Nobody ran `tsc --noEmit` from the dev branch root after the feature was merged.
+
+**Why tests missed it:** Playwright tests sent test messages but the fixture messages were sparse — never enough to trigger the useMemo sort path in AgentGrid.
+
+**Systemic fix:** After any interface rename that affects fields used across the codebase:
+1. Run `tsc --noEmit` from the **project root on dev** (not in the feature worktree) before reporting done
+2. Interface rename tests must include a test that exercises every field access — a smoke-render test with real message data
+3. Team lead enforces: coder reports include `tsc --noEmit` output from the merged dev branch, not just the worktree branch
+
+---
+
+## 2026-04-14T14:10:00 — lint-staged fails in worktrees using GIT_DIR+GIT_WORK_TREE overrides
+
+**What broke:** Pre-commit hook (lint-staged) processes all modified files in the main working tree instead of only staged files when a worktree commits using git plumbing overrides.
+
+**Workaround used:** `git commit-tree` plumbing bypass. Works but skips lint-staged.
+
+**Systemic fix:** Worktree coders should commit using `cd <worktree> && git add -A && git commit -m "..."` with the worktree as the actual working directory — do NOT use GIT_DIR/GIT_WORK_TREE environment variable overrides. Each worktree has its own git state; committing from within it naturally scopes lint-staged to that worktree's staged files.
+
+---
+## 2026-04-14T18:24:19 — Sort crash: undefined.localeCompare() on legacy relay messages
+
+**Symptom:** App crash at sort@[native code] in useMemo. Stack: MobileLayout bundle → sort → useMemo.
+
+**Root cause:** AgentMessage type was renamed from {timestamp,content} to {ts,body}. Wire code used `as AgentMessage` cast which TypeScript accepted but at runtime relay JSONL queue messages still send {timestamp,content}. Result: msg.ts === undefined at sort time. Any .localeCompare() on it crashes.
+
+**Why TypeScript didn't catch it:** as-cast at wire boundary. JSON.parse() returns unknown, then `as AgentMessage` tells TypeScript to trust it. No compile-time verification.
+
+**Fix:** parseAgentMessage() function at the wire boundary maps both old/new field names explicitly, field-by-field. TypeScript proves ts is always a non-empty string downstream. 4 sort sites also guarded with (?? "").
+
+**Secondary problem — stale IPA:** Xcode incremental build skips Copy Bundle Resources when only content-hash filenames change. IPA contained old JS without the fix. Fixed: deploy-beta-ts.sh now force-syncs build/client/ into DerivedData app bundle before packaging IPA.
+
+**Systemic fix:** Zero as-cast rule enforced system-wide. 40 remaining violations identified and fix plan in place (typed parse functions at every wire boundary, typed Electron IPC wrapper, DOM vendor accessor helper).
+
+**Files:** src/features/dashboard/hooks/useWebSocket.ts, src/hooks/useAgentMessages.ts, src/features/mobile/hooks/useActionItems.ts, src/features/shared/useActionItems.ts, scripts/deploy-beta-ts.sh
+
+### 2026-04-15T02:58:47 productivitesse — Tailscale beta white screen / crash on launch
+
+**Severity:** High  
+**Reported by:** CEO  
+**Symptom:** Tailscale beta (App-Beta-TS) showed white screen with "capacitor error" on launch. Stack trace: `sort@[native code] → useMemo → MC@MobileLayout-BKoGfeEQ.js`. LAN beta worked fine.
+
+**Root cause:** Two independent bugs, both required for the crash:
+
+1. **HTTPS→HTTP relay mismatch** (`src/shared/relay.ts` `getServerUrl()`): The TS server preset stores `https://100.112.240.82:5173`. After port substitution (5173→8767), this became `https://100.112.240.82:8767` — but the relay on 8767 is HTTP-only. All relay calls silently failed.
+
+2. **`localeCompare` on numeric timestamp** (`src/features/mobile/hooks/useActionItems.ts`): The `CommandCenter` component (new — shipped same session) uses a `useMemo` that sorts action items by `ts`. Sort comparator: `(b.ts ?? "").localeCompare(a.ts ?? "")`. If any persisted message in `capacitor://localhost` localStorage has `ts` as a number (old format), `?? ""` doesn't coerce it (number is truthy), and calling `.localeCompare()` on a number throws TypeError. This crash propagated to the React error boundary, which tried to load its own chunk and reported `capacitor://localhost/assets/…` in the UI.
+
+**Deployment error (secondary):** First OTA after fix was deployed from wrong directory (main project root = `846fe05`) instead of the fix worktree (dev = `a5a03a3`). The deploy script derives commit SHA from `cwd` — deploying from main reported old SHA and built old code. Caught by verifying commit in deploy output.
+
+**Fix:**
+- `src/shared/relay.ts`: Protocol-aware port routing — HTTPS → 8768 (HTTPS relay), HTTP → 8767 (commit `96e2c28`)
+- `src/features/mobile/hooks/useActionItems.ts`: `String()` wrap in sort comparator (commit `a5a03a3`)
+- `src/features/shared/useActionItems.ts`: Same `String()` wrap
+- `src/features/dashboard/store.ts` `loadPersistedMessages()`: Normalise `ts` to string after `JSON.parse` — catches corrupt/legacy localStorage data at source
+- 3 new unit tests covering numeric-ts crash scenarios
+
+**Prevention:**
+1. `getServerUrl()` now protocol-aware — any future relay URL added will route correctly by scheme
+2. `loadPersistedMessages()` now normalises `ts` at deserialization boundary — future changes to message format won't cause runtime sort crashes
+3. **Rule for deploy scripts:** always verify commit SHA in deploy output matches expected HEAD. If SHA is wrong, the build used wrong source.
+4. **OTA deploy from worktree:** Always run `npm run deploy:beta-ts` from the worktree containing the fix (e.g., `cd .claude/worktrees/inbox-thread && npm run deploy:beta-ts`), never from the main project dir unless main has the fix.
+
+---
+
+## 2026-04-15T03:32:19 — Deploy script reads commit SHA from main repo, not active worktree
+
+**Symptom:** CEO sees wrong commit hash in OTA banner (e.g. `...fe05` = main, not dev).
+
+**Root cause:** `scripts/deploy-beta-ts.sh` derives `WORKTREE` from script location (`$SCRIPT_DIR/..`), which is always the main repo regardless of where the script is invoked from. `git -C "$WORKTREE" rev-parse HEAD` therefore always reports the main branch SHA, not dev.
+
+**Immediate fix:** Always invoke the deploy script from within the dev worktree (`cd .claude/worktrees/inbox-thread && bash scripts/deploy-beta-ts.sh`).
+
+**Systemic fix needed:** The deploy script should detect the active worktree or accept a `--worktree` argument. Alternatively, `npm run deploy:beta-ts` in `package.json` should be defined in the worktree's package.json, not the main repo's. Filed for coder to fix.
+
+**Recurrence:** Happened twice in same session (commits `795d307` and `9cb4053` deploys). Root cause not addressed yet.

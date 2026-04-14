@@ -125,3 +125,102 @@ Agent(
 - `Agent` without `team_name` = one-shot, fire-and-forget, no follow-ups
 - `Agent` with `team_name` = persistent, can receive messages, can be managed like a teammate
 
+---
+
+## Testing Strategy — Mandatory for All Projects
+
+**Tests are the living spec.** A coder reading the test suite should understand what the feature does, what it handles gracefully, and what it never does. Tests are not a metric — they are documentation that fails loudly.
+
+### Spec-first workflow — the only allowed pattern
+
+**The spec directs the coder. Not the other way around.**
+
+Specs are written before implementation. They translate requirements into concrete descriptions of what needs to be built. The coder implements against the spec. The tester verifies against the same spec. Both work from one shared source of truth — independently, without needing to talk to each other.
+
+**Specs travel as files, not as verbal requests.** Verbal "here's what to test" instructions are volatile — they get lost, misunderstood, and create blocking back-and-forth. A spec file is persistent, reviewable, and non-blocking.
+
+**The required workflow:**
+
+```
+Requirement arrives at team lead
+        ↓
+Team lead assigns coder + tester (team lead stays free)
+        ↓
+Coder writes specs/feature-name.md FIRST
+  — as a planning document for itself, before writing any code
+  — what to build, inputs/outputs, edge cases, expected behaviors
+        ↓
+Coder implements against its own spec
+Tester reads same spec → writes/runs tests against it
+        ↓
+Both aligned to one document. No verbal handoff needed.
+```
+
+**The spec is the coder's planning tool, not an afterthought.** The coder writes it before implementation to think through what they're about to build. It doubles as the tester's input — the tester never needs a verbal briefing because the spec file says everything.
+
+**Why team lead must NOT write specs:**
+Same reason they never code. It blocks them. The team lead commissions the work (assigns coder + tester), then steps back entirely.
+
+**Testers never accept verbal test instructions.** If a tester is told "test X" without a spec file, they must ask for the spec first. The spec is the handoff artifact — not a message.
+
+**When to use a dedicated spec-writer:** For complex or ambiguous features where design needs to be thought through before a coder starts — spawn a spec-writer first, then hand the spec to the coder. For standard features, the coder owns both.
+
+### Standard team composition for any feature
+
+| Role | Job |
+|---|---|
+| `coder` | **Writes spec first** (`specs/feature-name.md`) as a planning step, then implements against it. May write narrow unit tests for internal logic only. |
+| `tester` | Reads spec → **writes and runs all integration/E2E tests** verifying each described behavior. Independent of coder — catches what coder assumed was correct. |
+| `code-reviewer` | Verifies implementation matches spec. Blocks merge if spec is missing or tests don't cover it. |
+| `spec-writer` | Optional — use for complex/ambiguous features where design needs dedicated thinking before coding starts. |
+
+**Why coder and tester are separate:** If the coder writes both code and tests, they'll unconsciously test what they built — including any misunderstandings. The tester's independence is the point. They verify against the spec, not against the code.
+
+**Exception — unit tests:** Coder may write narrow unit tests for internal implementation details (a tricky algorithm, a state machine) that only make sense in context. Everything else — integration tests, E2E flows, API contract tests — belongs to the tester.
+
+**Rule: coder writes spec before writing code. Tester writes tests from the spec. No PR merges without both.**
+
+### Test categories (apply to every project)
+
+1. **Silent-failure guards** — things that break invisibly without a test:
+   - Platform adapter unavailable → method must not crash
+   - Network response has wrong shape → must return safe default, never throw
+   - State transitions — wrong state entered silently
+
+2. **Business logic** — core flows the product depends on:
+   - Permission lifecycle: request → approve/deny → removed from pending
+   - Queue/retry logic: message fails → retried N times → gives up gracefully
+   - MIME/format fallbacks: preferred type unavailable → next type tried
+
+3. **E2E smoke tests** (Playwright) — one test per major user flow:
+   - User taps button → result appears
+   - User sends message → relay receives it on port 8767
+   - User approves permission → agent unblocks
+
+### What NOT to test
+
+- UI pixel rendering / snapshot tests
+- Third-party library internals
+- Trivial getters/setters with no logic
+
+### Test description rule
+
+Every `it()` or `test()` must read as a plain-English spec sentence:
+- ✅ `it('returns [] when agents field is missing in status response')`
+- ✅ `it('resolves without throwing when Capacitor plugin is unavailable')`
+- ❌ `it('works')`
+- ❌ `it('test 1')`
+
+### Project testing policy file
+
+Every project must have `TESTING-POLICY.md` at its root. Minimum contents:
+- Mandatory test categories for this project
+- Exact commands to run all tests
+- What CI checks
+
+Reference: `~/environment/projects/knowledge-base/TESTING-POLICY.md`
+
+### Full testing standards
+
+See `.claude/modules/code-standards.md` Rule 7 for the complete testing standard.
+

@@ -1,0 +1,95 @@
+import { defineConfig } from 'eslint/config'
+import tseslint from '@electron-toolkit/eslint-config-ts'
+import eslintConfigPrettier from '@electron-toolkit/eslint-config-prettier'
+import eslintPluginReact from 'eslint-plugin-react'
+import eslintPluginReactHooks from 'eslint-plugin-react-hooks'
+import eslintPluginReactRefresh from 'eslint-plugin-react-refresh'
+import boundaries from 'eslint-plugin-boundaries'
+
+export default defineConfig(
+  { ignores: ['**/node_modules', '**/dist', '**/out'] },
+  tseslint.configs.recommended,
+  eslintPluginReact.configs.flat.recommended,
+  eslintPluginReact.configs.flat['jsx-runtime'],
+  {
+    settings: {
+      react: {
+        version: 'detect'
+      }
+    }
+  },
+  {
+    files: ['**/*.{ts,tsx}'],
+    plugins: {
+      'react-hooks': eslintPluginReactHooks,
+      'react-refresh': eslintPluginReactRefresh
+    },
+    rules: {
+      ...eslintPluginReactHooks.configs.recommended.rules,
+      ...eslintPluginReactRefresh.configs.vite.rules
+    }
+  },
+  // CEO LAW 2.0 — type hardening enforcement
+  {
+    files: ['**/*.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-non-null-assertion': 'error',
+      '@typescript-eslint/explicit-function-return-type': 'error',
+      '@typescript-eslint/consistent-type-assertions': ['error', { assertionStyle: 'never' }],
+      '@typescript-eslint/ban-ts-comment': 'error'
+    }
+  },
+  // F1-F7 feature-first boundary rules
+  {
+    plugins: { boundaries },
+    settings: {
+      'boundaries/elements': [
+        { type: 'page', pattern: 'src/renderer/src/pages/**' },
+        { type: 'feature', pattern: 'src/renderer/src/features/*', capture: ['featureName'] },
+        { type: 'feature-components', pattern: 'src/renderer/src/features/*/components/**' },
+        { type: 'feature-hooks', pattern: 'src/renderer/src/features/*/hooks/**' },
+        { type: 'feature-domain', pattern: 'src/renderer/src/features/*/domain/**' },
+        { type: 'feature-store', pattern: 'src/renderer/src/features/*/store/**' },
+        { type: 'shared', pattern: 'src/renderer/src/shared/**' }
+      ]
+    },
+    rules: {
+      // F2 — features expose only via index.ts
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/features/*/*', '!**/features/*/index', '!**/features/*/index.ts'],
+              message:
+                'Features expose their public API via index.ts. Import from features/X, never from internals.'
+            }
+          ]
+        }
+      ],
+      // F5 — layer rules within a feature
+      'boundaries/element-types': [
+        'warn',
+        {
+          default: 'disallow',
+          rules: [
+            // pages may import feature public APIs and shared
+            { from: 'page', allow: ['feature', 'shared'] },
+            // feature components may use hooks, store, domain, shared
+            { from: 'feature-components', allow: ['feature-hooks', 'feature-store', 'feature-domain', 'shared'] },
+            // hooks may import data and domain
+            { from: 'feature-hooks', allow: ['feature-domain', 'shared'] },
+            // domain is pure — imports nothing app-specific
+            { from: 'feature-domain', allow: [] },
+            // store may import domain for types only
+            { from: 'feature-store', allow: ['feature-domain'] },
+            // shared imports nothing from features
+            { from: 'shared', allow: ['shared'] }
+          ]
+        }
+      ]
+    }
+  },
+  eslintConfigPrettier
+)

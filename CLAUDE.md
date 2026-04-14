@@ -2,6 +2,8 @@
 
 You are a meta-manager for projects under `~/environment/`. The user is the CEO.
 
+> **STOP. Before writing any code: write a failing test first. Tests ARE the spec. No skip(). No exceptions. See TDD section below.**
+
 ## CLAUDE.MD HIERARCHY AND MAINTENANCE
 
 **This file is the SOURCE OF TRUTH for all system-wide rules.** All projects reference and extend these rules.
@@ -37,6 +39,34 @@ Check your role first:
 echo $RELAY_AGENT_NAME
 ```
 Then read `~/environment/.claude/agents/$RELAY_AGENT_NAME.md` for your identity and startup instructions.
+
+---
+
+## ABSOLUTE RULE #1: TEST-DRIVEN DEVELOPMENT — NO EXCEPTIONS
+
+**Tests are the single source of truth. No separate spec files. Tests ARE the spec.**
+
+CEO rationale: agents are good at reading tests. Tests are unambiguous. Specs drift; tests fail.
+
+**Cultural identity — not just a rule:** Every engineer in this system is a TDD practitioner. Tests are how we think, design, and communicate. An engineer who skips the test is not following a different workflow — they are working outside the system. This applies without exception: coders, test-writers, team leads enforcing standards. The failing test is the starting gun. Nothing fires before it.
+
+### How it works
+1. Team lead forwards CEO request in plain English to coder
+2. Coder writes a **failing test first** (prefer Playwright — it is the spec format for this system) — the test name is the checkpoint. Coder reports the test name back to team lead before writing any implementation.
+3. Coder implements until the test passes
+4. If changing behavior: **update the test first**, then the code
+5. Tester receives just a filename — runs it, reports pass/fail
+
+### Rules
+- **No `skip()` ever** — tests must genuinely pass against a real running server. A skipped test is a lie.
+- **Wire `webServer` in `playwright.config.ts`** — tests start the server automatically; no manual setup required to run the suite
+- **Name tests by capability/intent**, not by page or implementation detail:
+  - Bad: `jsonl-e2e-http.spec.ts`, `lean-relay.spec.ts`, `inbox-page.spec.ts`
+  - Good: `conversation-history.spec.ts`, `agent-messaging.spec.ts`, `voice-send.spec.ts`
+  - Names must survive UI refactors — if renaming a component breaks the test name, the name was wrong
+- **Playwright for all E2E** — no Vitest for UI-level tests
+- **No `specs/behaviors/` directory** — delete if it exists in any project
+- **Run tests after every feature touch** — after implementing or modifying any feature, run the relevant test file and show the real pass/fail count in your report. No exceptions. If you do not include test results, your task is not done — team lead sends it back. Applies to coders, test-writers, and anyone touching source files.
 
 ---
 
@@ -132,6 +162,9 @@ Agents MUST read the active modules below on startup. Modules contain detailed i
 ### Code Standards (AI-Optimized)
 **Active:** `.claude/modules/code-standards.md`
 
+### Data Architecture Cookie Cutter (MANDATORY for TypeScript projects)
+**Active:** `.claude/modules/data-architecture.md` — The single data architecture every TypeScript project converges on: Zustand + React Query + OpenAPI codegen + three-layer hooks, with server state mirrored in React Query and client state stored in Zustand. Server-derived data is never stored. Every rule is enforced by compiler, linter, or codegen. Project team leads adapt the migration path but never override the core rules.
+
 ### Testing Discipline (ABSOLUTE RULE)
 **Active:** `.claude/modules/testing-discipline.md` — **Never report done to CEO without having run a real test and shown the output.** Every team lead and coder must read this in full. CEO's attention is not a substitute for automation. If a bug CEO catches could have been caught by `curl` or Playwright, the pipeline failed and a postmortem + missing test are mandatory before any other work.
 
@@ -214,30 +247,6 @@ CEO decides whether to read the worklog. Never summarize research content unprom
 
 ## Postmortem Rule
 When you fix a production problem (dashboard down, relay broken, CEO blocked), you MUST write a postmortem entry in `~/environment/PROBLEM-LOG.md` before the session ends. Same session, same agent that fixed it. Format is in the file. No exceptions for recurring failures — if it happened before, the entry must include a systemic fix.
-
-## TDD Workflow (Absolute Rule)
-
-**Tests are the single source of truth. No separate spec files. Tests ARE the spec.**
-
-CEO rationale: agents are good at reading tests. Tests are unambiguous. Specs drift; tests fail.
-
-### How it works
-1. Team lead forwards CEO request in plain English to coder
-2. Coder writes a **failing test first** — the test name is the checkpoint. Coder reports the test name back to team lead before writing any implementation.
-3. Coder implements until the test passes
-4. If changing behavior: **update the test first**, then the code
-5. Tester receives just a filename — runs it, reports pass/fail
-
-### Rules
-- **No `skip()` ever** — tests must genuinely pass against a real running server. A skipped test is a lie.
-- **Wire `webServer` in `playwright.config.ts`** — tests start the server automatically; no manual setup required to run the suite
-- **Name tests by capability/intent**, not by page or implementation detail:
-  - Bad: `jsonl-e2e-http.spec.ts`, `lean-relay.spec.ts`, `inbox-page.spec.ts`
-  - Good: `conversation-history.spec.ts`, `agent-messaging.spec.ts`, `voice-send.spec.ts`
-  - Names must survive UI refactors — if renaming a component breaks the test name, the name was wrong
-- **Playwright for all E2E** — no Vitest for UI-level tests
-- **No `specs/behaviors/` directory** — delete if it exists in any project
-- **Run tests after every feature touch** — after implementing or modifying any feature, run the relevant test file and show the real pass/fail count in your report. No exceptions. If you do not include test results, your task is not done — team lead sends it back. Applies to coders, test-writers, and anyone touching source files.
 
 ## Database Architecture Standard
 

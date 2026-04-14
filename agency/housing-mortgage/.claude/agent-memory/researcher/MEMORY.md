@@ -1,2 +1,3 @@
 - [Buyer demographics 2025-2026](project_buyer_demographics.md) — foreign buyer stats, Kansai pricing, mortgage rates, pain points — researched 2026-04-08
 - [Japan foreign buyer journey](project_buyer_journey.md) — step-by-step purchase process, documents, Nara agents, pitfalls, buyer-agent model — researched 2026-04-08
+- [Non-PR mortgage research ¥5.65M](project_nonpr_mortgage.md) — lender landscape, Tokyo Star Bank, Nanto Bank, FEFTA, cost premium, realistic paths — researched 2026-04-11

@@ -2,7 +2,7 @@
 title: "UX Audit: Type Scale Chaos + Duplicated Button Styles"
 proposedBy: ux-lead
 agent: productivitesse
-status: pending
+status: proposed
 ts: 2026-04-04T06:23:46
 ---
 

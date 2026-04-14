@@ -1,7 +1,7 @@
 ---
 title: Voice-Controlled Dashboard Interface
 date: 2026-04-03
-status: pending
+status: proposed
 ---
 
 # Voice-Controlled Dashboard Interface

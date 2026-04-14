@@ -2,16 +2,17 @@ import { getItem, getItemByUrl, insertItem, itemExistsByUrl, listItems, updateIt
 import type { KnowledgeItem } from './types.ts';
 
 export async function saveItem(item: KnowledgeItem): Promise<void> {
-  insertItem({ id: item.id, url: item.url, type: item.type, dateAdded: item.dateAdded });
-  updateItem(item.id, {
+  insertItem({ id: item.id, url: item.url, type: item.type, createdAt: item.createdAt });
+  const fields: Parameters<typeof updateItem>[1] = {
     title: item.title,
-    author: item.author,
     status: item.status,
-    transcript: item.transcript,
     summary: item.summary,
     sections: item.sections,
     tags: item.tags,
-  });
+  };
+  if (item.author !== undefined) fields.author = item.author;
+  if (item.transcript !== undefined) fields.transcript = item.transcript;
+  updateItem(item.id, fields);
 }
 
 export async function loadIndex(): Promise<KnowledgeItem[]> {

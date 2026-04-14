@@ -1,7 +1,7 @@
 ---
 title: Codex Code Reviews Across All Teams
 date: 2026-04-03
-status: pending
+status: proposed
 ---
 
 # Proposal: Codex Code Reviews Across All Teams

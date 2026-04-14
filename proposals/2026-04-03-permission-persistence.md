@@ -1,8 +1,13 @@
 ---
 title: Permission Relay Persistence
 date: 2026-04-03
-status: pending
+status: done
+implemented: 2026-04-14T09:05:32
+commit: 3ebf34a
+summary: Permissions persisted to _permissions.json (already done in lean relay). Added startup re-notification — relay broadcasts pending records to dashboard and attempts delivery to command on startup. 174 tests pass.
 ---
+
+> **NEEDS UPDATE (2026-04-13):** This proposal references the old relay's disk paths (`~/.relay/permissions/pending/`) and `queues/` directory. The lean relay replaced the old persistence architecture. The core idea (persist pending permission requests across relay restarts) is still valid but the implementation path must be revised for `relay-lean.ts` and its storage model. The `pendingPermissions` map and `_pending_permissions.json` in the old relay are now the reference point for what was built; this proposal should describe what still needs to be done (if anything) for the lean relay.
 
 ## Problem
 

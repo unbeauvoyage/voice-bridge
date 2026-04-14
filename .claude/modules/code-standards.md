@@ -4,6 +4,298 @@ Every project team lead and coder MUST follow these standards. They exist becaus
 
 ---
 
+## 🚨 COMPILER FEEDBACK LAW — LAW (2026-04-14, CEO directive)
+
+**Non-negotiable. System-wide. Effective immediately.**
+
+Agents editing TypeScript without live compiler feedback are blind — equivalent to an IDE with all errors suppressed. The tooling enforces this automatically; agents must not disable or skip it.
+
+1. **PostToolUse hook fires on every `.ts`/`.tsx` edit** — runs `tsc --noEmit` for that project automatically. No agent action required.
+2. **Output is filtered to the edited file only** — cross-file errors during multi-file refactors are expected and suppressed until you edit those files. This is intentional.
+3. **Pre-commit hook is the final gate** — tsc must pass before any commit. This catches anything PostToolUse missed.
+4. **Every source file must be in a tsconfig `include` glob** — a file outside `include` is invisible to the compiler. If you add a new directory (e.g., `server/`), add it to the tsconfig immediately.
+5. **`tsc --noEmit` clean is a hard requirement before reporting done** — if the compiler has errors in your file, your task is not done.
+
+### Why
+
+Agents discovered a production bug (`data.response` ReferenceError) that TypeScript would have caught instantly — but the file lived in `server/` which was excluded from the tsconfig `include`. The compiler never saw it. This law prevents that class of failure.
+
+---
+
+## 🚨 TYPE HARDENING DIRECTIVE — LAW (2026-04-14, CEO directive)
+
+**Non-negotiable. System-wide. Effective immediately.**
+
+1. **No `as Type` casts** — ever. If you need a cast, the type is wrong upstream. Fix the source.
+2. **No `!` non-null assertions** — ever. Use `if (x)` guards, optional chaining `x?.y`, or nullish coalescing `x ?? fallback`. A `!` is a lie to the compiler.
+3. **No temporary inline TypeScript avoidance** — no `@ts-ignore`, no `@ts-expect-error` to silence a real error, no `any` as a shortcut.
+4. **Leave nothing untyped** — every function parameter, return type, and variable that the compiler cannot infer must be explicitly typed.
+5. **All teams audit now** — every project runs a type-hardening sweep. Find violations, file them, fix them. Report to chief-of-staff.
+
+### What this means in practice
+
+```ts
+// ❌ ILLEGAL
+const data = await res.json() as { agents: string[] }
+const el = document.getElementById('root')!
+let value: any = getConfig()
+// @ts-ignore
+doThing()
+
+// ✅ REQUIRED
+const raw = await res.json()
+if (!isAgentsResponse(raw)) throw new Error('unexpected /agents shape')
+const agents: Agent[] = raw.agents.map(toAgent)
+
+const el = document.getElementById('root')
+if (!el) throw new Error('#root not found')
+
+// Use a type guard or zod to narrow unknown:
+function isAgentsResponse(x: unknown): x is { agents: RawAgentInfo[] } {
+  return typeof x === 'object' && x !== null && Array.isArray((x as any).agents)
+}
+```
+
+### Type guards replace casts
+
+When receiving `unknown` from the network, use a type guard. A type guard is honest — it checks at runtime. A cast is a lie — it only satisfies the compiler.
+
+**Do not use Zod at internal API boundaries.** See API Boundary Standard below.
+
+### `null` and `undefined` are handled explicitly
+
+```ts
+// ❌ ILLEGAL — lying to the compiler
+const name = agent.name!
+
+// ✅ REQUIRED — honest handling
+const name = agent?.name ?? 'unknown'
+// OR
+if (!agent.name) throw new Error(`agent ${agent.id} has no name`)
+const name = agent.name  // TypeScript now knows it's defined
+```
+
+### Enforcement
+
+- Reviewers block any PR containing `as`, `!`, `any`, or `@ts-ignore` without a documented exception
+- Documented exception: `x as unknown as Y` double-cast with a comment explaining WHY the types are provably compatible (very rare — think carefully before using)
+- Team leads run `grep -rn " as \| !\.\|: any\|@ts-ignore" src/` on every project weekly and file hardening tasks for anything found
+
+---
+
+## Architecture Standard: React-Native DDD
+
+This is the mandated architecture for all projects. It combines React best practices (hooks, co-location, context) with DDD principles (named domain types, shared language, boundary isolation). **It does not import Spring/Clean Architecture patterns that fight React's grain** — no DI containers, no explicit ports/adapters ceremony, no interface-per-use-case.
+
+The key insight: React already gives you a clean architecture if you use hooks correctly. Hooks ARE the use case layer. Context IS the dependency injection. Co-located feature folders ARE vertical slices. The missing piece is only domain type discipline and a shared vocabulary.
+
+### The three layers (React-native)
+
+```
+shared/domain/   ← System-wide named types. One truth for Agent, Message, Intent.
+src/
+  domain/        ← Service-specific types extending shared. Pure TS, no React.
+  features/      ← Vertical slices. Hooks co-located with components.
+  platform/      ← Thin adapter layer (Electron IPC / Capacitor / Web APIs).
+```
+
+**Single rule: `domain/` imports nothing outside itself. Everything imports from `domain/`.**
+
+---
+
+### Layer 1: Shared + local domain (pure TypeScript)
+
+```
+shared/domain/         ← System-wide truth (Agent, Message, Intent, AgentName...)
+  types.ts
+  brands.ts            ← Branded primitives
+
+src/domain/            ← Service-local extensions only
+  types.ts             ← e.g. DaemonState, WakeState (voice-bridge specific)
+  logic.ts             ← Pure functions — business rules, no side effects
+```
+
+**Named types and branded primitives:**
+```ts
+// shared/domain/types.ts
+export type AgentName = string & { readonly __brand: 'AgentName' };
+export type AgentStatus = 'idle' | 'working' | 'waiting' | 'offline';
+
+export interface Agent {
+  name: AgentName;
+  status: AgentStatus;
+  hasChannel: boolean;
+}
+```
+
+---
+
+### Layer 2: Features — hooks + components co-located (React-native vertical slices)
+
+This is the heart of the architecture. **Hooks ARE the use-case layer.** They contain all business logic, data fetching, and state management. Components are dumb renderers that accept domain types from hooks.
+
+```
+features/
+  agent-grid/
+    AgentGrid.tsx       ← dumb component — domain types in, JSX out
+    AgentCard.tsx
+    useAgents.ts        ← ALL logic here: fetch, transform, state
+    store.ts            ← Zustand slice (domain types only, no wire formats)
+    index.ts            ← public API: only what other features may import
+```
+
+**Hook pattern — fetch, transform, return domain type:**
+```ts
+// features/agent-grid/useAgents.ts
+export function useAgents(): Agent[] {
+  const [agents, setAgents] = useState<Agent[]>([]);
+
+  useEffect(() => {
+    fetchAgents()                         // ← calls platform adapter
+      .then(raw => raw.map(toAgent))      // ← transforms wire → domain
+      .then(setAgents);
+  }, []);
+
+  return agents.sort(byStatus);          // ← domain logic inline, no ceremony
+}
+```
+
+**Component pattern — receives domain types, never fetches:**
+```ts
+// AgentGrid.tsx — no useState, no useEffect, no fetch
+function AgentGrid() {
+  const agents = useAgents();            // ← one hook call
+  return <>{agents.map(a => <AgentCard agent={a} key={a.name} />)}</>;
+}
+```
+
+**Why hooks, not classes/services:**
+- Hooks co-locate with the component they serve — no excavation needed
+- React's `useEffect` + `useState` IS the observable use-case pattern — no RxJS needed
+- Hooks compose naturally — `useAgentStatus` calls `useAgents` internally
+- Hooks are trivially testable by mocking `fetch` at the boundary
+
+---
+
+### Layer 3: Platform adapter — thin, named by target
+
+One file per platform. Converts platform API calls to domain types. This is the **only** place wire formats from relay/IPC/Capacitor are touched.
+
+```
+platform/
+  web-adapter.ts        ← fetch + WebSocket
+  desktop-adapter.ts    ← Electron IPC (window.__voiceBridge)
+  mobile-adapter.ts     ← Capacitor plugins
+  index.ts              ← exports getPlatformAPI() — auto-selects by env
+```
+
+```ts
+// platform/desktop-adapter.ts
+export async function fetchAgents(): Promise<Agent[]> {
+  // Call Electron IPC, convert to domain type here
+  const raw = await window.__voiceBridge?.getAgents() ?? [];
+  return raw.map(name => ({ name: name as AgentName, status: 'idle', hasChannel: false }));
+}
+```
+
+Features import `getPlatformAPI().fetchAgents()` — never `window.__voiceBridge` directly.
+
+---
+
+### What NOT to do (Spring/Clean patterns that fight React)
+
+| Pattern | Why it doesn't fit React |
+|---|---|
+| `IAgentPort` interface + separate adapter class | Over-engineering. Hook + platform adapter gives the same swap-ability with less code |
+| Explicit DI container / `app/providers.tsx` wiring | React Context is fine for config/platform; feature data belongs in hooks or Zustand |
+| `class RelayService implements IRelayPort` | React doesn't benefit from class hierarchies — functions compose better |
+| Separate `ports/` directory | Adds indirection with no gain — the platform adapter IS the port |
+| `use case` files (one class per action) | A hook IS a use case — `useSendMessage()` is the use case handler |
+
+**The test:** if a junior React dev reads the code and can navigate to any feature in 2 Glob/Grep calls, the architecture is right. If they need to follow `interface → class → factory → context → hook`, it's too complex.
+
+---
+
+### Migration path for existing code
+
+**Don't rewrite.** Apply on contact:
+1. Adding a feature → co-locate hook + component, import domain types from shared
+2. Editing an existing file → extract the inline shape to a named type in domain
+3. Adding a network call → route through platform adapter, never raw fetch in components
+4. Full restructure → CEO-approved proposal only
+
+productivitesse's `domain/types/` and `platform/` are already close to this shape. The missing pieces: hooks with domain return types, and feature `index.ts` public APIs. Add incrementally.
+
+---
+
+### DOMAIN.md + Rule 16 applies here
+
+Before writing any code in a new feature, team lead updates `DOMAIN.md` with new concepts. The type in `domain/types.ts` must match the term in `DOMAIN.md` exactly.
+
+---
+
+## API Boundary Standard (2026-04-14, CEO directive)
+
+All 4 apps (message-relay, productivitesse, knowledge-base, voice-bridge2) are **one system** sharing one TypeScript codebase. API contracts between them are enforced by **shared types**, not code generation or runtime schema validation.
+
+### Shared types — the only API contract tool
+
+```
+~/environment/shared/types/
+  relay.ts        ← SendRequest, SendResponse, AgentsResponse, ChannelsResponse, etc.
+  knowledge.ts    ← KnowledgeItem, SearchResponse, TagsResponse, etc.
+  domain.ts       ← Agent, Message, AgentName, AgentStatus (cross-cutting)
+  index.ts        ← re-exports
+```
+
+- **Backend** imports shared types and is forced by the compiler to return them
+- **Frontend** imports the same types — same truth, zero drift, zero runtime cost
+- **If backend changes a type** → compiler errors on both sides simultaneously
+
+```ts
+// message-relay — compiler enforces SendResponse return shape
+app.post<{ Body: SendRequest; Reply: SendResponse }>('/send', handler)
+
+// productivitesse — same type imported directly, no cast needed
+import type { AgentsResponse } from '@env/shared/types/relay'
+const data: AgentsResponse = await res.json()
+```
+
+### When to use Zod
+
+Zod validates **shape at runtime** — it is an automated type guard generator. Use it only where the data source is outside our control:
+
+| Use Zod | Don't use Zod |
+|---|---|
+| External scraping (YouTube, web content) | Internal API calls between our services |
+| Environment variable parsing | Database reads via Drizzle (already typed) |
+| LLM/OpenAI response parsing | Any fetch between relay ↔ productivitesse ↔ voice-bridge2 |
+| User file imports / CSV / YAML | knowledge-base API calls from productivitesse |
+
+**Why Zod doesn't help at internal boundaries:** Zod validates shape but not trustworthiness. Malicious data matching the schema still passes. Version drift between services is a deployment problem, not a type problem — and shared types catch it at compile time, which is earlier and cheaper than runtime. Zod at internal boundaries is performance overhead with no real safety gain.
+
+### What Zod actually is
+
+A type guard generator. The snippet:
+```ts
+const item = schemas.KnowledgeItem.parse(raw) // Zod
+```
+is equivalent to:
+```ts
+if (!isKnowledgeItem(raw)) throw new Error('unexpected shape')
+const item = raw // TypeScript narrows here
+```
+
+For complex external schemas, Zod saves writing type guards by hand. That's its value. Don't use it beyond that.
+
+### No OpenAPI, no code generation pipeline
+
+Cross-language / cross-team boundaries → OpenAPI is the right tool.
+Same language, same team, same repo → shared TypeScript types are the right tool.
+We are one system. No generation pipeline needed.
+
+---
+
 ## Rule 1: Feature-Based Folder Structure
 
 Organize by **what the code does**, not what pattern it implements.
@@ -425,3 +717,313 @@ When implementing any feature:
 ### Testing policy implication
 
 E2E tests and manual QA run in the browser first. If it works in browser, the Capacitor and Electron wrappers are low-risk. A browser-only test suite catches 80% of bugs before any native build is needed.
+
+---
+
+## Rule 10: Two Boundary Rules — Transform at the Edge, Pass Domain Inward
+
+**Raw infrastructure formats must never leak into UI components or business logic. Two hard boundaries apply to all projects.**
+
+Extra boilerplate is explicitly accepted in exchange for data-source independence and testability.
+
+---
+
+### Boundary 1: DATA BOUNDARY — Raw formats die at the edge
+
+Raw formats (JSONL lines, relay WebSocket payloads, future DB rows, API responses) must be **converted to domain types at the first file that touches them**. Nothing past that boundary knows the raw format exists.
+
+```ts
+// ❌ WRONG — JSONL type leaking into a hook
+import type { JsonlSession } from '../features/jsonl-sessions/store';
+function useAgentStatus(name: string): JsonlSession { ... }
+
+// ❌ WRONG — relay wire shape leaking into a component
+const msg = useRelayStore(s => s.messages[0]); // msg is RelayMessage, not Agent
+<MessageCard from={msg.from} body={msg.body} />
+
+// ✅ CORRECT — convert at the adapter, pass domain inward
+// adapter/jsonlAdapter.ts — only file that knows about JsonlSession
+function toAgent(raw: JsonlSession): Agent { ... }
+
+// hooks/useAgentStatus.ts — uses domain type only
+function useAgentStatus(name: string): AgentStatus { ... } // AgentStatus is a domain type
+```
+
+**What "domain type" means:** Types defined in `src/domain/` or `src/types/` that describe the business concept (Agent, Message, Session, AgentStatus) — not the storage format. JSONL-specific fields, relay wire shapes, and WebSocket protocol details are NOT domain types.
+
+**The rule in one sentence:** If a type name contains "Jsonl", "Relay", "WS", "Raw", "Wire", or references a storage mechanism, it must not appear in UI components or hooks.
+
+---
+
+### Boundary 2: PLATFORM BOUNDARY — UI knows nothing about Capacitor/Electron/Web APIs
+
+The React app (components, hooks, business logic) must not import from `@capacitor/*`, `electron`, or call `window.webkit`, `window.__electronAPI`, etc. directly. All platform access goes through `getPlatformAPI()` or equivalent adapter.
+
+This boundary is already implemented in productivitesse via `getPlatformAPI()`. **Do not break it.**
+
+---
+
+### Domain hooks as the access pattern
+
+UI components access data only through domain hooks:
+
+```ts
+// ❌ WRONG
+import { useJsonlStore } from '../features/jsonl-sessions/store';
+const sessions = useJsonlStore(s => s.sessions);
+
+// ✅ CORRECT
+import { useAgents } from '../hooks/useAgents';
+const agents = useAgents();
+```
+
+Domain hooks are thin facades: they read from stores/adapters, convert to domain types, and expose a clean interface. The UI calls hooks that call adapters — never adapters directly.
+
+**Minimum required hooks per UI project:**
+
+| Concept | Hook | Returns |
+|---|---|---|
+| Agent list | `useAgents()` | `Agent[]` |
+| Agent status | `useAgentStatus(name)` | `AgentStatus` |
+| Agent messages | `useAgentMessages(name)` | `Message[]` |
+| Relay connection | `useRelayConnection()` | `{ connected: boolean, url: string }` |
+
+---
+
+### Why these rules exist
+
+- **Data source changes cause production bugs.** When JSONL schema changes or we swap to a DB, every component that leaked the raw type breaks. With the boundary, only the adapter changes.
+- **Testability.** Components using domain hooks can be tested by mocking hooks. No stores, no WebSockets, no file watchers needed in tests.
+- **Readability.** `useAgentStatus(name)` is self-documenting. `useJsonlStore(s => s.sessions.get(id)?.agentName)` is archaeology.
+- **Swap cost.** If JSONL is replaced by a database tomorrow, zero domain or UI code changes — only the adapter.
+
+### Enforcement
+
+- Team leads reject PRs where raw infrastructure types appear in UI components or hooks
+- Coders finding a violation during a feature: fix it in the same PR (boy-scout rule)
+- New pages and hooks: domain types only, no raw format imports
+
+---
+
+## Rule 15: API Boundary Types Are MANDATORY — No Inline Casts
+
+**Every HTTP endpoint must have its request and response shapes defined as exported TypeScript types. Consumers import and use those types — never guess, never cast inline.**
+
+This is the single most common source of silent production bugs in this codebase. A wrong `as { agents: string[] }` cast compiles, ships, and crashes at runtime with zero compiler warning.
+
+### The rule
+
+**Server side (relay, any service):**
+```ts
+// message-relay/src/types/api.ts — the contract
+export interface AgentInfo {
+  name: string;
+  state: string;
+  hasChannel: boolean;
+}
+
+export interface GetAgentsResponse {
+  agents: AgentInfo[];
+}
+
+export interface SendMessageBody {
+  from: string;
+  to: string;
+  type: MessageType;
+  body: string;
+}
+```
+
+Every endpoint handler uses and returns these types. No anonymous inline shapes.
+
+**Client side (voice-bridge, productivitesse, any consumer):**
+```ts
+// ❌ WRONG — inline cast is a lie the compiler accepts
+const data = await res.json() as { agents: string[] }
+
+// ❌ WRONG — type guard without the real type
+const data = await res.json() as { agents: Array<{ name: string } | string> }
+
+// ✅ CORRECT — import the exported type from the source
+import type { GetAgentsResponse } from '@relay/types/api'
+const data = await res.json() as GetAgentsResponse
+```
+
+### For relay specifically
+
+All relay API types live in `message-relay/src/types/api.ts`. Consumers import from there. If the relay type doesn't exist yet, the coder writing the consumer also adds it to the relay types file — the consumer never owns the server's types.
+
+### No exceptions for "simple" endpoints
+
+There is no such thing as a too-simple endpoint to type. The bug that crashed voice-bridge2's settings panel was a cast of `string[]` on a response that actually returned `AgentInfo[]`. One correct type export would have prevented hours of debugging.
+
+### Enforcement
+
+- **Coders**: before writing `res.json() as`, ask — does the server export this type? If not, add the export first.
+- **Reviewers**: any `as { ... }` on a network response is an automatic review block.
+- **Team leads**: API boundary types are part of the definition of done. No feature ships with untyped network calls.
+
+### Migration (existing code)
+
+Every time a coder touches a file with an untyped network call, they add the type as part of the same PR (boy-scout rule). Full audit is a separate BACKLOG item — don't wait for it, fix on contact.
+
+---
+
+## Rule 16: Domain-Driven Design — Every Project Has a Domain Language
+
+**This system follows DDD. Domain terminology is defined explicitly and shared across all services.**
+
+### What this means in practice
+
+**Every project has a `DOMAIN.md` at its root.** This file defines:
+- The service domain and purpose
+- The ubiquitous language: all domain terms used in code, types, and communication
+- Key domain entities and value objects (what they are, not how they're implemented)
+- Domain events the context produces and consumes
+
+```markdown
+# Domain: Voice Bridge
+
+## Domain
+Voice input processing — captures spoken intent, routes it to the correct agent.
+
+## Ubiquitous Language
+| Term | Meaning |
+|---|---|
+| Wake Word | The spoken trigger phrase that starts recording |
+| Intent | A parsed command with a target agent and body |
+| Target | The named agent an intent is addressed to |
+| Transcript | Raw text output from speech-to-text |
+| Daemon | The background process listening for the wake word |
+
+## Domain Events
+- `wake_word_detected` — daemon heard the trigger phrase
+- `recording_started` / `recording_stopped` — mic state changed
+- `transcript_ready` — Whisper returned text
+- `intent_dispatched` — message routed to relay
+
+## Entities
+- **VoiceSession**: a single wake-word → record → transcribe → dispatch cycle
+- **DaemonState**: current state of the background process (idle/listening/recording/processing)
+```
+
+### Domain types live in `src/domain/`
+
+All entities, value objects, and domain events are TypeScript types in `src/domain/types.ts` (or sub-files by aggregate). Nothing outside `src/domain/` defines what a domain concept IS — they may implement or adapt it, but the definition lives here.
+
+```
+src/
+  domain/
+    types.ts        ← Agent, Message, Intent, DaemonState — the concepts
+    events.ts       ← domain event types (what the context emits)
+  adapters/
+    relay.ts        ← maps RelayMessage → domain Message (anti-corruption layer)
+    daemon.ts       ← maps daemon stdout → DaemonState
+  features/
+    voice-panel/    ← uses domain types only, never adapter types
+```
+
+### Cross-service communication = relay messages
+
+The relay IS the integration layer between services. When voice-bridge dispatches an intent to command, that is a domain event crossing a service boundary. The relay message schema is the **shared contract** — the minimal agreed interface between services.
+
+**Shared contract types live in `message-relay/src/types/api.ts`.** All services import from there when they need to speak to each other. Neither service owns the other's internal domain model.
+
+### Team coordination via domain language
+
+When teams collaborate (productivitesse + relay, voice-bridge + command), they communicate using domain terms, not implementation terms.
+
+- ❌ "The agents array in the JSON response" 
+- ✅ "The AgentInfo list from the relay registry"
+
+Team leads are responsible for establishing and maintaining the ubiquitous language in DOMAIN.md. When a term is used inconsistently across teams, the team lead resolves it in the file and broadcasts the change.
+
+### One system — one ubiquitous language
+
+**relay, productivitesse, voice-bridge, and knowledge-base are services of a single application, not separate bounded contexts.** They share one domain vocabulary. An `Agent` means the same thing everywhere. A `Message` is the same concept across all services.
+
+This is intentionally counter to DDD purist separation. The system is small, the team is unified, and divergent vocabularies between services create exactly the confusion we're solving. One language wins.
+
+**The shared domain lives at `~/environment/shared/domain/`:**
+```
+shared/
+  domain/
+    types.ts     ← Agent, Message, Intent, Session — system-wide entities
+    events.ts    ← Domain events that cross service boundaries
+    brands.ts    ← Branded primitives: AgentName, MessageBody, SessionId
+```
+
+All services import their domain types from here. The relay is not the owner of domain types — it's a service that consumes them like everyone else.
+
+```ts
+// In productivitesse, voice-bridge, relay, knowledge-base:
+import type { Agent, AgentName, Message } from '~/shared/domain/types';
+```
+
+Service-specific types (relay's routing metadata, voice-bridge's daemon state, knowledge-base's embeddings) live in each service's own `src/domain/` and extend shared types when needed — never redefine base concepts.
+
+### Type placement rules
+
+Where a type lives determines who owns it and who can use it.
+
+| Type category | Location | Examples |
+|---|---|---|
+| Cross-service wire contract | `shared/domain/` | Agent, Message, AgentName, MessageId |
+| Service-internal domain types | `src/domain/types/` | DaemonState, EmbeddingMetadata |
+| View models (UI rendering) | `src/domain/viewModels/` | AgentCardViewModel, MessagePreviewVM |
+| UI state | `src/features/*/types.ts` | DrawerState, SelectedTab, FilterConfig |
+| External data parsers | `src/data/schemas/` | Zod schemas for third-party APIs, LLM output |
+
+**The test for shared/domain/:** Does this type cross an HTTP boundary between our own services? If no, it does not belong in shared/. View models, UI state, and service-internal types live in their project.
+
+**If the backend moves to Rust or .NET:** shared/domain/ becomes the TypeScript-side generated output from an OpenAPI spec. The types don't move — only their source changes (hand-written → generated). Plan for OpenAPI if a non-TypeScript backend is on the roadmap within 1 year.
+
+### In-app types are equally mandatory
+
+API boundaries are the most visible failure point, but **in-app type discipline is the deeper issue**. Every concept inside a project must have a named type — not just the ones crossing HTTP boundaries.
+
+**No anonymous inline shapes anywhere:**
+```ts
+// ❌ WRONG — inline shape leaking through function boundaries
+function renderAgent(a: { name: string; state: string; active: boolean }) { ... }
+const agents: Array<{ name: string; micState: 'on' | 'off' }> = []
+
+// ✅ CORRECT — named domain type
+import type { Agent, AgentStatus } from '../domain/types'
+function renderAgent(agent: Agent) { ... }
+const agents: Agent[] = []
+```
+
+**Value objects get their own types:**
+```ts
+// ❌ WRONG — raw primitives with implicit meaning
+function setTarget(target: string) { ... }
+const threshold: number = 0.3
+
+// ✅ CORRECT — named value objects
+type AgentName = string & { __brand: 'AgentName' }
+type WakeThreshold = number & { __brand: 'WakeThreshold' }
+function setTarget(target: AgentName) { ... }
+```
+
+Branded types (`string & { __brand: 'X' }`) are the correct tool for value objects that are primitives under the hood. They prevent passing the wrong `string` into the wrong slot — a bug class that TypeScript's structural typing normally allows.
+
+**State machines are explicit:**
+```ts
+// ❌ WRONG — state as a raw string
+let state: string = 'idle'
+
+// ✅ CORRECT — exhaustive union
+type WakeState = 'idle' | 'listening' | 'recording' | 'processing'
+let state: WakeState = 'idle'
+```
+
+**The test:** if you delete a type and the compiler doesn't complain anywhere, the type wasn't being used — something is untyped downstream. Every type should be load-bearing.
+
+### Enforcement
+
+- New projects start with `DOMAIN.md` before any code — team lead writes it
+- PRs that introduce new domain concepts without updating `DOMAIN.md` are blocked
+- Terminology drift (same concept with two names in code) is treated as a bug, not style
+- Cross-context PRs must be reviewed by both context owners
+- **Any `string` or `number` parameter that has domain meaning gets a named type or brand** — reviewed on sight

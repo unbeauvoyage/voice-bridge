@@ -2,7 +2,7 @@
 type: proposal
 title: Testing Workflow Hardening — Layered Pre-CEO Gate
 summary: Seven-layer testing workflow + TS/ESLint hardening so features are thoroughly verified before the CEO ever opens the app. Discussed during the JSONL sessions feature rollout where a fix passed source review and unit tests but not the actual populated browser state.
-status: draft
+status: proposed
 author: agentflow-expert
 date: 2026-04-10T06:22:59
 tags: [testing, quality, workflow, typescript, eslint, playwright, nut.js, e2e]

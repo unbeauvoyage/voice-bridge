@@ -2,7 +2,7 @@
 type: proposal
 title: Rearch — testing architecture and stack direction
 summary: Stay on TS (hardened), enforce schema-at-boundary with Zod, replace unit tests with property + Playwright-against-real-fixtures, ship HTML ListGraph renderer first before any canvas library.
-status: pending
+status: proposed
 author: proposal-writer
 created: 2026-04-09T21:45:03
 priority: high

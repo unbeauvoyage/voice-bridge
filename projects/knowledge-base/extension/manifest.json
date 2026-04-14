@@ -3,7 +3,8 @@
   "name": "Knowledge Base",
   "version": "1.0",
   "description": "Save YouTube videos and web pages to your local knowledge base",
-  "permissions": ["activeTab", "tabs"],
+  "permissions": ["activeTab", "tabs", "clipboardRead", "storage"],
+  "host_permissions": ["http://127.0.0.1:3737/*"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {

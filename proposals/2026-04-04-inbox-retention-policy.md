@@ -1,9 +1,11 @@
 ---
 title: Inbox Retention Policy — Message TTL and Storage Architecture
 date: 2026-04-04
-status: pending
+status: needs-update
 author: system-lead
 ---
+
+> **NEEDS UPDATE (2026-04-13):** This proposal's implementation plan targets the old relay's `queues/{agent}.jsonl` persistence layer and `persistence.ts` (`pruneQueue`, `DELIVERED_KEEP = 50`). The lean relay eliminated the disk queue entirely — messages are no longer persisted to `queues/`. The core policy (TTL by message type, `waiting-for-input` never auto-expired, `done` expires in 48h) is still sound, but the implementation now needs to target how the productivitesse dashboard reads message history from JSONL, not a relay queue. See `2026-04-11-data-source-consolidation.md` for the new data architecture.
 
 # Inbox Retention Policy — Message TTL and Storage Architecture
 
