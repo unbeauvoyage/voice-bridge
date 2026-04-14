@@ -4,7 +4,8 @@
  * shows both outgoing voice messages and agent responses in one thread.
  */
 
-import type { SendRequest, SendResponse } from '@env/domain'
+type SendRequest = { from: string; to: string; type: string; body: string }
+type SendResponse = { id: string; status: 'delivered' | 'queued' }
 
 const RELAY_BASE_URL = process.env.RELAY_BASE_URL ?? "http://localhost:8767";
 const RELAY_URL = `${RELAY_BASE_URL}/send`;
