@@ -1,0 +1,77 @@
+/**
+ * Backend voice-bridge Bun server subprocess controller.
+ *
+ * Owns the lifecycle of the `bun run index.ts` subprocess rooted at
+ * `<serverDir>`. Stdout and stderr are pipe-forwarded to the parent
+ * Electron main process with `[server]` / `[server:err]` prefixes so
+ * operators can eyeball the Bun server output in the same terminal
+ * as the Electron shell.
+ *
+ *   - `start()` spawns `<bunBinary> run index.ts` in `<serverDir>`
+ *   - `stop()` sends SIGTERM (idempotent no-op if not running)
+ *   - `isRunning()` reports current state
+ *
+ * No domain callbacks — server exposes a HTTP listener that the rest
+ * of main talks to via `fetch` instead of piping events through IPC.
+ * That keeps this module a pure lifecycle controller.
+ *
+ * `spawnFn` is injected so tests can substitute a fake that returns
+ * an EventEmitter stub with `stdout` / `stderr` / `kill` / `killed`.
+ */
+
+import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process'
+
+type StdioTuple = Array<'ignore' | 'pipe' | 'inherit'>
+
+type SpawnLike = (
+  command: string,
+  args: readonly string[],
+  options: { cwd?: string; stdio?: StdioTuple }
+) => ChildProcess
+
+export type BackendServerConfig = {
+  bunBinary: string
+  serverDir: string
+  spawnFn?: SpawnLike
+}
+
+export type BackendServerController = {
+  start: () => void
+  stop: () => void
+  isRunning: () => boolean
+}
+
+export function createBackendServerController(cfg: BackendServerConfig): BackendServerController {
+  const spawnFn: SpawnLike =
+    cfg.spawnFn ?? ((command, args, options) => nodeSpawn(command, args, options))
+  let proc: ChildProcess | null = null
+
+  function start(): void {
+    if (proc && !proc.killed) return
+    proc = spawnFn(cfg.bunBinary, ['run', 'index.ts'], {
+      cwd: cfg.serverDir,
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    proc.on('error', (err: Error) => console.error('[server] spawn failed:', err.message))
+    proc.stdout?.on('data', (d: Buffer) => process.stdout.write(`[server] ${d.toString()}`))
+    proc.stderr?.on('data', (d: Buffer) => process.stderr.write(`[server:err] ${d.toString()}`))
+    proc.on('exit', (code: number | null) => {
+      console.log(`[server] exited ${code}`)
+      proc = null
+    })
+    console.log(`[server] started PID=${proc.pid}`)
+  }
+
+  function stop(): void {
+    if (proc) {
+      proc.kill('SIGTERM')
+      proc = null
+    }
+  }
+
+  function isRunning(): boolean {
+    return proc !== null && !proc.killed
+  }
+
+  return { start, stop, isRunning }
+}

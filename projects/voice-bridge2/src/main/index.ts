@@ -1,5 +1,4 @@
 import { app, Tray, Menu, nativeImage, BrowserWindow, ipcMain, screen } from 'electron'
-import { spawn, ChildProcess } from 'child_process'
 import * as http from 'http'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
@@ -10,6 +9,8 @@ import {
   type OverlayPayload
 } from './typeGuards'
 import { createTargetStore } from './state/targetStore'
+import { createDaemonController } from './processes/daemon'
+import { createBackendServerController } from './processes/backendServer'
 
 // Single instance lock
 if (!app.requestSingleInstanceLock()) {
@@ -23,8 +24,6 @@ app.dock?.hide()
 let tray: Tray | null = null
 let win: BrowserWindow | null = null
 let overlayWin: BrowserWindow | null = null
-let daemon: ChildProcess | null = null
-let server: ChildProcess | null = null
 let lastTrayBounds: Electron.Rectangle | undefined
 
 const OVERLAY_PORT = 47890
@@ -40,82 +39,23 @@ const VENV_PACKAGES = join(DAEMON_DIR, '.venv/lib/python3.14/site-packages')
 
 const targetStore = createTargetStore(LAST_TARGET_FILE)
 
-function startDaemon(): void {
-  if (daemon && !daemon.killed) return
-  daemon = spawn(
-    PYTHON_APP,
-    [
-      '-u',
-      WAKE_WORD_SCRIPT,
-      '--target',
-      targetStore.read(),
-      '--start-threshold',
-      '0.3',
-      '--stop-threshold',
-      '0.15'
-    ],
-    {
-      cwd: join(DAEMON_DIR, '..'),
-      env: { ...process.env, PYTHONPATH: VENV_PACKAGES },
-      stdio: ['ignore', 'pipe', 'pipe']
+const daemonController = createDaemonController({
+  pythonApp: PYTHON_APP,
+  wakeWordScript: WAKE_WORD_SCRIPT,
+  venvPackages: VENV_PACKAGES,
+  workDir: join(DAEMON_DIR, '..'),
+  readTarget: () => targetStore.read(),
+  onStateChange: (state: unknown) => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('state-change', state)
     }
-  )
-  let buffer = ''
-  daemon.stdout?.on('data', (chunk: Buffer) => {
-    buffer += chunk.toString()
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed.startsWith('{')) continue
-      try {
-        const state = JSON.parse(trimmed)
-        if (win && !win.isDestroyed()) {
-          win.webContents.send('state-change', state)
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-  })
-  daemon.stderr?.on('data', (d) => process.stderr.write(`[daemon:err] ${d}`))
-  daemon.on('exit', (code) => {
-    console.log(`[daemon] exited with code ${code}`)
-    daemon = null
-  })
-  console.log(`[daemon] started PID=${daemon.pid}`)
-}
-
-function stopDaemon(): void {
-  if (daemon) {
-    daemon.kill('SIGTERM')
-    daemon = null
   }
-}
+})
 
-function startServer(): void {
-  if (server && !server.killed) return
-  const serverDir = join(PROJECT_ROOT, 'server')
-  server = spawn('/Users/riseof/.bun/bin/bun', ['run', 'index.ts'], {
-    cwd: serverDir,
-    stdio: ['ignore', 'pipe', 'pipe']
-  })
-  server.on('error', (err: Error) => console.error('[server] spawn failed:', err.message))
-  server.stdout?.on('data', (d: Buffer) => process.stdout.write(`[server] ${d}`))
-  server.stderr?.on('data', (d: Buffer) => process.stderr.write(`[server:err] ${d}`))
-  server.on('exit', (code) => {
-    console.log(`[server] exited ${code}`)
-    server = null
-  })
-  console.log(`[server] started PID=${server.pid}`)
-}
-
-function stopServer(): void {
-  if (server) {
-    server.kill('SIGTERM')
-    server = null
-  }
-}
+const backendServerController = createBackendServerController({
+  bunBinary: '/Users/riseof/.bun/bin/bun',
+  serverDir: join(PROJECT_ROOT, 'server')
+})
 
 function createWindow(): BrowserWindow {
   const w = new BrowserWindow({
@@ -244,17 +184,17 @@ function buildMenu(): Electron.Menu {
     {
       label: 'Restart Daemon',
       click: () => {
-        stopDaemon()
-        startDaemon()
+        daemonController.stop()
+        daemonController.start()
       }
     },
-    { label: 'Stop Daemon', click: stopDaemon },
+    { label: 'Stop Daemon', click: () => daemonController.stop() },
     { type: 'separator' },
     {
       label: 'Quit',
       click: () => {
-        stopDaemon()
-        stopServer()
+        daemonController.stop()
+        backendServerController.stop()
         tray?.destroy()
         tray = null
         app.exit(0)
@@ -445,13 +385,13 @@ app.whenReady().then(() => {
   })
 
   startOverlayServer()
-  startServer()
-  startDaemon()
+  backendServerController.start()
+  daemonController.start()
 })
 
 app.on('before-quit', () => {
-  stopDaemon()
-  stopServer()
+  daemonController.stop()
+  backendServerController.stop()
   tray?.destroy()
   tray = null
 })
