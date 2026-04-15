@@ -16,6 +16,7 @@ import { spawnSync, spawn } from 'node:child_process'
 import { listWorkspaceNames } from './cmux.ts'
 import { startRelayPoller } from './relay-poller.ts'
 import { handleTranscribe, type TranscribeContext, type DedupEntry } from './routes/transcribe.ts'
+import { handleMessages, type MessagesContext } from './routes/messages.ts'
 import {
   SERVER_PORT,
   RELAY_BASE_URL_DEFAULT,
@@ -193,47 +194,9 @@ const server = Bun.serve({
     }
 
     // ── Messages proxy ────────────────────────────────────────────────────────
-    // GET /messages?agent=command — proxies relay GET /messages/:agent
     if (req.method === 'GET' && url.pathname === '/messages') {
-      const agent = url.searchParams.get('agent') || 'command'
-      const headers = { 'Access-Control-Allow-Origin': '*' }
-      try {
-        const relayRes = await fetch(`${RELAY_BASE_URL}/messages/${encodeURIComponent(agent)}`, {
-          signal: AbortSignal.timeout(RELAY_TIMEOUT_MS)
-        })
-
-        if (!relayRes.ok) {
-          const detail = await relayRes.text().catch(() => '')
-          return Response.json(
-            {
-              error: 'Relay unavailable',
-              agent,
-              relayStatus: relayRes.status,
-              detail: detail.slice(0, 200)
-            },
-            {
-              status: 502,
-              headers
-            }
-          )
-        }
-
-        const data = await relayRes.json()
-        return Response.json(data, { headers })
-      } catch (err) {
-        console.warn('[relay] messages fetch failed:', err)
-        return Response.json(
-          {
-            error: 'Relay unavailable',
-            agent,
-            detail: String(err)
-          },
-          {
-            status: 502,
-            headers
-          }
-        )
-      }
+      const ctx: MessagesContext = { relayBaseUrl: RELAY_BASE_URL }
+      return handleMessages(req, ctx)
     }
 
     // ── Mic control ──────────────────────────────────────────────────────────
