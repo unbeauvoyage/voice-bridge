@@ -22,6 +22,7 @@ import { handleStatus, type StatusContext } from './routes/status.ts'
 import { handleTarget, type TargetContext } from './routes/target.ts'
 import { handleAgents, type AgentsContext } from './routes/agents.ts'
 import { handleSettings, type SettingsContext } from './routes/settings.ts'
+import { handleWakeWord, type WakeWordContext } from './routes/wakeWord.ts'
 import {
   SERVER_PORT,
   RELAY_BASE_URL_DEFAULT,
@@ -238,41 +239,24 @@ const server = Bun.serve({
     }
 
     // ── Wake word process control ─────────────────────────────────────────────
-    // POST /wake-word/stop  — kill the wake_word.py process (closes mic, dot disappears)
-    // POST /wake-word/start — restart it
-    // GET  /wake-word       — { running: bool }
     if (url.pathname === '/wake-word' || url.pathname.startsWith('/wake-word/')) {
-      const headers = { 'Access-Control-Allow-Origin': '*' }
       const daemonDir = join(import.meta.dir, '../daemon')
-
-      function findWakeWordPid(): number | null {
-        const result = spawnSync('pgrep', ['-f', 'wake_word.py'], { encoding: 'utf8' })
-        const pid = parseInt(result.stdout.trim().split('\n')[0] ?? '', 10)
-        return isNaN(pid) ? null : pid
-      }
-
-      if (req.method === 'GET' && url.pathname === '/wake-word') {
-        return Response.json({ running: findWakeWordPid() !== null }, { headers })
-      }
-
-      if (req.method === 'POST' && url.pathname === '/wake-word/stop') {
-        const pid = findWakeWordPid()
-        if (pid) {
+      const wakeCtx: WakeWordContext = {
+        findPid: () => {
+          const result = spawnSync('pgrep', ['-f', 'wake_word.py'], { encoding: 'utf8' })
+          const pid = parseInt(result.stdout.trim().split('\n')[0] ?? '', 10)
+          return isNaN(pid) ? null : pid
+        },
+        stop: (pid: number) => {
           spawnSync('kill', [String(pid)])
-          console.log(`[wake-word] stopped (PID ${pid})`)
-        }
-        return Response.json({ running: false }, { headers })
-      }
-
-      if (req.method === 'POST' && url.pathname === '/wake-word/start') {
-        const existing = findWakeWordPid()
-        if (!existing) {
+        },
+        start: (target: string) => {
           // Replicate run_daemon.sh: use Python.app (has mic entitlements) with venv PYTHONPATH
           const pythonApp =
             '/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python'
           const script = join(daemonDir, 'wake_word.py')
           const venvPackages = join(daemonDir, '.venv/lib/python3.14/site-packages')
-          const child = spawn(pythonApp, ['-u', script, '--target', loadLastTarget()], {
+          const child = spawn(pythonApp, ['-u', script, '--target', target], {
             cwd: join(daemonDir, '..'),
             detached: true,
             stdio: 'ignore',
@@ -280,10 +264,12 @@ const server = Bun.serve({
           })
           child.on('error', (err: Error) => console.error('[wake-word] spawn failed:', err.message))
           child.unref()
-          console.log(`[wake-word] started (PID ${child.pid})`)
-        }
-        return Response.json({ running: true }, { headers })
+          console.log(`[wake-word] spawned (PID ${child.pid})`)
+        },
+        loadLastTarget
       }
+      const res = handleWakeWord(req, wakeCtx)
+      if (res) return res
     }
 
     return new Response('Not found', { status: 404 })
