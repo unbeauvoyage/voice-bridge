@@ -42,7 +42,7 @@
 | jarvis | — | workspace:12 | **Channel** | Voice communicator — routes CEO voice messages to correct agents (Haiku, lightweight) | Active — bypassPermissions, cwd: ~/environment/jarvis |
 | satellite-team | — | workspace:15 | **Channel** | Dedicated satellite visibility team — sub-agent registration → relay → 3D display | Active — bypassPermissions, cwd: ~/environment/projects/satellite-visibility |
 | ux-expert | — | workspace:8 | **Channel** | Consultant: CEO experience, dashboard UX, information architecture | Active — bypassPermissions, cwd: ~/environment |
-| system-expert | — | — | **Channel** | Consultant: system architecture, CLAUDE.md files, BACKLOG hygiene, relay design, data formats | Active — bypassPermissions, cwd: ~/environment |
+| system-expert (matrix) | — | — | — | Merged into chief-of-staff — same agent, same session | **Retired — chief-of-staff owns system-expert scope** |
 
 | chief-of-staff | d27b5433-2f32-4273-b783-aefee1654f37 | workspace:132 | **Channel** | Chief of Staff — cross-project coding manager. Owns code quality, standards, architecture (TypeScript/linting/vertical slice) across relay, productivitesse, knowledge-base and all future projects. | Active — bypassPermissions, sonnet, cwd: ~/environment |
 | cline-kanban-expert | — | workspace:17 | **Channel** | Research: Cline Kanban deep study — task model, auto-activation, agent comm, gap list, implementation plan | Active — bypassPermissions, sonnet, output: ~/.research/cline-kanban/ |

@@ -520,15 +520,32 @@ async function loadAllItems() {
   }
 }
 
+// ── Search history ────────────────────────────────────────────────────────────
+const SEARCH_HISTORY_KEY = 'searchHistory';
+const SEARCH_HISTORY_MAX = 5;
+
+function saveSearchHistory(query) {
+  if (!query.trim()) return;
+  chrome.storage.local.get([SEARCH_HISTORY_KEY], (result) => {
+    const hist = (result[SEARCH_HISTORY_KEY] || []).filter(q => q !== query);
+    hist.unshift(query);
+    chrome.storage.local.set({ [SEARCH_HISTORY_KEY]: hist.slice(0, SEARCH_HISTORY_MAX) });
+  });
+}
+
 async function runSearch(q) {
   const list = document.getElementById('items-list');
   if (!q) { applyAndRender(); return; }
   list.innerHTML = '<div class="empty-state">Searching\u2026</div>';
   try {
+    const semanticToggle = document.getElementById('semantic-toggle');
+    const isSemanticMode = semanticToggle ? semanticToggle.checked : false;
     const params = new URLSearchParams({ q });
+    if (isSemanticMode) params.set('semantic', 'true');
     const res = await fetch(`${SERVER}/search?${params}`, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     let items = await res.json();
+    saveSearchHistory(q);
     // Apply client-side tag + date filters on top of server text results
     items = applyFilters(items);
     const headingParts = [`"${q}"`];
@@ -734,11 +751,27 @@ async function openModal(id) {
   const bodyEl = document.getElementById('modal-body');
   const deleteBtn = document.getElementById('modal-delete');
   const readInAppBtn = document.getElementById('modal-read-in-app');
+  const starBtn = document.getElementById('modal-star');
+  const archiveBtn = document.getElementById('modal-archive');
 
   titleEl.textContent = 'Loading...';
   bodyEl.innerHTML = '';
   overlay.classList.add('visible');
   overlay.scrollTop = 0;
+
+  // Reset star/archive button state while loading
+  if (starBtn) {
+    starBtn.classList.remove('filled');
+    starBtn.textContent = '☆';
+    starBtn.onclick = null;
+  }
+  if (archiveBtn) {
+    archiveBtn.classList.remove('archived');
+    archiveBtn.textContent = '📦';
+    archiveBtn.setAttribute('aria-label', 'Toggle archive');
+    archiveBtn.title = 'Archive';
+    archiveBtn.onclick = null;
+  }
 
   // Wire delete button for this item
   deleteBtn.onclick = async () => {
@@ -779,6 +812,62 @@ async function openModal(id) {
     const item = await res.json();
 
     titleEl.textContent = item.title ?? id;
+
+    // Wire star (favorite) button
+    if (starBtn) {
+      const setStarState = (starred) => {
+        starBtn.classList.toggle('filled', !!starred);
+        starBtn.textContent = starred ? '⭐' : '☆';
+      };
+      setStarState(item.starred);
+      starBtn.onclick = async () => {
+        const prevStarred = starBtn.classList.contains('filled');
+        // Optimistic update
+        setStarState(!prevStarred);
+        try {
+          const r = await fetch(`${SERVER}/items/${encodeURIComponent(id)}/star`, {
+            method: 'POST',
+            signal: AbortSignal.timeout(5000),
+          });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const data = await r.json();
+          setStarState(data.starred);
+        } catch {
+          // Revert on error
+          setStarState(prevStarred);
+          setStatus('Failed to update favorite', 'error');
+        }
+      };
+    }
+
+    // Wire archive button
+    if (archiveBtn) {
+      const setArchiveState = (archived) => {
+        archiveBtn.classList.toggle('archived', !!archived);
+        archiveBtn.textContent = archived ? '📤' : '📦';
+        archiveBtn.setAttribute('aria-label', archived ? 'Unarchive' : 'Toggle archive');
+        archiveBtn.title = archived ? 'Unarchive' : 'Archive';
+      };
+      setArchiveState(item.archived);
+      archiveBtn.onclick = async () => {
+        const prevArchived = archiveBtn.classList.contains('archived');
+        // Optimistic update
+        setArchiveState(!prevArchived);
+        try {
+          const r = await fetch(`${SERVER}/items/${encodeURIComponent(id)}/archive`, {
+            method: 'POST',
+            signal: AbortSignal.timeout(5000),
+          });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const data = await r.json();
+          setArchiveState(data.archived);
+        } catch {
+          // Revert on error
+          setArchiveState(prevArchived);
+          setStatus('Failed to update archive', 'error');
+        }
+      };
+    }
 
     let html = '';
 
@@ -875,6 +964,31 @@ async function openModal(id) {
     </div>`;
 
     bodyEl.innerHTML = html;
+
+    // Notes section
+    const noteSection = document.createElement('div');
+    noteSection.className = 'modal-notes-section';
+    noteSection.innerHTML = `
+  <details class="modal-notes-details">
+    <summary class="modal-notes-toggle">📝 Notes</summary>
+    <textarea class="modal-notes-input" id="modal-notes-input" placeholder="Add a note…" rows="3">${item.notes ?? ''}</textarea>
+    <div class="modal-notes-footer">
+      <button class="modal-notes-save" id="modal-notes-save">Save note</button>
+      <span class="modal-notes-status" id="modal-notes-status"></span>
+    </div>
+  </details>`;
+    bodyEl.appendChild(noteSection);
+
+    document.getElementById('modal-notes-save').onclick = async () => {
+      const note = document.getElementById('modal-notes-input').value;
+      const res = await fetch(`${SERVER}/items/${encodeURIComponent(id)}/notes`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ notes: note })
+      });
+      const status = document.getElementById('modal-notes-status');
+      status.textContent = res.ok ? 'Saved ✓' : 'Error saving';
+      if (res.ok) setTimeout(() => { status.textContent = ''; }, 2000);
+    };
 
     // Load and display prompt used for this summary
     (async () => {
@@ -1207,6 +1321,43 @@ async function init() {
     applyAndRender();
   });
 
+  // Search history dropdown
+  const historyDropdown = document.getElementById('search-history-dropdown');
+
+  function showSearchHistory() {
+    const inp = document.getElementById('search-input');
+    if (inp.value.trim()) return; // only show when empty
+    chrome.storage.local.get([SEARCH_HISTORY_KEY], (result) => {
+      const hist = result[SEARCH_HISTORY_KEY] || [];
+      if (!hist.length) return;
+      historyDropdown.innerHTML = hist.map(q =>
+        `<li class="search-history-item" data-query="${q.replace(/"/g,'&quot;')}">${q}</li>`
+      ).join('') + `<li class="search-history-item-clear" id="clear-history">Clear history</li>`;
+      historyDropdown.hidden = false;
+      historyDropdown.querySelectorAll('.search-history-item').forEach(li => {
+        li.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          inp.value = li.dataset.query;
+          historyDropdown.hidden = true;
+          inp.dispatchEvent(new Event('input'));
+        });
+      });
+      document.getElementById('clear-history').addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        chrome.storage.local.remove(SEARCH_HISTORY_KEY);
+        historyDropdown.hidden = true;
+      });
+    });
+  }
+
+  searchInput.addEventListener('focus', showSearchHistory);
+  searchInput.addEventListener('blur', () => {
+    setTimeout(() => { historyDropdown.hidden = true; }, 200);
+  });
+  searchInput.addEventListener('input', () => {
+    if (document.getElementById('search-input').value.trim()) historyDropdown.hidden = true;
+  });
+
   // Filter bar — clear button
   document.getElementById('filter-clear-btn').addEventListener('click', clearAllFilters);
 
@@ -1258,6 +1409,22 @@ async function init() {
   if (collectionFilter) {
     collectionFilter.addEventListener('change', () => {
       applyCollectionFilter(collectionFilter.value);
+    });
+  }
+
+  // Wire semantic search toggle — restore persisted state and save changes
+  const semanticToggle = document.getElementById('semantic-toggle');
+  if (semanticToggle) {
+    chrome.storage.local.get(['semanticSearch'], (result) => {
+      if (result.semanticSearch === true) {
+        semanticToggle.checked = true;
+      }
+    });
+    semanticToggle.addEventListener('change', () => {
+      chrome.storage.local.set({ semanticSearch: semanticToggle.checked });
+      // Re-run search with new mode if there's an active query
+      const q = document.getElementById('search-input').value.trim();
+      if (q) runSearch(q);
     });
   }
 

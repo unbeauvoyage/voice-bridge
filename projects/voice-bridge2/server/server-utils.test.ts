@@ -65,8 +65,10 @@ describe('safeJsonParse behavior (via HTTP endpoints)', () => {
     // Malformed body → safeJsonParse returns {} → target field missing → 400
     expect(res.status).toBe(400)
     const body: unknown = await res.json()
-    const obj =
-      typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {}
+    const obj: Record<string, unknown> = {}
+    if (typeof body === 'object' && body !== null) {
+      Object.assign(obj, body)
+    }
     expect(obj['error']).toBe('Missing target')
   })
 
@@ -78,8 +80,10 @@ describe('safeJsonParse behavior (via HTTP endpoints)', () => {
     })
     expect(res.ok).toBe(true)
     const body: unknown = await res.json()
-    const obj =
-      typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {}
+    const obj: Record<string, unknown> = {}
+    if (typeof body === 'object' && body !== null) {
+      Object.assign(obj, body)
+    }
     expect(obj['state']).toBe('on')
   })
 
@@ -91,8 +95,10 @@ describe('safeJsonParse behavior (via HTTP endpoints)', () => {
     })
     expect(res.ok).toBe(true)
     const body: unknown = await res.json()
-    const obj =
-      typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {}
+    const obj: Record<string, unknown> = {}
+    if (typeof body === 'object' && body !== null) {
+      Object.assign(obj, body)
+    }
     expect(obj['state']).toBe('off')
   })
 })

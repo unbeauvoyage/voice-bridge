@@ -1,11 +1,27 @@
 import { test, expect } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const EXT_DIR = resolve(__dirname, '..', 'extension');
+
+// Resolve project root: works from main project dir and from worktrees
+// (.../knowledge-base/tests/ OR .../knowledge-base/.claude/worktrees/X/tests/)
+function findProjectRoot(start: string): string {
+  // Try parent dir first (normal case: knowledge-base/tests/ -> knowledge-base/)
+  const candidate1 = resolve(start, '..');
+  if (existsSync(resolve(candidate1, 'knowledge', 'knowledge.db'))) return candidate1;
+  // Try 4 levels up (worktree case: worktrees/X/tests/ -> knowledge-base/)
+  const candidate2 = resolve(start, '../../../..');
+  if (existsSync(resolve(candidate2, 'knowledge', 'knowledge.db'))) return candidate2;
+  // Fallback to parent
+  return candidate1;
+}
+const PROJECT_ROOT = findProjectRoot(__dirname);
+const SEED_SCRIPT = resolve(PROJECT_ROOT, 'tests', 'seed-youtube-item.ts');
+const DB_PATH = resolve(PROJECT_ROOT, 'knowledge', 'knowledge.db');
 
 async function loadPopup(page: import('@playwright/test').Page) {
   const popupHtml = readFileSync(resolve(EXT_DIR, 'popup.html'), 'utf8');
@@ -45,12 +61,12 @@ const SEED_ITEM_TITLE = 'Favorite Star Test Item';
 
 test.beforeAll(() => {
   execSync(
-    `bun ${resolve(__dirname, 'seed-youtube-item.ts')} seed "${SEED_ITEM_ID}" "${SEED_ITEM_URL}" "${SEED_ITEM_TITLE}"`,
+    `bun ${SEED_SCRIPT} seed "${SEED_ITEM_ID}" "${SEED_ITEM_URL}" "${SEED_ITEM_TITLE}"`,
     { timeout: 5000 },
   );
   // Ensure item starts with starred=0
   execSync(
-    `bun -e "const {Database}=require('bun:sqlite');const db=new Database('${resolve(__dirname, '..', 'knowledge', 'knowledge.db')}');db.run('UPDATE items SET starred=0 WHERE id=?',['${SEED_ITEM_ID}']);db.close()"`,
+    `bun -e "const {Database}=require('bun:sqlite');const db=new Database('${DB_PATH}');db.run('UPDATE items SET starred=0 WHERE id=?',['${SEED_ITEM_ID}']);db.close()"`,
     { timeout: 5000 },
   );
 });
@@ -58,7 +74,7 @@ test.beforeAll(() => {
 test.afterAll(() => {
   try {
     execSync(
-      `bun ${resolve(__dirname, 'seed-youtube-item.ts')} cleanup "${SEED_ITEM_ID}"`,
+      `bun ${SEED_SCRIPT} cleanup "${SEED_ITEM_ID}"`,
       { timeout: 5000 },
     );
   } catch {}

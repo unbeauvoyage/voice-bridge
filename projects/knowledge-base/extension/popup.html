@@ -280,7 +280,13 @@
       border-radius: 6px;
       padding: 0 10px;
       gap: 6px;
+      position: relative;
     }
+
+    .search-history-dropdown { position:absolute; top:100%; left:0; right:0; background:#1a1a2e; border:1px solid #2a2a4a; border-top:none; border-radius:0 0 4px 4px; list-style:none; margin:0; padding:4px 0; z-index:200; max-height:180px; overflow-y:auto; box-shadow:0 2px 6px rgba(0,0,0,.3); }
+    .search-history-dropdown li { padding:6px 12px; cursor:pointer; font-size:13px; color:#c0d0e8; }
+    .search-history-dropdown li:hover { background:#2a2a4a; }
+    .search-history-item-clear { font-size:11px; color:#506080; border-top:1px solid #2a2a4a; margin-top:4px; padding-top:6px; text-align:center; }
 
     .search-wrap:focus-within {
       border-color: #4a6fff;
@@ -325,6 +331,29 @@
 
     .search-clear:hover {
       color: #a0b0d0;
+    }
+
+    .semantic-toggle-label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      color: var(--text-faint, #888);
+      margin-left: 8px;
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    .semantic-toggle-input {
+      width: 14px;
+      height: 14px;
+      cursor: pointer;
+      accent-color: #4a6fff;
+    }
+
+    .semantic-toggle-input:checked + .semantic-toggle-text {
+      color: #93c5fd;
     }
 
     /* Filter bar */
@@ -961,6 +990,37 @@
       color: #c0d0ff;
     }
 
+    .modal-star-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 20px;
+      padding: 0 4px;
+      color: #888;
+      transition: color 0.1s, transform 0.1s;
+    }
+
+    .modal-star-btn.filled {
+      color: #f5c518;
+    }
+
+    .modal-star-btn:hover {
+      transform: scale(1.15);
+    }
+
+    .modal-archive-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 18px;
+      padding: 0 4px;
+      opacity: 0.6;
+    }
+
+    .modal-archive-btn:hover {
+      opacity: 1;
+    }
+
     .modal-delete {
       background: none;
       border: none;
@@ -1025,6 +1085,13 @@
       letter-spacing: 0.06em;
       margin-bottom: 8px;
     }
+
+    .modal-notes-section { margin-top: 14px; border-top: 1px solid var(--border, #e0e0e0); padding-top: 10px; }
+    .modal-notes-toggle { cursor: pointer; font-size: 13px; color: var(--text-faint, #888); user-select: none; }
+    .modal-notes-input { width: 100%; min-height: 64px; resize: vertical; margin-top: 6px; padding: 6px 8px; border: 1px solid var(--border, #ddd); border-radius: 4px; font-size: 13px; box-sizing: border-box; }
+    .modal-notes-footer { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+    .modal-notes-save { font-size: 12px; padding: 3px 10px; }
+    .modal-notes-status { font-size: 11px; color: #4caf50; }
 
     .modal-body {
       padding: 12px 16px 16px;
@@ -1482,6 +1549,11 @@
       <span class="search-icon">⌕</span>
       <input id="search-input" type="text" placeholder="Search titles, summaries, transcripts…" autocomplete="off" />
       <button class="search-clear" id="search-clear" title="Clear">&times;</button>
+      <ul id="search-history-dropdown" class="search-history-dropdown" hidden></ul>
+      <label class="semantic-toggle-label" title="AI-powered meaning search">
+        <input type="checkbox" id="semantic-toggle" class="semantic-toggle-input" aria-label="Toggle semantic search" />
+        <span class="semantic-toggle-text">AI Search</span>
+      </label>
     </div>
   </div>
 
@@ -1525,6 +1597,8 @@
     <div class="modal-header">
       <div class="modal-title" id="modal-title"></div>
       <div class="modal-header-actions">
+        <button class="modal-star-btn" id="modal-star" title="Favorite" aria-label="Toggle favorite">&#9734;</button>
+        <button class="modal-archive-btn" id="modal-archive" title="Archive" aria-label="Toggle archive">&#128230;</button>
         <button class="modal-delete" id="modal-delete" title="Delete item">&#128465;</button>
         <button class="modal-read-in-app" id="modal-read-in-app" title="Open in web app">Read in app &rarr;</button>
         <button class="modal-close" id="modal-close">&times;</button>

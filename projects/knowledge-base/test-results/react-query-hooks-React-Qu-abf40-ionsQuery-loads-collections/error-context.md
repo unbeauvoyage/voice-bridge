@@ -1,0 +1,458 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: react-query-hooks.spec.ts >> React Query hooks integration >> useCollectionsQuery loads collections
+- Location: tests/react-query-hooks.spec.ts:61:3
+
+# Error details
+
+```
+Error: expect(locator).toBeVisible() failed
+
+Locator: locator('[data-testid="collections-panel"]')
+Expected: visible
+Timeout: 5000ms
+Error: element(s) not found
+
+Call log:
+  - Expect "toBeVisible" with timeout 5000ms
+  - waiting for locator('[data-testid="collections-panel"]')
+
+```
+
+# Page snapshot
+
+```yaml
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - heading "Knowledge Base" [level=1] [ref=e4]
+    - generic [ref=e5]:
+      - generic [ref=e6]: ⌕
+      - 'textbox "Search… or #tag" [ref=e7]'
+      - generic [ref=e8] [cursor=pointer]:
+        - checkbox "Semantic" [ref=e9]
+        - generic [ref=e10]: Semantic
+    - generic [ref=e11]:
+      - button "All" [ref=e12] [cursor=pointer]
+      - button "Today" [ref=e13] [cursor=pointer]
+      - button "2d" [ref=e14] [cursor=pointer]
+      - button "3d" [ref=e15] [cursor=pointer]
+      - button "4d" [ref=e16] [cursor=pointer]
+      - button "★ Starred" [ref=e17] [cursor=pointer]
+      - button "📚 Study Later" [ref=e18]
+      - button "📦 Archived" [ref=e19] [cursor=pointer]
+    - button "⚑ 230 pending (+ 17 suggestions)" [ref=e20] [cursor=pointer]
+    - button "+ Bulk Add" [ref=e21] [cursor=pointer]
+    - button "Tags" [ref=e22] [cursor=pointer]
+    - button "📁 Collections" [ref=e23] [cursor=pointer]
+    - button "🔖 Presets" [ref=e25] [cursor=pointer]
+    - button "Export" [ref=e27] [cursor=pointer]
+    - button "☀️" [ref=e28] [cursor=pointer]
+    - button "📊" [ref=e29]
+    - button "⚙" [ref=e30] [cursor=pointer]
+    - button "⚙ Queue" [ref=e31] [cursor=pointer]
+    - button "?" [ref=e32] [cursor=pointer]
+  - generic [ref=e33]:
+    - generic [ref=e34]: ⚠️ Ollama is not running — new items cannot be summarized. Start Ollama to resume processing.
+    - button "Dismiss" [ref=e35] [cursor=pointer]
+  - generic [ref=e36]:
+    - generic [ref=e37] [cursor=pointer]:
+      - generic [ref=e38]: 📚 27/3 today
+      - generic [ref=e39]: 🔥 6 day streak
+    - 'generic "Daily goal: 27 of 3" [ref=e40]'
+    - generic [ref=e42] [cursor=pointer]: Sources
+  - generic [ref=e43]:
+    - generic [ref=e44]:
+      - generic [ref=e45]:
+        - generic [ref=e46]: 26 items
+        - combobox "Sort order" [ref=e47] [cursor=pointer]:
+          - option "Newest first" [selected]
+          - option "Oldest first"
+          - option "Recently read"
+          - option "Highest rated"
+          - option "Most starred"
+          - option "Title A→Z"
+          - option "Title Z→A"
+      - generic [ref=e48]:
+        - generic [ref=e49]:
+          - button "All" [ref=e50] [cursor=pointer]
+          - button "YouTube" [ref=e51] [cursor=pointer]
+          - button "Web" [ref=e52] [cursor=pointer]
+          - button "PDF" [ref=e53] [cursor=pointer]
+        - button "Unread" [ref=e54] [cursor=pointer]
+      - generic [ref=e57] [cursor=pointer]:
+        - generic [ref=e58]:
+          - generic [ref=e59]: 🌐
+          - generic [ref=e60]: Raise Popup Test Item
+          - button "🔗" [ref=e61]
+          - button "☆" [ref=e62]
+          - button "📌" [ref=e63]
+          - button "🗑" [ref=e64]
+        - generic "Apr 18, 2026" [ref=e66]: "-2d ago"
+      - generic [ref=e69] [cursor=pointer]:
+        - generic [ref=e70]:
+          - generic [ref=e71]: 🌐
+          - generic [ref=e72]: Raise Popup Test Item
+          - button "🔗" [ref=e73]
+          - button "★" [ref=e74]
+          - button "📌" [ref=e75]
+          - button "🗑" [ref=e76]
+        - generic "Apr 18, 2026" [ref=e78]: "-2d ago"
+      - generic [ref=e81] [cursor=pointer]:
+        - generic [ref=e82]:
+          - generic [ref=e83]: 🌐
+          - generic [ref=e84]: Raise Popup Test Item
+          - button "🔗" [ref=e85]
+          - button "☆" [ref=e86]
+          - button "📌" [ref=e87]
+          - button "🗑" [ref=e88]
+        - generic "Apr 18, 2026" [ref=e90]: "-2d ago"
+      - generic [ref=e93] [cursor=pointer]:
+        - generic [ref=e94]:
+          - generic [ref=e95]: 🌐
+          - generic [ref=e96]: Raise Popup Test Item
+          - button "🔗" [ref=e97]
+          - button "★" [ref=e98]
+          - button "📌" [ref=e99]
+          - button "🗑" [ref=e100]
+        - generic "Apr 18, 2026" [ref=e102]: "-2d ago"
+      - generic [ref=e105] [cursor=pointer]:
+        - generic [ref=e106]:
+          - generic [ref=e107]: 🌐
+          - generic [ref=e108]: Raise Popup Test Item
+          - button "🔗" [ref=e109]
+          - button "☆" [ref=e110]
+          - button "📌" [ref=e111]
+          - button "🗑" [ref=e112]
+        - generic "Apr 18, 2026" [ref=e114]: "-2d ago"
+      - generic [ref=e117] [cursor=pointer]:
+        - generic [ref=e118]:
+          - generic [ref=e119]: ▶
+          - generic [ref=e120]: How to Build Claude Agent Teams Better Than 99% of People
+          - button "🔗" [ref=e121]
+          - button "☆" [ref=e122]
+          - button "📌" [ref=e123]
+          - button "🗑" [ref=e124]
+        - generic [ref=e125]:
+          - generic "Mar 23, 2026" [ref=e126]: 3w ago
+          - generic [ref=e127]: AI Development
+      - generic [ref=e130] [cursor=pointer]:
+        - generic [ref=e131]:
+          - generic [ref=e132]: ▶
+          - generic [ref=e133]: The REAL Reason Scientists Know We&#39;re In A Simulation
+          - button "🔗" [ref=e134]
+          - button "☆" [ref=e135]
+          - button "📌" [ref=e136]
+          - button "🗑" [ref=e137]
+        - generic [ref=e138]:
+          - generic "Dec 20, 2025" [ref=e139]: 3mo ago
+          - generic [ref=e140]: Artificial Intelligence
+      - generic [ref=e143] [cursor=pointer]:
+        - generic [ref=e144]:
+          - generic [ref=e145]: ▶
+          - generic [ref=e146]: "INDUSTRY ALERT: Apple co-founder drops BLUNT warning on the future of AI"
+          - button "🔗" [ref=e147]
+          - button "☆" [ref=e148]
+          - button "📌" [ref=e149]
+          - button "🗑" [ref=e150]
+        - generic [ref=e151]:
+          - generic "Mar 23, 2026" [ref=e152]: 3w ago
+          - generic [ref=e153]: Artificial Intelligence
+      - generic [ref=e156] [cursor=pointer]:
+        - generic [ref=e157]:
+          - generic [ref=e158]: ▶
+          - generic [ref=e159]: Claude Code is unusable now
+          - button "🔗" [ref=e160]
+          - button "☆" [ref=e161]
+          - button "📌" [ref=e162]
+          - button "🗑" [ref=e163]
+        - generic [ref=e164]:
+          - generic "Apr 5, 2026" [ref=e165]: 1w ago
+          - generic [ref=e166]: AI
+      - generic [ref=e169] [cursor=pointer]:
+        - generic [ref=e170]:
+          - generic [ref=e171]: ▶
+          - generic [ref=e172]: How to Reverse Engineer Your Competitor&#39;s ASO Strategy With RespectASO
+          - button "🔗" [ref=e173]
+          - button "☆" [ref=e174]
+          - button "📌" [ref=e175]
+          - button "🗑" [ref=e176]
+        - generic [ref=e177]:
+          - generic "Apr 6, 2026" [ref=e178]: 1w ago
+          - generic [ref=e179]: AI Development
+      - generic [ref=e182] [cursor=pointer]:
+        - generic [ref=e183]:
+          - generic [ref=e184]: 🌐
+          - generic [ref=e185]: Artificial intelligence | MIT Technology Review
+          - button "🔗" [ref=e186]
+          - button "☆" [ref=e187]
+          - button "📌" [ref=e188]
+          - button "🗑" [ref=e189]
+        - generic "Apr 11, 2026" [ref=e191]: 5d ago
+      - generic [ref=e194] [cursor=pointer]:
+        - generic [ref=e195]:
+          - generic [ref=e196]: 🌐
+          - generic [ref=e197]: Tech
+          - button "🔗" [ref=e198]
+          - button "☆" [ref=e199]
+          - button "📌" [ref=e200]
+          - button "🗑" [ref=e201]
+        - generic [ref=e202]:
+          - generic "Apr 14, 2026" [ref=e203]: yesterday
+          - generic [ref=e204]: Artificial Intelligence
+      - generic [ref=e207] [cursor=pointer]:
+        - generic [ref=e208]:
+          - generic [ref=e209]: 🌐
+          - generic [ref=e210]: "Category: AI"
+          - button "🔗" [ref=e211]
+          - button "☆" [ref=e212]
+          - button "📌" [ref=e213]
+          - button "🗑" [ref=e214]
+        - generic "Apr 14, 2026" [ref=e216]: yesterday
+      - generic [ref=e219] [cursor=pointer]:
+        - generic [ref=e220]:
+          - generic [ref=e221]: 🌐
+          - generic [ref=e222]: AI News & Artificial Intelligence | TechCrunch
+          - button "🔗" [ref=e223]
+          - button "☆" [ref=e224]
+          - button "📌" [ref=e225]
+          - button "🗑" [ref=e226]
+        - generic [ref=e227]:
+          - generic "Apr 15, 2026" [ref=e228]: today
+          - generic [ref=e229]: AI
+      - generic [ref=e232] [cursor=pointer]:
+        - generic [ref=e233]:
+          - generic [ref=e234]: 🌐
+          - generic [ref=e235]: BBC Technology | Technology, Health, Environment, AI
+          - button "🔗" [ref=e236]
+          - button "☆" [ref=e237]
+          - button "📌" [ref=e238]
+          - button "🗑" [ref=e239]
+        - generic [ref=e240]:
+          - generic "Apr 11, 2026" [ref=e241]: 5d ago
+          - generic [ref=e242]: Artificial Intelligence
+      - generic [ref=e245] [cursor=pointer]:
+        - generic [ref=e246]:
+          - generic [ref=e247]: 🌐
+          - generic [ref=e248]: Artificial Intelligence
+          - button "🔗" [ref=e249]
+          - button "☆" [ref=e250]
+          - button "📌" [ref=e251]
+          - button "🗑" [ref=e252]
+        - generic [ref=e253]:
+          - generic "Apr 15, 2026" [ref=e254]: today
+          - generic [ref=e255]: Artificial Intelligence
+      - generic [ref=e258] [cursor=pointer]:
+        - generic [ref=e259]:
+          - generic [ref=e260]: 🌐
+          - generic [ref=e261]: 50 Claude Code Tips & Tricks for Smoother Daily Coding in 2026
+          - button "🔗" [ref=e262]
+          - button "☆" [ref=e263]
+          - button "📌" [ref=e264]
+          - button "🗑" [ref=e265]
+        - generic [ref=e266]:
+          - generic "Feb 18, 2026" [ref=e267]: 1mo ago
+          - generic [ref=e268]: Claude Code
+      - generic [ref=e271] [cursor=pointer]:
+        - generic [ref=e272]:
+          - generic [ref=e273]: 🌐
+          - generic [ref=e274]: How and when to use subagents in Claude Code
+          - button "🔗" [ref=e275]
+          - button "☆" [ref=e276]
+          - button "📌" [ref=e277]
+          - button "🗑" [ref=e278]
+        - generic [ref=e279]:
+          - generic "Apr 7, 2020" [ref=e280]: 6y ago
+          - generic [ref=e281]: AI Development
+      - generic [ref=e284] [cursor=pointer]:
+        - generic [ref=e285]:
+          - generic [ref=e286]: ▶
+          - generic [ref=e287]: 1983-01-17 A18-08 İmtihandayız, ama hayat bazen çok zorlaşıyor, ne yapabiliriz?
+          - button "🔗" [ref=e288]
+          - button "★" [ref=e289]
+          - button "📌" [ref=e290]
+          - button "🗑" [ref=e291]
+        - generic "Apr 1, 2026" [ref=e293]: 2w ago
+      - generic [ref=e296] [cursor=pointer]:
+        - generic [ref=e297]:
+          - generic [ref=e298]: ▶
+          - generic [ref=e299]: 【開発効率が爆上がり】Claude Codeの新機能「カスタムサブエージェント」がスゴすぎる！
+          - button "🔗" [ref=e300]
+          - button "☆" [ref=e301]
+          - button "📌" [ref=e302]
+          - button "🗑" [ref=e303]
+        - generic [ref=e304]:
+          - generic "Jul 25, 2025" [ref=e305]: 8mo ago
+          - generic [ref=e306]: Claude Code
+      - generic [ref=e309] [cursor=pointer]:
+        - generic [ref=e310]:
+          - generic [ref=e311]: ▶
+          - generic [ref=e312]: Elon Knew the Secret to AGI All Along
+          - button "🔗" [ref=e313]
+          - button "★" [ref=e314]
+          - button "📌" [ref=e315]
+          - button "🗑" [ref=e316]
+        - generic [ref=e317]:
+          - generic "Mar 29, 2026" [ref=e318]: 2w ago
+          - generic [ref=e319]: Artificial Intelligence
+      - generic [ref=e322] [cursor=pointer]:
+        - generic [ref=e323]:
+          - generic [ref=e324]: ▶
+          - generic [ref=e325]: You&#39;re NOT Ready For What&#39;s Coming...
+          - button "🔗" [ref=e326]
+          - button "★" [ref=e327]
+          - button "📌" [ref=e328]
+          - button "🗑" [ref=e329]
+        - generic "Mar 30, 2026" [ref=e331]: 2w ago
+      - generic [ref=e334] [cursor=pointer]:
+        - generic [ref=e335]:
+          - generic [ref=e336]: ▶
+          - generic [ref=e337]: Don’t Buy a New Computer in 2026! (Even for AI Use – Here’s Why)
+          - button "🔗" [ref=e338]
+          - button "★" [ref=e339]
+          - button "📌" [ref=e340]
+          - button "🗑" [ref=e341]
+        - generic [ref=e342]:
+          - generic "Apr 1, 2026" [ref=e343]: 2w ago
+          - generic [ref=e344]: AI Development
+      - generic [ref=e347] [cursor=pointer]:
+        - generic [ref=e348]:
+          - generic [ref=e349]: ▶
+          - generic [ref=e350]: Why You Should Bet Your Career on Local AI
+          - button "🔗" [ref=e351]
+          - button "☆" [ref=e352]
+          - button "📌" [ref=e353]
+          - button "🗑" [ref=e354]
+        - generic [ref=e355]:
+          - generic "Mar 30, 2026" [ref=e356]: 2w ago
+          - generic [ref=e357]: AI
+      - generic [ref=e360] [cursor=pointer]:
+        - generic [ref=e361]:
+          - generic [ref=e362]: ▶
+          - generic [ref=e363]: What JAPAN Did for Ukraine Is INSANE… Putin Just Became POWERLESS
+          - button "🔗" [ref=e364]
+          - button "☆" [ref=e365]
+          - button "📌" [ref=e366]
+          - button "🗑" [ref=e367]
+        - generic [ref=e368]:
+          - generic "Apr 9, 2026" [ref=e369]: 6d ago
+          - generic [ref=e370]: AI
+      - generic [ref=e373] [cursor=pointer]:
+        - generic [ref=e374]:
+          - generic [ref=e375]: 🌐
+          - generic [ref=e376]: Example Domain
+          - button "🔗" [ref=e377]
+          - button "☆" [ref=e378]
+          - button "📌" [ref=e379]
+          - button "🗑" [ref=e380]
+        - generic [ref=e381]:
+          - generic "Apr 10, 2026" [ref=e382]: 5d ago
+          - generic [ref=e383]: Software Development
+    - generic [ref=e386]:
+      - generic [ref=e387]: ←
+      - text: Select an item to read
+```
+
+# Test source
+
+```ts
+  1  | /**
+  2  |  * react-query-hooks.spec.ts - Verify React Query hooks work correctly
+  3  |  *
+  4  |  * This is a system test that validates:
+  5  |  * 1. QueryClient is properly instantiated
+  6  |  * 2. Each Layer 1 hook fetches data and caches correctly
+  7  |  * 3. Features can import hooks from their public API without direct access to generated hooks
+  8  |  *
+  9  |  * Per data-architecture.md:
+  10 |  * - Components never import from data/apiClient/generated
+  11 |  * - Components only import from features/star/index.ts
+  12 |  * - Each feature re-exports its hooks via index.ts
+  13 |  */
+  14 | import { test, expect } from '@playwright/test';
+  15 | 
+  16 | const BASE = 'http://127.0.0.1:3737';
+  17 | 
+  18 | test.describe('React Query hooks integration', () => {
+  19 |   test('QueryClient is initialized and app is wrapped', async ({ page }) => {
+  20 |     // Load the app
+  21 |     await page.goto(BASE + '/');
+  22 | 
+  23 |     // App should render without React Query errors
+  24 |     await expect(page.locator('[data-testid="item-list"]')).toBeVisible({ timeout: 10_000 });
+  25 |   });
+  26 | 
+  27 |   test('useItemsQuery loads and displays items from cache', async ({ page }) => {
+  28 |     await page.goto(BASE + '/');
+  29 | 
+  30 |     // Items should appear
+  31 |     await expect(page.locator('[data-testid="item-list"]')).toBeVisible({ timeout: 10_000 });
+  32 |     const cards = page.locator('.item-card');
+  33 |     const count1 = await cards.count();
+  34 |     expect(count1).toBeGreaterThan(0);
+  35 | 
+  36 |     // Navigate away and back — items should load from React Query cache (faster)
+  37 |     await page.goto(BASE + '/ingest');
+  38 |     await page.goBack();
+  39 | 
+  40 |     // Items should still be there from cache
+  41 |     await expect(page.locator('[data-testid="item-list"]')).toBeVisible({ timeout: 5_000 });
+  42 |     const count2 = await cards.count();
+  43 |     expect(count2).toEqual(count1);
+  44 |   });
+  45 | 
+  46 |   test('useTagsQuery loads tags without direct api.getTags() calls in components', async ({ page }) => {
+  47 |     await page.goto(BASE + '/');
+  48 |     await expect(page.locator('[data-testid="item-list"]')).toBeVisible({ timeout: 10_000 });
+  49 | 
+  50 |     // Open tags panel
+  51 |     const tagsBtn = page.locator('button[aria-label="Tags"]');
+  52 |     await expect(tagsBtn).toBeVisible();
+  53 |     await tagsBtn.click();
+  54 | 
+  55 |     // Tags should load via React Query
+  56 |     await expect(page.locator('[data-testid="tags-panel"]')).toBeVisible({ timeout: 5_000 });
+  57 |     const tags = page.locator('.tag-item');
+  58 |     expect(await tags.count()).toBeGreaterThan(0);
+  59 |   });
+  60 | 
+  61 |   test('useCollectionsQuery loads collections', async ({ page }) => {
+  62 |     await page.goto(BASE + '/');
+  63 |     await expect(page.locator('[data-testid="item-list"]')).toBeVisible({ timeout: 10_000 });
+  64 | 
+  65 |     // Collections should be visible from React Query hook
+> 66 |     await expect(page.locator('[data-testid="collections-panel"]')).toBeVisible({ timeout: 5_000 });
+     |                                                                     ^ Error: expect(locator).toBeVisible() failed
+  67 |   });
+  68 | 
+  69 |   test('useReadingStatsQuery loads reading statistics', async ({ page }) => {
+  70 |     await page.goto(BASE + '/');
+  71 |     await expect(page.locator('[data-testid="item-list"]')).toBeVisible({ timeout: 10_000 });
+  72 | 
+  73 |     // Stats panel should load reading stats via React Query
+  74 |     const statsBtn = page.locator('button[aria-label="Stats"]');
+  75 |     await expect(statsBtn).toBeVisible();
+  76 |     await statsBtn.click();
+  77 | 
+  78 |     await expect(page.locator('[data-testid="stats-panel"]')).toBeVisible({ timeout: 5_000 });
+  79 |   });
+  80 | 
+  81 |   test('useQueueLogQuery polls for queue updates', async ({ page }) => {
+  82 |     await page.goto(BASE + '/');
+  83 |     await expect(page.locator('[data-testid="item-list"]')).toBeVisible({ timeout: 10_000 });
+  84 | 
+  85 |     // Queue log should be available via React Query hook
+  86 |     const queueBtn = page.locator('button[aria-label="Queue"]');
+  87 |     if (await queueBtn.isVisible()) {
+  88 |       await queueBtn.click();
+  89 |       await expect(page.locator('[data-testid="queue-panel"]')).toBeVisible({ timeout: 5_000 });
+  90 |     }
+  91 |   });
+  92 | });
+  93 | 
+```

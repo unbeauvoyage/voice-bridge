@@ -125,9 +125,32 @@ A captured article, video, or note in the knowledge-base.
     notes?: string         // POST /items/:id/notes
     rating?: number        // 1-5, POST /items/:id/rate
     collections?: string[] // collection IDs (many-to-many via collection_items)
+
+    // Extraction + classification fields (KB production schema, ratified 2026-04-16)
+    type: 'article' | 'youtube' | 'pdf' | 'twitter'  // KnowledgeItemType discriminator
+    author?: string
+    tldr?: string[]                // LLM-generated bullet points
+    sections?: KnowledgeSection[]  // { title: string; points: string[] }[]
+    error?: string                 // processing error message
+    readAt?: string                // ISO timestamp, null if unread
+    publishedAt?: string           // ISO timestamp from source
+    pinned?: boolean
+    studyLater?: boolean
+    feedId?: string                // RSS feed source id
+    feedName?: string
+    imageUrl?: string
+    summaryModel?: string          // e.g. 'gemma4:26b'
+  }
+
+  type KnowledgeSection = {
+    title: string
+    points: string[]
   }
   ```
 - **Note:** `semantic` is a UI search-mode flag, NOT a KnowledgeEntry field. Lives in UI store, not the entity.
+- **Note:** KB stores extracted text in `body`. Older code used `transcript` — `transcript` is deprecated; new code MUST use `body`.
+- **Note:** `sourceUrl` is canonical (not `url`). DB column `date_added` is legacy and will migrate to `created_at` — JS field `createdAt` already matches canonical.
+- **Status enum** (closed): `'queued' | 'processing' | 'done' | 'error'`. DB values confirmed 2026-04-16 via runtime audit; earlier TS variants (`pending`, `ready`) were dead code and removed.
 
 ### Feature (subject to rename → Service, see proposals/2026-04-15-features-vs-services-naming.md)
 A self-contained slice of business logic exposing a public API via `index.ts`.
