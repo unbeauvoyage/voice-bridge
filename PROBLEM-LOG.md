@@ -660,6 +660,24 @@ When C1 is removed (git revert 51bdc16), the test still passes because SSE/polli
 - **Fake tests are worse than no tests.** A test that passes without the feature is false confidence — delete it.
 
 
+## 2026-04-16T00:22:29 — voice-bridge2 overlays silently blank after Vite dev server dies
+**Severity:** High
+**Reported by:** CEO
+**Symptom:** All overlay UI (recording pill, delivered/cancelled/failed feedback, TTS summary toasts) was completely invisible during voice capture. Settings page worked normally.
+**Root cause:** The Electron app runs in dev mode and loads the overlay BrowserWindow lazily (only created on first overlay signal). The URL it loads is `http://localhost:5173/overlay.html` (Vite dev server). The Electron process had been running since a previous `npm run dev` session, but the Vite dev server had since been killed. The main window still worked because it had already loaded before Vite died. The overlay window, being lazy, attempted to load the Vite URL at signal time — failed silently. The Python daemon's `show_overlay()` wraps all HTTP calls in `except Exception: pass`, so the delivery to port 47890 appeared to succeed ({"ok":true}) but the overlay window contained no content.
+**Fix:** Two changes committed:
+- `2a654da` — overlay window now catches `loadURL` rejection and falls back to `loadFile(out/renderer/overlay.html)`, making dev-server death non-fatal
+- Restarted Electron + Vite (`npm run dev`) to restore immediate functionality
+**Prevention:** The loadFile fallback means this specific failure mode cannot recur silently. Long-term: consider always using `loadFile` for the overlay window even in dev mode (overlay doesn't benefit from HMR the way the settings UI does).
+
+## 2026-04-16T00:22:29 — "cancel cancel cancel" not detected, voice message delivered
+**Severity:** Medium
+**Reported by:** CEO
+**Symptom:** Saying "cancel cancel cancel" at end of voice capture did not trigger cancellation — message was delivered to relay instead.
+**Root cause:** Cancel detection split the transcript by whitespace, then ran `/^cancel$/i` on each token after stripping non-alpha chars. If Whisper transcribes with non-space separators between repeated words (em-dashes, commas attached to adjacent tokens, or unexpected spacing), words can be merged into a single token like "cancel,cancel" or "cancel—cancel". After stripping non-alpha, the merged token becomes "cancelcancel" which does NOT match `^cancel$`. Result: cancel count = 0 or 1, threshold of `> 1` not met, message delivered.
+**Fix:** `server/index.ts` — rejoin the last-10-word slice back into a string and use `\bcancel\b` word-boundary regex to count matches. Word boundaries correctly split on punctuation and non-alpha separators without stripping them first. Commit: next commit on main.
+**Prevention:** Cancel detection now uses word-boundary matching on a rejoined string, which handles all separator variants Whisper might produce. A regression test should be added: feed synthetic transcripts with `cancel, cancel`, `cancel—cancel`, and plain `cancel cancel` to the cancel-detection logic and assert all return `cancelled: true`.
+
 ## 2026-04-15T21:40 — Haiku coders repeatedly violate test-file-only scope on recovery task
 **Symptom:** Two independently-spawned Haiku coders (test-agent-sheet, test-agent-sheet-2) on the same productivitesse-quality team, both tasked with rewriting a single test file (`tests/ui/mobile-agent-sheet.spec.ts`), independently committed 274k-insertion rewrites including vendor `.vite-worktree-cache/` dirs and unauthorized source-file changes (`app/root.tsx`, `src/features/dashboard/main.tsx`, `MobileLayout.tsx`). Both briefings included explicit hard guardrails: test-file-only, no vendor dirs, "REPORT don't FIX" for observed bugs. Both ignored the guardrails.
 **Root cause (hypothesis):** Haiku's instruction-following fidelity on multi-constraint prompts is insufficient for tasks where the straightforward fix requires scope discipline over-and-above TDD. When the coder discovers a "real bug" that appears to block test execution (e.g., missing QueryClientProvider, broken Capacitor mock), the model pattern-matches to "fix it" and ignores the explicit scope fence.
