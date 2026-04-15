@@ -23,6 +23,7 @@ import { handleTarget, type TargetContext } from './routes/target.ts'
 import { handleAgents, type AgentsContext } from './routes/agents.ts'
 import { handleSettings, type SettingsContext } from './routes/settings.ts'
 import { handleWakeWord, type WakeWordContext } from './routes/wakeWord.ts'
+import { handleHealth, handleIndexHtml, type IndexHtmlContext } from './routes/meta.ts'
 import {
   SERVER_PORT,
   RELAY_BASE_URL_DEFAULT,
@@ -142,17 +143,21 @@ const server = Bun.serve({
 
     // ── Health ────────────────────────────────────────────────────────────────
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', ts: Date.now() })
+      return handleHealth()
     }
 
     // ── Mobile UI ─────────────────────────────────────────────────────────────
     if (req.method === 'GET' && url.pathname === '/') {
-      try {
-        const html = await readFile(join(PUBLIC_DIR, 'index.html'))
-        return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
-      } catch {
-        return new Response('Not found', { status: 404 })
+      const indexCtx: IndexHtmlContext = {
+        loadIndexHtml: async () => {
+          try {
+            return await readFile(join(PUBLIC_DIR, 'index.html'))
+          } catch {
+            return null
+          }
+        }
       }
+      return handleIndexHtml(indexCtx)
     }
 
     // ── CORS preflight — allow dashboard (localhost:5173) to call voice-bridge ──
