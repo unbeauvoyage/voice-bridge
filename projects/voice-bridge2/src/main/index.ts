@@ -1,13 +1,14 @@
 import { app, Tray, Menu, nativeImage, BrowserWindow, ipcMain, screen } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
-import { isMicResponse, isAgentsResponse, type OverlayPayload } from './typeGuards'
+import { type OverlayPayload } from './typeGuards'
 import { createTargetStore } from './state/targetStore'
 import { createDaemonController } from './processes/daemon'
 import { createBackendServerController } from './processes/backendServer'
 import { createOverlayServerController } from './overlay/overlayServer'
 import { createOverlayManager } from './overlay/overlayWindow'
 import { createMainWindowManager } from './windows/mainWindow'
+import { registerIpcHandlers } from './ipc'
 
 // Single instance lock
 if (!app.requestSingleInstanceLock()) {
@@ -205,53 +206,11 @@ function showOverlay(payload: OverlayPayload): void {
 
 // ── IPC handlers ─────────────────────────────────────────────────────────────
 
-ipcMain.handle('get-status', async () => {
-  const target = targetStore.read()
-  try {
-    const res = await fetch('http://127.0.0.1:3030/mic')
-    if (res.ok) {
-      const data: unknown = await res.json()
-      if (isMicResponse(data)) {
-        return { target, micState: data.state }
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  return { target, micState: 'on' as const }
-})
-
-ipcMain.handle('set-target', (_event, { target }: { target: string }) => {
-  targetStore.save(target)
-  void fetch('http://127.0.0.1:3030/target', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ target })
-  }).catch(() => {})
-})
-
-ipcMain.on('hide-window', () => {
-  console.log('[ipc] hide-window from renderer')
-  mainWindowManager.hide()
-})
-
-ipcMain.handle('show-overlay', (_event, payload: OverlayPayload) => {
-  showOverlay(payload)
-})
-
-ipcMain.handle('get-agents', async () => {
-  try {
-    const res = await fetch('http://127.0.0.1:3030/agents', { signal: AbortSignal.timeout(2000) })
-    if (res.ok) {
-      const data: unknown = await res.json()
-      if (isAgentsResponse(data)) {
-        return data.agents.map((a) => (typeof a === 'string' ? a : a.name))
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  return ['command', 'chief-of-staff', 'productivitesse']
+registerIpcHandlers(ipcMain, {
+  fetchFn: fetch,
+  targetStore,
+  hideMainWindow: () => mainWindowManager.hide(),
+  showOverlay: (payload) => showOverlay(payload)
 })
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
