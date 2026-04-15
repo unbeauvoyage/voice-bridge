@@ -1,4 +1,5 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
+import { useSettingsStore } from '../../../stores/settingsStore'
 import { type Settings, isPartialSettings, DEFAULT_SETTINGS, SERVER } from '../../../shared/types'
 
 type UseSettingsResult = {
@@ -8,6 +9,8 @@ type UseSettingsResult = {
 
 export function useSettings(): UseSettingsResult {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
+  const storeSetSettings = useSettingsStore((s) => s.setSettings)
+  const storeUpdateSetting = useSettingsStore((s) => s.updateSetting)
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const saveSettings = useCallback((patch: Partial<Settings>): void => {
@@ -29,12 +32,17 @@ export function useSettings(): UseSettingsResult {
     <K extends keyof Settings>(key: K, value: Settings[K]): void => {
       setSettings((s) => {
         const next = { ...s, [key]: value }
+        storeUpdateSetting(key, value)
         saveSettings({ [key]: value })
         return next
       })
     },
-    [saveSettings],
+    [storeUpdateSetting, saveSettings],
   )
+
+  useEffect(() => {
+    storeSetSettings(settings)
+  }, [settings, storeSetSettings])
 
   return { settings, updateSetting }
 }
@@ -42,18 +50,19 @@ export function useSettings(): UseSettingsResult {
 export function useLoadSettings(
   setSettings: React.Dispatch<React.SetStateAction<Settings>>,
 ): void {
-  // Load initial settings from server — called once on mount via useEffect in consumer
-  void (async () => {
-    try {
-      const res = await fetch(`${SERVER}/settings`)
-      if (res.ok) {
-        const data: unknown = await res.json()
-        if (isPartialSettings(data)) {
-          setSettings((s) => ({ ...s, ...data }))
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch(`${SERVER}/settings`)
+        if (res.ok) {
+          const data: unknown = await res.json()
+          if (isPartialSettings(data)) {
+            setSettings((s) => ({ ...s, ...data }))
+          }
         }
+      } catch {
+        /* ignore */
       }
-    } catch {
-      /* ignore */
-    }
-  })()
+    })()
+  }, [setSettings])
 }

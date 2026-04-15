@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useWakeStore } from '../../../stores/wakeStore'
 import { type DaemonState, isStatusResponse, SERVER } from '../../../shared/types'
 
 type UseWakeStateResult = {
@@ -15,6 +16,12 @@ const DEFAULT_STATE: DaemonState = {
 
 export function useWakeState(): UseWakeStateResult {
   const [state, setState] = useState<DaemonState>(DEFAULT_STATE)
+  const setDaemonState = useWakeStore((s) => s.setDaemonState)
+
+  // Sync state to store
+  useEffect(() => {
+    setDaemonState(state)
+  }, [state, setDaemonState])
 
   // Subscribe to IPC state changes from main process (wake word events)
   useEffect(() => {
