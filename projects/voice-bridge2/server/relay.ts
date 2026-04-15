@@ -4,15 +4,17 @@
  * shows both outgoing voice messages and agent responses in one thread.
  */
 
+import { RELAY_BASE_URL_DEFAULT, RELAY_SEND_TIMEOUT_MS } from './config.ts'
+
 type SendRequest = { from: string; to: string; type: string; body: string }
 
 function isRelayResponse(value: unknown): value is { status: string } {
   return typeof value === 'object' && value !== null && 'status' in value
 }
 
-const RELAY_BASE_URL = process.env.RELAY_BASE_URL ?? 'http://localhost:8767'
+const RELAY_BASE_URL = process.env.RELAY_BASE_URL ?? RELAY_BASE_URL_DEFAULT
 const RELAY_URL = `${RELAY_BASE_URL}/send`
-const RELAY_TIMEOUT_MS = 5_000
+const RELAY_TIMEOUT_MS = RELAY_SEND_TIMEOUT_MS
 
 export async function deliverToAgent(transcript: string, to: string): Promise<void> {
   const body: SendRequest = {

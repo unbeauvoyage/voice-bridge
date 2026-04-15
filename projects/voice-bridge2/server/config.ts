@@ -1,0 +1,95 @@
+/**
+ * Centralized server configuration constants.
+ *
+ * All hardcoded ports, URLs, and timeouts live here.
+ * Files import named constants rather than scattering literals.
+ * Env-var overrides are honoured at the point of use, with these values as defaults.
+ */
+
+// ─── Ports ────────────────────────────────────────────────────────────────────
+
+/** HTTP port for the voice-bridge Bun server (overridden by process.env.PORT). */
+export const SERVER_PORT = 3030
+
+/** Port the message-relay listens on. */
+export const RELAY_PORT = 8767
+
+/** Port the whisper.cpp inference server listens on. */
+export const WHISPER_PORT = 8766
+
+/** Port the overlay toast server listens on. */
+export const OVERLAY_PORT = 47890
+
+/** Port Ollama listens on. */
+export const OLLAMA_PORT = 11434
+
+// ─── Base URLs ────────────────────────────────────────────────────────────────
+
+/** Base URL for the message-relay (overridden by process.env.RELAY_BASE_URL). */
+export const RELAY_BASE_URL_DEFAULT = `http://localhost:${RELAY_PORT}`
+
+/** Full URL for the whisper.cpp inference endpoint (overridden by process.env.WHISPER_URL). */
+export const WHISPER_BASE_URL_DEFAULT = `http://127.0.0.1:${WHISPER_PORT}/inference`
+
+/** Full URL for the Ollama generate endpoint (overridden by process.env.OLLAMA_URL). */
+export const OLLAMA_BASE_URL_DEFAULT = `http://localhost:${OLLAMA_PORT}/api/generate`
+
+/** Full URL for the overlay toast endpoint (overridden by process.env.OVERLAY_URL). */
+export const OVERLAY_URL_DEFAULT = `http://localhost:${OVERLAY_PORT}/overlay`
+
+// ─── Timeouts (milliseconds) ──────────────────────────────────────────────────
+
+/**
+ * Timeout for relay HTTP calls made from server/index.ts (messages proxy, agents list).
+ * Generous because the relay may be on a Tailscale VPN hop.
+ */
+export const RELAY_TIMEOUT_MS = 30_000
+
+/**
+ * Timeout for relay HTTP calls made from server/relay.ts (deliver + echo fire-and-forget).
+ * Shorter because delivery must not block the transcription response.
+ */
+export const RELAY_SEND_TIMEOUT_MS = 5_000
+
+/**
+ * Timeout for each relay poll request in relay-poller.ts.
+ * Short — poll is frequent and should fail fast.
+ */
+export const RELAY_POLL_TIMEOUT_MS = 5_000
+
+/**
+ * Timeout for overlay POST requests in relay-poller.ts.
+ * Short — overlay is local and should respond immediately.
+ */
+export const OVERLAY_TIMEOUT_MS = 3_000
+
+/**
+ * Timeout for Ollama generate requests in llmRouter.ts.
+ * 10 s is generous for a local quantised model.
+ */
+export const OLLAMA_TIMEOUT_MS = 10_000
+
+/**
+ * Timeout for Whisper transcription requests in whisper.ts.
+ * 2 min — medium model on CPU can take 60-90 s for longer audio.
+ */
+export const WHISPER_TIMEOUT_MS = 120_000
+
+// ─── Polling ──────────────────────────────────────────────────────────────────
+
+/** How often the relay-poller checks for new agent messages (ms). */
+export const POLL_INTERVAL_MS = 3_000
+
+// ─── Deduplication ───────────────────────────────────────────────────────────
+
+/**
+ * Window during which identical audio hashes are treated as duplicates (ms).
+ * WKWebView retries fetches when Whisper is slow; 30 s covers the retry window.
+ */
+export const DEDUP_WINDOW_MS = 30_000
+
+/**
+ * Maximum time to wait for an in-progress transcription before giving up on
+ * a duplicate request (ms).
+ */
+export const DEDUP_WAIT_DEADLINE_MS = 90_000

@@ -5,8 +5,9 @@
  * Falls back gracefully if Ollama is offline, slow, or returns bad JSON.
  */
 
-const DEFAULT_OLLAMA_URL = 'http://localhost:11434/api/generate'
-const OLLAMA_TIMEOUT_MS = 10_000
+import { OLLAMA_BASE_URL_DEFAULT, OLLAMA_TIMEOUT_MS } from './config.ts'
+
+const DEFAULT_OLLAMA_URL = OLLAMA_BASE_URL_DEFAULT
 const OLLAMA_MODEL = 'llama3.2:latest'
 
 export interface LlmRouteResult {

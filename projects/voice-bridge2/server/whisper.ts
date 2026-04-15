@@ -9,9 +9,10 @@ import { randomUUID } from 'node:crypto'
 import { execSync } from 'node:child_process'
 import { writeFileSync, readFileSync, unlinkSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { WHISPER_BASE_URL_DEFAULT, WHISPER_TIMEOUT_MS } from './config.ts'
 
-const WHISPER_URL = process.env.WHISPER_URL ?? 'http://127.0.0.1:8766/inference'
-const WHISPER_TIMEOUT_MS = 120_000 // 2 min — medium model on CPU can take 60-90s for longer messages
+const WHISPER_URL = process.env.WHISPER_URL ?? WHISPER_BASE_URL_DEFAULT
+// WHISPER_TIMEOUT_MS: 2 min — medium model on CPU can take 60-90s for longer messages
 const TMP_DIR = join(import.meta.dir, '..', 'tmp')
 mkdirSync(TMP_DIR, { recursive: true })
 

@@ -10,6 +10,7 @@
 
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { POLL_INTERVAL_MS, RELAY_POLL_TIMEOUT_MS, OVERLAY_TIMEOUT_MS } from './config.ts'
 
 // Types replicated inline so this module has no path-alias dependencies.
 type SendRequest = { from: string; to: string; type: string; body: string }
@@ -30,7 +31,6 @@ interface QueuedMessage {
 /** Message types that should be shown in the overlay */
 const TOAST_TYPES = new Set(['done', 'status', 'message', 'waiting-for-input'])
 
-const POLL_INTERVAL_MS = 3_000
 const MAX_BODY_CHARS = 120
 
 export interface RelayPollerOptions {
@@ -90,7 +90,7 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
     let messages: QueuedMessage[]
     try {
       const res = await fetch(`${relayBaseUrl}/queue/ceo`, {
-        signal: AbortSignal.timeout(5_000)
+        signal: AbortSignal.timeout(RELAY_POLL_TIMEOUT_MS)
       })
       if (!res.ok) return
       const data: unknown = await res.json()
@@ -115,10 +115,13 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ mode: 'message', text: toastText }),
-          signal: AbortSignal.timeout(3_000)
+          signal: AbortSignal.timeout(OVERLAY_TIMEOUT_MS)
         })
-      } catch {
-        // Overlay not running — best effort
+      } catch (err) {
+        console.error(
+          '[relay-poller] overlay POST failed:',
+          err instanceof Error ? err.message : String(err)
+        )
       }
 
       // TTS via edge-tts (Microsoft Jenny neural voice)
@@ -135,8 +138,11 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
               ],
               { stdio: 'ignore' }
             )
-          } catch {
-            // TTS unavailable — ignore
+          } catch (err) {
+            console.error(
+              '[relay-poller] TTS spawn failed:',
+              err instanceof Error ? err.message : String(err)
+            )
           }
         }
       }
