@@ -19,6 +19,7 @@ import { handleTranscribe, type TranscribeContext, type DedupEntry } from './rou
 import { handleMessages, type MessagesContext } from './routes/messages.ts'
 import { handleMic, type MicContext } from './routes/mic.ts'
 import { handleStatus, type StatusContext } from './routes/status.ts'
+import { handleTarget, type TargetContext } from './routes/target.ts'
 import {
   SERVER_PORT,
   RELAY_BASE_URL_DEFAULT,
@@ -132,22 +133,6 @@ async function getKnownAgents(): Promise<string[]> {
   return [...new Set(names)].filter((a) => !a.includes('test') && !a.includes('probe'))
 }
 
-// Sticky last-used target — persisted to disk so it survives server restarts
-
-// Parses a JSON text string, returning an empty object on any parse failure.
-// Used wherever HTTP handlers need to tolerate malformed request bodies.
-function safeJsonParse(text: string): Record<string, unknown> {
-  try {
-    const parsed: unknown = JSON.parse(text)
-    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return Object.fromEntries(Object.entries(parsed))
-    }
-    return {}
-  } catch {
-    return {}
-  }
-}
-
 const server = Bun.serve({
   port: PORT,
   async fetch(req) {
@@ -246,17 +231,9 @@ const server = Bun.serve({
     }
 
     // ── Target control ────────────────────────────────────────────────────────
-    // POST /target — { target: string } → saves new target
     if (req.method === 'POST' && url.pathname === '/target') {
-      const headers = { 'Access-Control-Allow-Origin': '*' }
-      const body = safeJsonParse(await req.text())
-      const target = (typeof body['target'] === 'string' ? body['target'] : '').trim()
-      if (!target) {
-        return Response.json({ error: 'Missing target' }, { status: 400, headers })
-      }
-      saveLastTarget(target)
-      console.log(`[target] updated to "${target}"`)
-      return Response.json({ target }, { headers })
+      const ctx: TargetContext = { saveLastTarget }
+      return handleTarget(req, ctx)
     }
 
     // ── Settings ─────────────────────────────────────────────────────────────
