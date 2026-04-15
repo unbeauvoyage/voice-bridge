@@ -8,8 +8,15 @@
  * Integration tests use the real server to verify end-to-end behavior.
  */
 
-import { describe, test, expect } from 'bun:test'
+import { describe, test, expect, mock } from 'bun:test'
 import { handleTranscribe, type TranscribeContext, type DedupEntry } from './transcribe.ts'
+
+// Mock whisper transcription so unit tests don't shell out to ffmpeg.
+// The fake returns a stable transcript that won't trip mic-command or
+// cancel-detection heuristics.
+mock.module('../whisper.ts', () => ({
+  transcribeAudio: async () => 'hello world'
+}))
 
 // Build a real Request whose formData() returns the given FormData. We stub
 // only `formData` on the instance because Bun/undici's native Request.formData
@@ -24,7 +31,9 @@ function createMockRequest(body: FormData, headerMap: Record<string, string> = {
 }
 
 // Minimal context for unit tests
-function createMockContext(): TranscribeContext {
+function createMockContext(
+  overrides: Partial<TranscribeContext> = {}
+): TranscribeContext {
   return {
     recentAudioHashes: new Map<string, DedupEntry>(),
     evictStaleHashes: () => {
@@ -39,7 +48,9 @@ function createMockContext(): TranscribeContext {
       /* no-op for unit test */
     },
     handleMicCommand: () => null,
-    getKnownAgents: async () => ['command', 'test']
+    getKnownAgents: async () => ['command', 'test'],
+    deliverMessage: async () => ({ ok: true }),
+    ...overrides
   }
 }
 
@@ -112,6 +123,53 @@ describe('transcribe route handler', () => {
     const ctx = createMockContext()
     const res = await handleTranscribe(req, ctx)
     expect(res.status).toBe(400)
+  })
+
+  // Chunk-4 HIGH (transcribe.ts:347-365): when BOTH relay AND cmux
+  // delivery fail, the handler previously swallowed the error and
+  // returned 200 {transcript, to, message} — CEO saw "message sent"
+  // feedback for a message that was on the floor. The fix routes all
+  // delivery through an injected ctx.deliverMessage whose failure
+  // surfaces as 502 with {transcript, to, delivered: false, error}.
+  test('POST /transcribe surfaces delivery failure (not silent 200) when all delivery channels fail', async () => {
+    const formData = new FormData()
+    formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+    const req = createMockRequest(formData)
+    const ctx = createMockContext({
+      deliverMessage: async () => ({ ok: false, error: 'relay+cmux both down' })
+    })
+    const res = await handleTranscribe(req, ctx)
+    expect(res.status).toBe(502)
+    const body: unknown = await res.json()
+    const obj: Record<string, unknown> = {}
+    if (typeof body === 'object' && body !== null) {
+      Object.assign(obj, body)
+    }
+    // UI-preservation: the transcript MUST still be in the body so the
+    // client can show the user what was heard, even though delivery failed.
+    expect(obj['transcript']).toBe('hello world')
+    expect(obj['delivered']).toBe(false)
+    expect(obj['error']).toBe('relay+cmux both down')
+  })
+
+  // Paired positive case: successful delivery keeps the existing 200 +
+  // {transcript, to, message} shape, with delivered:true added so clients
+  // can branch on a single boolean.
+  test('POST /transcribe returns 200 delivered=true when deliverMessage succeeds', async () => {
+    const formData = new FormData()
+    formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+    formData.append('to', 'command')
+    const req = createMockRequest(formData)
+    const ctx = createMockContext({ deliverMessage: async () => ({ ok: true }) })
+    const res = await handleTranscribe(req, ctx)
+    expect(res.status).toBe(200)
+    const body: unknown = await res.json()
+    const obj: Record<string, unknown> = {}
+    if (typeof body === 'object' && body !== null) {
+      Object.assign(obj, body)
+    }
+    expect(obj['transcript']).toBe('hello world')
+    expect(obj['delivered']).toBe(true)
   })
 
   test('POST /transcribe returns 400 when form data is invalid', async () => {

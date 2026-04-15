@@ -19,8 +19,6 @@
  */
 
 import { transcribeAudio } from '../whisper.ts'
-import { deliverToAgent } from '../relay.ts'
-import { deliverViaCmux } from '../cmux.ts'
 import { llmRoute } from '../llmRouter.ts'
 import { isCancelCommand } from '../cancelUtils.ts'
 import { DEDUP_WAIT_DEADLINE_MS } from '../config.ts'
@@ -59,6 +57,8 @@ export type DedupEntry =
  * Context object passed to the transcribe handler.
  * All shared state and dependencies needed by the handler.
  */
+export type DeliveryResult = { ok: true } | { ok: false; error: string }
+
 export type TranscribeContext = {
   // Audio dedup state and operations
   recentAudioHashes: Map<string, DedupEntry>
@@ -74,6 +74,11 @@ export type TranscribeContext = {
 
   // Agent discovery (for "please" routing)
   getKnownAgents: () => Promise<string[]>
+
+  // Message delivery. The wiring layer composes relay-first-cmux-fallback
+  // and returns {ok: false} only when BOTH channels have failed. The
+  // handler surfaces that as 502 instead of the old silent 200.
+  deliverMessage: (message: string, to: string) => Promise<DeliveryResult>
 }
 
 /**
@@ -345,22 +350,24 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
   }
 
   // ── Deliver to agent ───────────────────────────────────────────────────────
-  try {
-    await deliverToAgent(message, to)
-    console.log(`[relay] → ${to}: ${message}`)
-  } catch (err) {
-    console.error(
-      '[voice-bridge] relay delivery failed:',
-      err instanceof Error ? err.message : String(err)
+  // Chunk-4 HIGH (transcribe.ts:347-365): previously, if both the relay
+  // and the cmux fallback failed, the handler swallowed the error and
+  // returned 200 — CEO saw "message sent" for a message that never
+  // landed. All delivery now routes through ctx.deliverMessage (composed
+  // relay-then-cmux in the wiring layer). A failing result surfaces as
+  // 502 with the transcript preserved in the body so the UI can still
+  // display what was heard.
+  const delivery = await ctx.deliverMessage(message, to)
+  if (!delivery.ok) {
+    console.error(`[voice-bridge] delivery failed: ${delivery.error}`)
+    return Response.json(
+      { transcript, to, message, delivered: false, error: delivery.error },
+      { status: 502, headers: corsHeaders }
     )
-    // Relay not running — fall back to direct cmux injection
-    try {
-      deliverViaCmux(message, to)
-      console.log(`[cmux] → ${to}: ${message}`)
-    } catch (cmuxErr) {
-      console.warn('[cmux] delivery failed:', cmuxErr)
-    }
   }
-
-  return Response.json({ transcript, to, message }, { headers: corsHeaders })
+  console.log(`[delivery] → ${to}: ${message}`)
+  return Response.json(
+    { transcript, to, message, delivered: true },
+    { headers: corsHeaders }
+  )
 }

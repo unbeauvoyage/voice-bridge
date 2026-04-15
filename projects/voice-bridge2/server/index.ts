@@ -14,7 +14,8 @@ import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs'
 import { atomicWriteFile } from './atomicWriteFile.ts'
 import { join } from 'node:path'
 import { spawnSync, spawn } from 'node:child_process'
-import { listWorkspaceNames } from './cmux.ts'
+import { listWorkspaceNames, deliverViaCmux } from './cmux.ts'
+import { deliverToAgent } from './relay.ts'
 import { startRelayPoller } from './relay-poller.ts'
 import { handleTranscribe, type TranscribeContext, type DedupEntry } from './routes/transcribe.ts'
 import { handleMessages, type MessagesContext } from './routes/messages.ts'
@@ -194,7 +195,33 @@ const server = Bun.serve({
         loadLastTarget,
         saveLastTarget,
         handleMicCommand,
-        getKnownAgents
+        getKnownAgents,
+        // Compose relay-first-with-cmux-fallback. Returns {ok: false}
+        // only when BOTH channels fail; the handler surfaces that as 502.
+        deliverMessage: async (message, to) => {
+          try {
+            await deliverToAgent(message, to)
+            console.log(`[relay] → ${to}: ${message}`)
+            return { ok: true }
+          } catch (relayErr) {
+            const relayMsg =
+              relayErr instanceof Error ? relayErr.message : String(relayErr)
+            console.error('[voice-bridge] relay delivery failed:', relayMsg)
+            try {
+              deliverViaCmux(message, to)
+              console.log(`[cmux] → ${to}: ${message}`)
+              return { ok: true }
+            } catch (cmuxErr) {
+              const cmuxMsg =
+                cmuxErr instanceof Error ? cmuxErr.message : String(cmuxErr)
+              console.warn('[cmux] delivery failed:', cmuxMsg)
+              return {
+                ok: false,
+                error: `relay: ${relayMsg}; cmux: ${cmuxMsg}`
+              }
+            }
+          }
+        }
       }
       return handleTranscribe(req, ctx)
     }
