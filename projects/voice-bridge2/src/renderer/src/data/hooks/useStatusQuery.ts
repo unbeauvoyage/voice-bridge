@@ -1,10 +1,9 @@
-import { useQuery, type UseQueryResult } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { getStatus } from '../../../../data/apiClient'
-import type { StatusResponse } from '../../../../data/apiClient/types.gen'
 
 const STATUS_QUERY_KEY = ['status']
 
-export function useStatusQuery(): UseQueryResult<StatusResponse, Error> {
+export function useStatusQuery() {
   return useQuery({
     queryKey: STATUS_QUERY_KEY,
     queryFn: () => getStatus(),
