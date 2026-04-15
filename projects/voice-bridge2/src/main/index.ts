@@ -7,6 +7,7 @@ import { createDaemonController } from './processes/daemon'
 import { createBackendServerController } from './processes/backendServer'
 import { createOverlayServerController } from './overlay/overlayServer'
 import { createOverlayManager } from './overlay/overlayWindow'
+import { createMainWindowManager } from './windows/mainWindow'
 
 // Single instance lock
 if (!app.requestSingleInstanceLock()) {
@@ -18,7 +19,6 @@ if (!app.requestSingleInstanceLock()) {
 app.dock?.hide()
 
 let tray: Tray | null = null
-let win: BrowserWindow | null = null
 let lastTrayBounds: Electron.Rectangle | undefined
 
 const OVERLAY_PORT = 47890
@@ -41,9 +41,8 @@ const daemonController = createDaemonController({
   workDir: join(DAEMON_DIR, '..'),
   readTarget: () => targetStore.read(),
   onStateChange: (state: unknown) => {
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('state-change', state)
-    }
+    const w = mainWindowManager.getWindow()
+    if (w) w.webContents.send('state-change', state)
   }
 })
 
@@ -57,7 +56,7 @@ const overlayServerController = createOverlayServerController({
   showOverlay: (payload) => showOverlay(payload)
 })
 
-function createWindow(): BrowserWindow {
+function createMainBrowserWindow(): BrowserWindow {
   const w = new BrowserWindow({
     width: 400,
     height: 340,
@@ -113,66 +112,15 @@ function createWindow(): BrowserWindow {
   return w
 }
 
-function positionWindowBelowTray(w: BrowserWindow, trayBounds?: Electron.Rectangle): void {
-  const rawBounds =
-    trayBounds && trayBounds.width > 0
-      ? trayBounds
-      : (tray?.getBounds() ?? { x: 0, y: 0, width: 32, height: 30 })
-
-  const trayCenter = { x: rawBounds.x + rawBounds.width / 2, y: rawBounds.y + rawBounds.height / 2 }
-  const display = screen.getDisplayNearestPoint(trayCenter)
-  const { workArea } = display
-
-  const winBounds = w.getBounds()
-  const rawX = Math.round(rawBounds.x + rawBounds.width / 2 - winBounds.width / 2)
-  const x = Math.max(workArea.x, Math.min(rawX, workArea.x + workArea.width - winBounds.width))
-  const y = workArea.y + 4
-
-  console.log('[tray] positioning window at:', x, y)
-  w.setPosition(x, y, false)
-}
+const mainWindowManager = createMainWindowManager({
+  createWindow: () => createMainBrowserWindow(),
+  getTrayBounds: () => tray?.getBounds() ?? { x: 0, y: 0, width: 32, height: 30 },
+  getLastTrayBounds: () => lastTrayBounds,
+  getWorkAreaForPoint: (x, y) => screen.getDisplayNearestPoint({ x, y }).workArea
+})
 
 function showWindow(): void {
-  console.log('[showWindow] called — win exists:', !!win, 'destroyed:', win?.isDestroyed())
-  if (!win || win.isDestroyed()) {
-    console.log('[showWindow] creating new window')
-    win = createWindow()
-    win.webContents.once('did-finish-load', () => {
-      console.log('[showWindow] did-finish-load — positioning and showing')
-      if (win) positionWindowBelowTray(win, lastTrayBounds)
-      win?.setAlwaysOnTop(true, 'pop-up-menu', 1)
-      win?.setVisibleOnAllWorkspaces(true, {
-        skipTransformProcessType: true,
-        visibleOnFullScreen: true
-      })
-      win?.showInactive()
-      win?.moveTop()
-      console.log(
-        '[showWindow] after showInactive, visible:',
-        win?.isVisible(),
-        'bounds:',
-        win?.getBounds()
-      )
-    })
-    return
-  }
-  console.log(
-    '[showWindow] reusing existing window — visible:',
-    win.isVisible(),
-    'bounds:',
-    win.getBounds()
-  )
-  positionWindowBelowTray(win, lastTrayBounds)
-  win.setAlwaysOnTop(true, 'pop-up-menu', 1)
-  win.setVisibleOnAllWorkspaces(true, { skipTransformProcessType: true, visibleOnFullScreen: true })
-  win.showInactive()
-  win.moveTop()
-  console.log(
-    '[showWindow] after showInactive, visible:',
-    win.isVisible(),
-    'bounds:',
-    win.getBounds()
-  )
+  mainWindowManager.show()
 }
 
 function buildMenu(): Electron.Menu {
@@ -284,7 +232,7 @@ ipcMain.handle('set-target', (_event, { target }: { target: string }) => {
 
 ipcMain.on('hide-window', () => {
   console.log('[ipc] hide-window from renderer')
-  win?.hide()
+  mainWindowManager.hide()
 })
 
 ipcMain.handle('show-overlay', (_event, payload: OverlayPayload) => {
@@ -318,8 +266,8 @@ app.whenReady().then(() => {
 
   tray.on('click', (_event, bounds) => {
     lastTrayBounds = bounds
-    if (win && !win.isDestroyed() && win.isVisible()) {
-      win.hide()
+    if (mainWindowManager.isVisible()) {
+      mainWindowManager.hide()
     } else {
       showWindow()
     }
