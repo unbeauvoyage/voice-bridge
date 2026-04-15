@@ -92,3 +92,40 @@ Option B is preferred — deployment flexibility plus automatic upgrade toleranc
 - Integration is harder — testing the actual spawn requires a real Python.app, but the existing wake-word E2E (if any) covers it. A minimal smoke test: run `/wake-word/start`, poll `/wake-word` until `running:true` OR fail after 3 seconds.
 
 **Severity:** latent-but-time-bombed. Any `brew upgrade python@3.14` triggers immediate breakage. Low observed impact today (single-machine deployment), HIGH impact as soon as voice-bridge2 runs on a fresh machine. Fix is ~15 lines + 1 unit test. Do not fix in a refactor chunk — schedule a dedicated `fix(vb2)` commit after route extraction completes.
+
+---
+
+## IPC get-agents — hardcoded fallback list silently substitutes when relay fetch fails
+
+**Discovered:** 2026-04-17, during main/index.ts chunk 5 extraction (commit f3a7ac5). Located at `src/main/index.ts` L254 (post-extraction line number, inside the `ipcMain.handle('get-agents', ...)` handler that will move to `src/main/ipc.ts` in chunk 6).
+
+**Current behavior:** the Electron renderer calls `ipcRenderer.invoke('get-agents')`. The main-process handler tries `fetch('http://127.0.0.1:3030/agents', { signal: AbortSignal.timeout(2000) })`. On any failure — network error, timeout, non-ok response, or non-`isAgentsResponse` body — the handler silently returns the hardcoded list `['command', 'chief-of-staff', 'productivitesse']`.
+
+**Contract violation:** same observability-poison family as the /agents?source=relay bug above. A renderer that asks for the current agent list and gets `['command', 'chief-of-staff', 'productivitesse']` cannot distinguish (a) "backend is healthy, those are the three active agents" from (b) "backend is down/slow, this is stale hardcoded fallback data". Any user who renames an agent, spawns a new one, or kills 'chief-of-staff' will see a UI that lies about the live system state.
+
+**Proposed fix:** surface the failure mode to the renderer explicitly.
+```ts
+ipcMain.handle('get-agents', async () => {
+  try {
+    const res = await fetch('http://127.0.0.1:3030/agents', { signal: AbortSignal.timeout(2000) })
+    if (res.ok) {
+      const data: unknown = await res.json()
+      if (isAgentsResponse(data)) {
+        return { ok: true, agents: data.agents.map((a) => (typeof a === 'string' ? a : a.name)) }
+      }
+      return { ok: false, error: 'Backend returned malformed agents response' }
+    }
+    return { ok: false, error: `Backend returned ${res.status}` }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Unknown fetch error' }
+  }
+})
+```
+Renderer adapts: display loaded list when `ok:true`, display error banner + empty dropdown when `ok:false`. No more silent substitution.
+
+**Regression test shape:** once chunk 6 extracts this into `src/main/ipc.ts` with DI for `fetchFn`, write three unit tests:
+- `fetchFn` throws → handler returns `{ ok: false, error: ... }` (NOT the hardcoded list)
+- `fetchFn` returns 500 → handler returns `{ ok: false, error: 'Backend returned 500' }`
+- `fetchFn` returns 200 with malformed body → handler returns `{ ok: false, error: 'malformed' }`
+
+**Severity:** latent, observably wrong today. Whenever the Bun backend is slow or down, the renderer displays three ghost agents that may no longer exist. Fix is ~10 lines in main + ~5 in renderer + 3 unit tests. Do not fix in a refactor chunk — schedule a dedicated `fix(vb2)` commit after main/index.ts extraction completes.
