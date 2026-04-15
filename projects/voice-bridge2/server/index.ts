@@ -20,11 +20,11 @@ import { handleMessages, type MessagesContext } from './routes/messages.ts'
 import { handleMic, type MicContext } from './routes/mic.ts'
 import { handleStatus, type StatusContext } from './routes/status.ts'
 import { handleTarget, type TargetContext } from './routes/target.ts'
+import { handleAgents, type AgentsContext } from './routes/agents.ts'
 import {
   SERVER_PORT,
   RELAY_BASE_URL_DEFAULT,
   OVERLAY_URL_DEFAULT,
-  RELAY_TIMEOUT_MS,
   DEDUP_WINDOW_MS
 } from './config.ts'
 
@@ -196,32 +196,13 @@ const server = Bun.serve({
     }
 
     // ── Agents list ───────────────────────────────────────────────────────────
-    // GET /agents?source=relay|workspaces — list available agents/workspaces
     if (req.method === 'GET' && url.pathname === '/agents') {
-      const headers = { 'Access-Control-Allow-Origin': '*' }
-      const source = url.searchParams.get('source') ?? 'auto'
-
-      if (source !== 'workspaces') {
-        // Try relay
-        try {
-          const relayRes = await fetch(`${RELAY_BASE_URL}/agents`, {
-            signal: AbortSignal.timeout(RELAY_TIMEOUT_MS)
-          })
-          if (relayRes.ok) {
-            const data = await relayRes.json()
-            return Response.json(data, { headers })
-          }
-        } catch {
-          if (source === 'relay') {
-            return Response.json({ agents: [], error: 'Relay unavailable' }, { headers })
-          }
-          // auto mode: fall through to cmux
-        }
+      const ctx: AgentsContext = {
+        relayBaseUrl: RELAY_BASE_URL,
+        listWorkspaceNames,
+        fetchFn: fetch
       }
-
-      // workspaces or auto fallback
-      const agents = listWorkspaceNames()
-      return Response.json({ agents }, { headers })
+      return handleAgents(req, ctx)
     }
 
     // ── Status ───────────────────────────────────────────────────────────────
