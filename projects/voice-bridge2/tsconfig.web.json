@@ -19,12 +19,17 @@
     },
     "noImplicitAny": true,
     "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
+    "exactOptionalPropertyTypes": false,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
     "allowUnusedLabels": false,
     "allowUnreachableCode": false,
     "forceConsistentCasingInFileNames": true
+  },
+  "ts-node": {
+    "compilerOptions": {
+      "exactOptionalPropertyTypes": false
+    }
   }
 }
