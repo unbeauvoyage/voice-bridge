@@ -18,6 +18,7 @@ import { startRelayPoller } from './relay-poller.ts'
 import { handleTranscribe, type TranscribeContext, type DedupEntry } from './routes/transcribe.ts'
 import { handleMessages, type MessagesContext } from './routes/messages.ts'
 import { handleMic, type MicContext } from './routes/mic.ts'
+import { handleStatus, type StatusContext } from './routes/status.ts'
 import {
   SERVER_PORT,
   RELAY_BASE_URL_DEFAULT,
@@ -239,13 +240,9 @@ const server = Bun.serve({
     }
 
     // ── Status ───────────────────────────────────────────────────────────────
-    // GET /status — returns { target, micState }
     if (req.method === 'GET' && url.pathname === '/status') {
-      const headers = { 'Access-Control-Allow-Origin': '*' }
-      return Response.json(
-        { target: loadLastTarget(), micState: isMicOn() ? 'on' : 'off' },
-        { headers }
-      )
+      const ctx: StatusContext = { loadLastTarget, isMicOn }
+      return handleStatus(ctx)
     }
 
     // ── Target control ────────────────────────────────────────────────────────
