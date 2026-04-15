@@ -80,7 +80,8 @@ export default defineConfig(
         }
       ],
       // F5 — layer rules within a feature
-      'boundaries/element-types': [
+      // Note: 'boundaries/dependencies' is the v6 rename of 'boundaries/element-types'.
+      'boundaries/dependencies': [
         'warn',
         {
           default: 'disallow',
