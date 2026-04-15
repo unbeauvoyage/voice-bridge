@@ -62,7 +62,9 @@ Current test suite has a test that ASSERTS the buggy behavior for `source=auto` 
 
 **Discovered:** 2026-04-16, during route extraction of /wake-word into `server/routes/wakeWord.ts` (commit 6f731bb).
 
-**Current behavior:** the production wiring of `WakeWordContext.start` in `server/index.ts` hardcodes the Python interpreter path as `/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python`. This path is required (instead of the plain `python3` symlink) because Python.app has the macOS microphone entitlements that a regular Python binary lacks.
+**Also appears in:** `src/main/index.ts` L60 (the `PYTHON_APP` module-level constant used by `startDaemon()` in the Electron main process) — discovered 2026-04-16 during main/index.ts chunk 1 extraction (commit 1025a1f). Same fix applies to both locations; DFRR on this rescue note — one entry, two call sites.
+
+**Current behavior:** the production wiring of `WakeWordContext.start` in `server/index.ts` hardcodes the Python interpreter path as `/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python`. The same literal appears in `src/main/index.ts` L60. This path is required (instead of the plain `python3` symlink) because Python.app has the macOS microphone entitlements that a regular Python binary lacks.
 
 **Why it breaks:** any `brew upgrade python@3.14` changes the version-suffix segment of the Cellar path (`3.14.3_1` → `3.14.3_2` or `3.14.4_1`), instantly breaking `/wake-word/start` with a silent `ENOENT` — the detached `child.on('error', ...)` logs to stderr but the API still returns `{ running: true }`, so observability is poor. Fresh machines without that exact Python version installed fail identically.
 
