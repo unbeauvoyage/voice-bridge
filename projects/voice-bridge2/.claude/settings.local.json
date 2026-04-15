@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__plugin_relay-channel_relay-channel__relay_reply"
+    ]
+  }
+}

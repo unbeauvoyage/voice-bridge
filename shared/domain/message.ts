@@ -11,6 +11,11 @@ export type MessageType =
 
 export type MessageId = string & { readonly __brand: 'MessageId' }
 
+/** Smart constructor for MessageId — use instead of `as MessageId` casts. */
+export function toMessageId(id: string): MessageId {
+  return id as MessageId
+}
+
 /**
  * A message in the relay system.
  * ts is ISO 8601 string — convert to number only at sort/display time.

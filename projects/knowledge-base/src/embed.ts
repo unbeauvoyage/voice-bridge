@@ -4,32 +4,34 @@ const EMBED_MODEL = process.env.OLLAMA_EMBED_MODEL ?? config.embedModel;
 const OLLAMA_URL = config.ollamaUrl;
 
 export interface EmbeddingResponse {
-  embedding: number[];
+  embeddings: number[][];
 }
 
 export function isEmbeddingResponse(v: unknown): v is EmbeddingResponse {
   if (typeof v !== 'object' || v === null) return false;
-  if (!('embedding' in v)) return false;
-  const embedding = Reflect.get(v, 'embedding');
-  return Array.isArray(embedding) && embedding.every((x: unknown) => typeof x === 'number');
+  if (!('embeddings' in v)) return false;
+  const embeddings = Reflect.get(v, 'embeddings');
+  if (!Array.isArray(embeddings) || embeddings.length === 0) return false;
+  const first: unknown = embeddings[0];
+  return Array.isArray(first) && first.every((x: unknown) => typeof x === 'number');
 }
 
 export async function generateEmbedding(text: string): Promise<number[]> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
   try {
-    const res = await fetch(`${OLLAMA_URL}/api/embeddings`, {
+    const res = await fetch(`${OLLAMA_URL}/api/embed`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
-      body: JSON.stringify({ model: EMBED_MODEL, prompt: text.slice(0, 8000) }),
+      body: JSON.stringify({ model: EMBED_MODEL, input: text.slice(0, 8000) }),
     });
     if (!res.ok) throw new Error(`Ollama embed failed: ${res.status}`);
     const raw: unknown = await res.json();
     if (!isEmbeddingResponse(raw)) {
-      throw new Error('Expected {embedding: number[]} from Ollama /api/embeddings');
+      throw new Error('Expected {embeddings: number[][]} from Ollama /api/embed');
     }
-    return raw.embedding;
+    return raw.embeddings[0] ?? [];
   } catch (e: unknown) {
     if (e instanceof Error && e.name === 'AbortError') throw new Error('Embedding timed out');
     throw e;

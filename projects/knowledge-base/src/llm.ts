@@ -38,7 +38,7 @@ export function isOpenAICompatibleResponse(v: unknown): v is OpenAICompatibleRes
   return 'content' in message && typeof Reflect.get(message, 'content') === 'string';
 }
 
-const OLLAMA_TIMEOUT = Number(process.env['OLLAMA_TIMEOUT'] ?? config.retryBackoffBaseMs);
+const OLLAMA_TIMEOUT = config.ollamaTimeoutMs;
 
 export async function llmComplete(messages: LLMMessage[], options?: LLMOptions): Promise<LLMResult> {
   const model = options?.model ?? config.ollamaModel;

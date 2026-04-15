@@ -136,6 +136,62 @@ function initPopupSize() {
 let allItems = [];           // full list from GET /items, refreshed on load
 let activeTagFilters = [];   // string[] — AND match
 let activeDays = 0;          // 0 = all, 1 = today, 2/3/4 = last N days
+let activeCollectionId = ''; // '' = all, otherwise collection id
+
+// ── Collection filter ──────────────────────────────────────────────────────────
+
+async function loadCollections() {
+  try {
+    const res = await fetch(`${SERVER}/collections`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) return;
+    const collections = await res.json();
+    // Sort alphabetically by name
+    collections.sort((a, b) => a.name.localeCompare(b.name));
+    const select = document.getElementById('collection-filter');
+    if (!select) return;
+    // Remove all options except the first "All" option
+    while (select.options.length > 1) select.remove(1);
+    for (const col of collections) {
+      const opt = document.createElement('option');
+      opt.value = col.id;
+      opt.textContent = col.name;
+      select.appendChild(opt);
+    }
+  } catch {
+    // silently fail — collections filter is non-critical
+  }
+}
+
+async function applyCollectionFilter(colId) {
+  activeCollectionId = colId;
+  if (!colId) {
+    // Reload all items
+    await loadAllItems();
+    return;
+  }
+  const list = document.getElementById('items-list');
+  list.innerHTML = '<div class="empty-state">Loading\u2026</div>';
+  try {
+    const res = await fetch(`${SERVER}/collections/${encodeURIComponent(colId)}/items`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const items = await res.json();
+    allItems = items;
+    const filtered = applyFilters(allItems);
+    const select = document.getElementById('collection-filter');
+    const colName = select ? (select.options[select.selectedIndex]?.text || '') : '';
+    renderItems(filtered, {
+      heading: colName ? `Collection: ${colName}` : 'Collection',
+      emptyMsg: 'No items in this collection.',
+    });
+  } catch {
+    list.innerHTML = '<div class="empty-state">Could not load collection items.</div>';
+  }
+}
+
+// Alias used by delete handler
+function loadItems() {
+  loadAllItems();
+}
 
 // ── Processing queue — sourced from server ────────────────────────────────────
 
@@ -1194,8 +1250,16 @@ async function init() {
     }
   }
 
-  await Promise.all([loadAllItems(), loadPendingTags()]);
+  await Promise.all([loadAllItems(), loadPendingTags(), loadCollections()]);
   renderQuickSummaryForCurrentUrl();
+
+  // Wire collection filter dropdown
+  const collectionFilter = document.getElementById('collection-filter');
+  if (collectionFilter) {
+    collectionFilter.addEventListener('change', () => {
+      applyCollectionFilter(collectionFilter.value);
+    });
+  }
 
   if (currentUrl && (currentUrl.startsWith('http://') || currentUrl.startsWith('https://'))) {
     checkDuplicate(currentUrl);

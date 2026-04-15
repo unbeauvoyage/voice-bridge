@@ -20,11 +20,10 @@ interface DocumentLike {
 function asReadabilityDocument(obj: unknown): Document {
   function isDocumentLike(v: unknown): v is DocumentLike {
     if (typeof v !== 'object' || v === null) return false;
-    const rec = Object.getOwnPropertyDescriptor(v, 'querySelector') ??
-                Object.getOwnPropertyDescriptor(Object.getPrototypeOf(v) ?? {}, 'querySelector');
-    const rec2 = Object.getOwnPropertyDescriptor(v, 'createElement') ??
-                 Object.getOwnPropertyDescriptor(Object.getPrototypeOf(v) ?? {}, 'createElement');
-    return typeof rec?.value === 'function' && typeof rec2?.value === 'function';
+    return (
+      'querySelector' in v && typeof Reflect.get(v, 'querySelector') === 'function' &&
+      'createElement' in v && typeof Reflect.get(v, 'createElement') === 'function'
+    );
   }
   if (!isDocumentLike(obj)) {
     throw new Error('Expected a Document-like object from parseHTML');

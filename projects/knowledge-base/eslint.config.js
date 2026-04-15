@@ -3,6 +3,10 @@ import tsparser from '@typescript-eslint/parser';
 import reactHooks from 'eslint-plugin-react-hooks';
 import importPlugin from 'eslint-plugin-import';
 
+// Aligned to voice-bridge2 convergence baseline (2026-04-15).
+// eslint-plugin-boundaries not added: KB has no features/ directory structure.
+// Baseline: 127 warnings, 0 errors (documented in task #50).
+
 const strictTypeRules = {
   '@typescript-eslint/no-explicit-any': 'error',
   '@typescript-eslint/no-non-null-assertion': 'error',

@@ -408,3 +408,14 @@ test('GET /tags/rejections items have expected shape', async () => {
   expect(typeof rawMatch.reason).toBe('string');
   expect(typeof rawMatch.createdAt).toBe('string');
 });
+
+// ── Retry-failed endpoint ───────────────────────────────────────────────────────
+
+test('POST /items/retry-failed returns { retried: N }', async () => {
+  if (skipIfDown()) return;
+  const res = await fetch(`${BASE}/items/retry-failed`, { method: 'POST' });
+  expect(res.status).toBe(200);
+  const body: unknown = await res.json();
+  assertObj(body);
+  expect(typeof body['retried']).toBe('number');
+});

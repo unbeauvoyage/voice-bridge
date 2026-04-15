@@ -37,7 +37,7 @@
 | agency-housing-mortgage | 94a3d1fa-cc27-4ca0-9dfe-7d35953a74de | workspace:33 | **Channel** | Housing & mortgage research — build profitable customer investment model | Active — bypassPermissions, cwd: ~/environment/agency/housing-mortgage |
 | agency-routers | 7c0b6d82-3d7f-429c-b638-7232dcb4e26b | workspace:70 | **Channel** | Internet router research — best routers in Japan | Active — bypassPermissions, cwd: ~/environment/agency/routers |
 | agency-biz | 1fdd7b66-550f-4d1d-8967-0bd2c1d85fb1 | workspace:71 | **Channel** | Business opportunities research — all Japan | Active — bypassPermissions, cwd: ~/environment/agency/business-opportunities |
-| voice-bridge | 2bde1283-e5bc-416d-936d-8fc116f2d4a9 | workspace:72 | **Channel** | Voice input → Whisper → agents (Bun+Electron+mobile) | Active — bypassPermissions, cwd: ~/environment/projects/voice-bridge |
+| voice-bridge2 | 2bde1283-e5bc-416d-936d-8fc116f2d4a9 | workspace:72 | **Channel** | voice-bridge2 team lead (relay name still "voice-bridge" — no relaunch, CEO-approved) | Active — bypassPermissions, cwd: ~/environment/projects/voice-bridge2 |
 | knowledge-base | 3d844227-46b1-49e2-a872-8a3834beb639 | workspace:14 | **Channel** | Batch video analyzer — YouTube/web transcript → summarize → knowledge DB | Active — bypassPermissions, cwd: ~/environment/projects/knowledge-base |
 | jarvis | — | workspace:12 | **Channel** | Voice communicator — routes CEO voice messages to correct agents (Haiku, lightweight) | Active — bypassPermissions, cwd: ~/environment/jarvis |
 | satellite-team | — | workspace:15 | **Channel** | Dedicated satellite visibility team — sub-agent registration → relay → 3D display | Active — bypassPermissions, cwd: ~/environment/projects/satellite-visibility |

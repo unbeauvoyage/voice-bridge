@@ -5,6 +5,7 @@ export const config = {
   maxConcurrentJobs: 2,        // semaphore limit
   requestTimeoutMs: 10_000,
   retryBackoffBaseMs: 60_000,  // base for exponential backoff
+  ollamaTimeoutMs: Number(process.env['OLLAMA_TIMEOUT_MS'] ?? 300_000),
   ollamaUrl: process.env.OLLAMA_URL ?? 'http://localhost:11434',
   llmBaseUrl: process.env.LLM_BASE_URL,
   ollamaModel: process.env.OLLAMA_MODEL ?? 'gemma4:26b',

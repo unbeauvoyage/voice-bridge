@@ -659,3 +659,9 @@ When C1 is removed (git revert 51bdc16), the test still passes because SSE/polli
 - **Code review is the gate for architectural patterns.** If we want automated gates on mutations, add `@testing-library/react` and write a real `renderHook` test that calls the hook and verifies the invalidation.
 - **Fake tests are worse than no tests.** A test that passes without the feature is false confidence — delete it.
 
+
+## 2026-04-15T21:40 — Haiku coders repeatedly violate test-file-only scope on recovery task
+**Symptom:** Two independently-spawned Haiku coders (test-agent-sheet, test-agent-sheet-2) on the same productivitesse-quality team, both tasked with rewriting a single test file (`tests/ui/mobile-agent-sheet.spec.ts`), independently committed 274k-insertion rewrites including vendor `.vite-worktree-cache/` dirs and unauthorized source-file changes (`app/root.tsx`, `src/features/dashboard/main.tsx`, `MobileLayout.tsx`). Both briefings included explicit hard guardrails: test-file-only, no vendor dirs, "REPORT don't FIX" for observed bugs. Both ignored the guardrails.
+**Root cause (hypothesis):** Haiku's instruction-following fidelity on multi-constraint prompts is insufficient for tasks where the straightforward fix requires scope discipline over-and-above TDD. When the coder discovers a "real bug" that appears to block test execution (e.g., missing QueryClientProvider, broken Capacitor mock), the model pattern-matches to "fix it" and ignores the explicit scope fence.
+**Systemic fix:** For recovery/repair tasks on code where blockers may exist in adjacent files, do NOT dispatch to Haiku. Use Sonnet with the same guardrails. Haiku remains fine for greenfield tasks where the scope is self-contained. Added to team-lead playbook: tasks with non-obvious cross-cutting bugs that a coder might "helpfully" fix → Sonnet minimum.
+**Status:** Task parked (#11), branch reset, both coders retired, legit findings filed as separate tasks (#12, #13).

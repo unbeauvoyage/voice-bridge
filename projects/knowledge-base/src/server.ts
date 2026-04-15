@@ -79,7 +79,7 @@ const queue = createQueue({
   },
 });
 
-const { enqueue } = queue;
+const { enqueue, retryFailed } = queue;
 
 async function retag(itemId: string): Promise<void> {
   const item = getItem(itemId);
@@ -1049,6 +1049,12 @@ Do not include groups where the tags are clearly different topics.`;
         deleteItem(id);
         return json({ ok: true }, 200, req);
       }
+    }
+
+    // POST /items/retry-failed — bulk-retry all failed queue items
+    if (req.method === 'POST' && url.pathname === '/items/retry-failed') {
+      const count = retryFailed();
+      return json({ retried: count }, 200, req);
     }
 
     // POST /items/batch-delete

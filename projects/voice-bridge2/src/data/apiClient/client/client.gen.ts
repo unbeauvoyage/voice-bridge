@@ -77,11 +77,11 @@ export const createClient = (config: Config = {}): Client => {
 
   const request: Client['request'] = async (options) => {
     const { opts, url } = await beforeRequest(options);
-    const requestInit: ReqInit = {
+    const requestInit = {
       redirect: 'follow',
       ...opts,
       body: getValidRequestBody(opts),
-    };
+    } as ReqInit;
 
     let request = new Request(url, requestInit);
 
@@ -248,9 +248,10 @@ export const createClient = (config: Config = {}): Client => {
 
   const makeSseFn = (method: Uppercase<HttpMethod>) => async (options: RequestOptions) => {
     const { opts, url } = await beforeRequest(options);
+    const sseBody = opts.body === undefined ? (null as BodyInit | null) : (opts.body as BodyInit | null | undefined);
     return createSseClient({
       ...opts,
-      body: opts.body as BodyInit | null | undefined,
+      body: sseBody,
       headers: opts.headers as unknown as Record<string, string>,
       method,
       onRequest: async (url, init) => {
