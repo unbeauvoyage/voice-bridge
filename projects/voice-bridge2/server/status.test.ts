@@ -1,8 +1,14 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
+import { join } from 'node:path'
 
 // Import the server inline by importing the module's internal logic.
 // We spawn the server on a different port to avoid conflicting with a running instance.
 const TEST_PORT = 3099
+
+// Derive the repo root from the test file location so the spawn cannot
+// drift to a neighbouring checkout (prior bug: cwd was pinned to the
+// legacy /voice-bridge path while this suite lives in /voice-bridge2).
+const REPO_ROOT = join(import.meta.dir, '..')
 
 // We start a minimal Bun subprocess so we don't have to refactor index.ts.
 // Use PORT env var to override the default 3030.
@@ -10,7 +16,7 @@ let proc: ReturnType<typeof Bun.spawn>
 
 beforeAll(async () => {
   proc = Bun.spawn(['bun', 'run', 'server/index.ts'], {
-    cwd: '/Users/riseof/environment/projects/voice-bridge',
+    cwd: REPO_ROOT,
     env: { ...process.env, PORT: String(TEST_PORT) },
     stdout: 'pipe',
     stderr: 'pipe'
@@ -55,6 +61,14 @@ describe('voice-bridge status API', () => {
     const obj: Record<string, unknown> =
       typeof body === 'object' && body !== null ? Object.fromEntries(Object.entries(body)) : {}
     expect(obj['target']).toBe('test-agent')
+  })
+
+  // Canary: /agents was extracted in voice-bridge2 (commit cb76bbd) and does
+  // not exist in the legacy /voice-bridge repo. If this suite ever drifts
+  // back to spawning the wrong project root, this assertion fails fast.
+  test('spawned server serves voice-bridge2 routes (canary: /agents)', async () => {
+    const res = await fetch(`http://localhost:${TEST_PORT}/agents?source=workspaces`)
+    expect(res.status).not.toBe(404)
   })
 
   test('GET /health returns ok', async () => {
