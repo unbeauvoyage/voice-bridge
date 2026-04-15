@@ -346,10 +346,19 @@ function createOverlayWindow(): BrowserWindow {
   w.setAlwaysOnTop(true, 'screen-saver')
   w.setIgnoreMouseEvents(true)
 
+  const overlayFilePath = join(__dirname, '../renderer/overlay.html')
+
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    w.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/overlay.html`)
+    const devUrl = `${process.env['ELECTRON_RENDERER_URL']}/overlay.html`
+    w.loadURL(devUrl).catch(() => {
+      // Vite dev server not reachable — fall back to built file
+      console.warn('[overlay] dev server unreachable, falling back to loadFile')
+      w.loadFile(overlayFilePath).catch((e: Error) =>
+        console.error('[overlay] loadFile fallback failed:', e.message)
+      )
+    })
   } else {
-    w.loadFile(join(__dirname, '../renderer/overlay.html'))
+    w.loadFile(overlayFilePath)
   }
 
   return w
