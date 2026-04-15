@@ -98,6 +98,41 @@ describe('handleAgents', () => {
     expect(body['agents']).toEqual(['wsFallback2'])
   })
 
+  test('source=bogus returns 400 (unknown query value rejected at boundary)', async () => {
+    const ctx = ctxWith({ workspaces: ['ws1'] })
+    const req = new Request('http://localhost/agents?source=bogus')
+    const res = await handleAgents(req, ctx)
+    expect(res.status).toBe(400)
+    const body = await readJsonObject(res)
+    expect(body['error']).toBe('validation_failed')
+  })
+
+  test('source=relay rejects schema-invalid relay body ({foo:1}) with error', async () => {
+    const ctx = ctxWith({ relayJson: { foo: 1 }, workspaces: ['wsShouldNotAppear'] })
+    const req = new Request('http://localhost/agents?source=relay')
+    const res = await handleAgents(req, ctx)
+    const body = await readJsonObject(res)
+    expect(body['agents']).toEqual([])
+    expect(typeof body['error']).toBe('string')
+  })
+
+  test('source=relay rejects relay body with non-string agents ({agents:[123]})', async () => {
+    const ctx = ctxWith({ relayJson: { agents: [123] }, workspaces: ['wsShouldNotAppear'] })
+    const req = new Request('http://localhost/agents?source=relay')
+    const res = await handleAgents(req, ctx)
+    const body = await readJsonObject(res)
+    expect(body['agents']).toEqual([])
+    expect(typeof body['error']).toBe('string')
+  })
+
+  test('source=auto falls back to workspaces when relay body fails schema', async () => {
+    const ctx = ctxWith({ relayJson: { foo: 1 }, workspaces: ['wsFallback3'] })
+    const req = new Request('http://localhost/agents')
+    const res = await handleAgents(req, ctx)
+    const body = await readJsonObject(res)
+    expect(body['agents']).toEqual(['wsFallback3'])
+  })
+
   test('CORS header present on all responses', async () => {
     const ctx = ctxWith({ relayThrows: true, workspaces: [] })
     const req = new Request('http://localhost/agents?source=relay')
