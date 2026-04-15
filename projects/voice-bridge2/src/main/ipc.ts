@@ -16,9 +16,10 @@
  *   - `showOverlay` — closure that delegates to the overlay manager
  *
  * Handler behavior is preserved 1:1 from the pre-extraction
- * `src/main/index.ts`. The silent-substitution bug in get-agents
- * (hardcoded fallback on fetch error) is intentionally preserved;
- * see voice-bridge2/ISSUES.md for the fix plan.
+ * `src/main/index.ts`, except get-agents: it now returns `[]` on
+ * any failure (fetch throw, non-ok, malformed body) instead of
+ * silently substituting a hardcoded list. Renderer treats `[]` as
+ * "backend unavailable" rather than "three agents exist".
  */
 
 import { isMicResponse, isAgentsResponse, type OverlayPayload } from './typeGuards'
@@ -38,7 +39,6 @@ export type IpcDeps = {
 
 const BACKEND_URL = 'http://127.0.0.1:3030'
 const AGENTS_TIMEOUT_MS = 2000
-const AGENTS_FALLBACK = ['command', 'chief-of-staff', 'productivitesse'] as const
 
 export function registerIpcHandlers(ipc: IpcMainLike, deps: IpcDeps): void {
   ipc.handle('get-status', async () => {
@@ -94,7 +94,7 @@ export function registerIpcHandlers(ipc: IpcMainLike, deps: IpcDeps): void {
     } catch {
       /* ignore */
     }
-    return [...AGENTS_FALLBACK]
+    return []
   })
 }
 

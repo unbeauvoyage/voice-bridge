@@ -215,7 +215,7 @@ describe('registerIpcHandlers — get-agents', () => {
     expect(result).toEqual(['alpha', 'beta'])
   })
 
-  test('falls back to hardcoded list on fetch error (pre-existing bug — flagged in ISSUES.md)', async () => {
+  test('returns empty list on fetch error (no silent hardcoded substitution)', async () => {
     const f = fakeIpc()
     const d = makeDeps({
       fetchFn: async () => {
@@ -226,10 +226,10 @@ describe('registerIpcHandlers — get-agents', () => {
     const get = f.handles.find((h) => h.channel === 'get-agents')
     if (!get) throw new Error('no handler')
     const result = await get.handler({})
-    expect(result).toEqual(['command', 'chief-of-staff', 'productivitesse'])
+    expect(result).toEqual([])
   })
 
-  test('falls back to hardcoded list on non-ok response', async () => {
+  test('returns empty list on non-ok response', async () => {
     const f = fakeIpc()
     const d = makeDeps({
       fetchFn: async () => new Response(null, { status: 500 })
@@ -238,6 +238,18 @@ describe('registerIpcHandlers — get-agents', () => {
     const get = f.handles.find((h) => h.channel === 'get-agents')
     if (!get) throw new Error('no handler')
     const result = await get.handler({})
-    expect(result).toEqual(['command', 'chief-of-staff', 'productivitesse'])
+    expect(result).toEqual([])
+  })
+
+  test('returns empty list on malformed response body', async () => {
+    const f = fakeIpc()
+    const d = makeDeps({
+      fetchFn: async () => new Response('"not-an-object"', { status: 200 })
+    })
+    registerIpcHandlers(f.ipc, d.deps)
+    const get = f.handles.find((h) => h.channel === 'get-agents')
+    if (!get) throw new Error('no handler')
+    const result = await get.handler({})
+    expect(result).toEqual([])
   })
 })
