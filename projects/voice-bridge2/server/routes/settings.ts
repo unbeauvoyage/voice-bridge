@@ -44,17 +44,29 @@ const SettingsPatchSchema = z
   })
   .strict()
 
-function parseCurrentSettings(raw: string | null): Record<string, unknown> {
-  if (raw === null) return {}
+/**
+ * Parse the current settings file, distinguishing "legit empty/new file"
+ * from "corrupt file". Missing file (raw === null) is first-time write,
+ * return ok:true {}. Present-but-unparseable is corruption — the handler
+ * must refuse to overwrite, else the next POST silently destroys every
+ * unrelated key already on disk.
+ */
+function parseCurrentSettings(
+  raw: string | null
+): { ok: true; data: Record<string, unknown> } | { ok: false; error: string } {
+  if (raw === null) return { ok: true, data: {} }
+  let parsed: unknown
   try {
-    const parsed: unknown = JSON.parse(raw)
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {}
-    const out: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(parsed)) out[k] = v
-    return out
-  } catch {
-    return {}
+    parsed = JSON.parse(raw)
+  } catch (err) {
+    return { ok: false, error: `settings.json is corrupt (parse failed: ${String(err)})` }
   }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, error: 'settings.json is corrupt (not a JSON object)' }
+  }
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(parsed)) out[k] = v
+  return { ok: true, data: out }
 }
 
 export async function handleSettings(req: Request, ctx: SettingsContext): Promise<Response | null> {
@@ -72,8 +84,15 @@ export async function handleSettings(req: Request, ctx: SettingsContext): Promis
   if (req.method === 'POST') {
     const parsed = parseJsonBody(await req.text(), SettingsPatchSchema)
     if (!parsed.ok) return parsed.response
-    const current = parseCurrentSettings(ctx.readSettings())
-    const merged = { ...current, ...parsed.data }
+    const currentResult = parseCurrentSettings(ctx.readSettings())
+    if (!currentResult.ok) {
+      console.error(`[settings] refusing to overwrite: ${currentResult.error}`)
+      return Response.json(
+        { error: `Refusing to overwrite: ${currentResult.error}` },
+        { status: 500, headers: CORS_HEADERS }
+      )
+    }
+    const merged = { ...currentResult.data, ...parsed.data }
     try {
       ctx.writeSettings(JSON.stringify(merged, null, 2))
     } catch (err) {

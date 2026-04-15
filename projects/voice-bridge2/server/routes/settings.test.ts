@@ -199,6 +199,51 @@ describe('handleSettings', () => {
     expect(text).toBe('not valid json')
   })
 
+  // Chunk-4 HIGH: prior handler called parseCurrentSettings() which
+  // returned {} on JSON.parse failure, then merged the incoming patch
+  // over {} and wrote the result — silently DROPPING every existing
+  // key. A crash-truncated settings.json would cause the next successful
+  // POST to destroy all unrelated keys.
+  //
+  // Desired behavior: if the existing file is present but unparseable,
+  // refuse the write with 500 so the operator notices corruption BEFORE
+  // unrelated data is lost.
+  test('POST with corrupt existing file refuses to overwrite (fail-closed, 500)', async () => {
+    const { ctx, lastWritten } = makeCtx({
+      existing: '{"start_threshold":0.3,"stop_threshold":0.1,"tts_enabl'
+    })
+    const req = new Request('http://localhost/settings', {
+      method: 'POST',
+      body: JSON.stringify({ toast_duration: 5 })
+    })
+    const res = await handleSettings(req, ctx)
+    expect(res?.status).toBe(500)
+    // Must not have written anything — corruption preserved for recovery.
+    expect(lastWritten()).toBeNull()
+    const body = await readJsonObject(res)
+    const err = body['error']
+    expect(typeof err).toBe('string')
+    if (typeof err === 'string') expect(err.toLowerCase()).toMatch(/corrupt|parse/)
+  })
+
+  // Paired positive case: missing file is NOT corruption — it's a
+  // legitimate first-time write. Must merge onto {} and succeed.
+  test('POST with missing existing file creates it (merge onto {})', async () => {
+    const { ctx, lastWritten } = makeCtx({ existing: null })
+    const req = new Request('http://localhost/settings', {
+      method: 'POST',
+      body: JSON.stringify({ toast_duration: 5 })
+    })
+    const res = await handleSettings(req, ctx)
+    expect(res?.status).toBe(200)
+    const written = lastWritten()
+    expect(written).not.toBeNull()
+    if (written !== null) {
+      const parsed: unknown = JSON.parse(written)
+      expect(parsed).toEqual({ toast_duration: 5 })
+    }
+  })
+
   test('unsupported method returns null (dispatcher falls through)', async () => {
     const { ctx } = makeCtx({ existing: '{}' })
     const req = new Request('http://localhost/settings', { method: 'DELETE' })

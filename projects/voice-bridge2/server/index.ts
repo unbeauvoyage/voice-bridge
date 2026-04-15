@@ -11,6 +11,7 @@
 
 import { readFile } from 'node:fs/promises'
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs'
+import { atomicWriteFile } from './atomicWriteFile.ts'
 import { join } from 'node:path'
 import { spawnSync, spawn } from 'node:child_process'
 import { listWorkspaceNames } from './cmux.ts'
@@ -247,7 +248,7 @@ const server = Bun.serve({
           }
         },
         writeSettings: (content: string) => {
-          writeFileSync(settingsPath, content)
+          atomicWriteFile(settingsPath, content)
         }
       }
       const res = await handleSettings(req, ctx)
