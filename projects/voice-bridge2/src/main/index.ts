@@ -6,6 +6,7 @@ import { createTargetStore } from './state/targetStore'
 import { createDaemonController } from './processes/daemon'
 import { createBackendServerController } from './processes/backendServer'
 import { createOverlayServerController } from './overlay/overlayServer'
+import { createOverlayManager } from './overlay/overlayWindow'
 
 // Single instance lock
 if (!app.requestSingleInstanceLock()) {
@@ -18,7 +19,6 @@ app.dock?.hide()
 
 let tray: Tray | null = null
 let win: BrowserWindow | null = null
-let overlayWin: BrowserWindow | null = null
 let lastTrayBounds: Electron.Rectangle | undefined
 
 const OVERLAY_PORT = 47890
@@ -204,26 +204,10 @@ function buildMenu(): Electron.Menu {
   ])
 }
 
-// ── Overlay ───────────────────────────────────────────────────────────────────
+// ── Overlay window ───────────────────────────────────────────────────────────
 
-function overlayBoundsForMode(mode: string): {
-  x: number
-  y: number
-  width: number
-  height: number
-} {
-  const { width: sw } = screen.getPrimaryDisplay().workAreaSize
-  if (mode === 'message') {
-    return { x: sw - 480 - 18, y: 30, width: 480, height: 80 }
-  }
-  if (mode === 'recording') {
-    return { x: 18, y: 30, width: 420, height: 54 }
-  }
-  return { x: 18, y: 30, width: 360, height: 52 }
-}
-
-function createOverlayWindow(): BrowserWindow {
-  const bounds = overlayBoundsForMode('recording')
+function createOverlayBrowserWindow(): BrowserWindow {
+  const bounds = { x: 18, y: 30, width: 420, height: 54 }
 
   const w = new BrowserWindow({
     ...bounds,
@@ -250,7 +234,6 @@ function createOverlayWindow(): BrowserWindow {
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     const devUrl = `${process.env['ELECTRON_RENDERER_URL']}/overlay.html`
     w.loadURL(devUrl).catch(() => {
-      // Vite dev server not reachable — fall back to built file
       console.warn('[overlay] dev server unreachable, falling back to loadFile')
       w.loadFile(overlayFilePath).catch((e: Error) =>
         console.error('[overlay] loadFile fallback failed:', e.message)
@@ -263,19 +246,13 @@ function createOverlayWindow(): BrowserWindow {
   return w
 }
 
+const overlayManager = createOverlayManager({
+  getScreenWidth: () => screen.getPrimaryDisplay().workAreaSize.width,
+  createWindow: () => createOverlayBrowserWindow()
+})
+
 function showOverlay(payload: OverlayPayload): void {
-  if (!overlayWin || overlayWin.isDestroyed()) {
-    overlayWin = createOverlayWindow()
-    overlayWin.webContents.once('did-finish-load', () => {
-      overlayWin?.setBounds(overlayBoundsForMode(payload.mode))
-      overlayWin?.show()
-      overlayWin?.webContents.send('overlay-show', payload)
-    })
-    return
-  }
-  overlayWin.setBounds(overlayBoundsForMode(payload.mode))
-  if (!overlayWin.isVisible()) overlayWin.show()
-  overlayWin.webContents.send('overlay-show', payload)
+  overlayManager.show(payload)
 }
 
 // ── IPC handlers ─────────────────────────────────────────────────────────────
