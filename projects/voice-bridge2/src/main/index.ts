@@ -1,40 +1,15 @@
 import { app, Tray, Menu, nativeImage, BrowserWindow, ipcMain, screen } from 'electron'
 import { spawn, ChildProcess } from 'child_process'
-import { readFileSync, writeFileSync } from 'fs'
 import * as http from 'http'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
-
-// ── Type guards ───────────────────────────────────────────────────────────────
-
-function isMicResponse(v: unknown): v is { state: 'on' | 'off' } {
-  if (typeof v !== 'object' || v === null) return false
-  if (!('state' in v)) return false
-  const obj: Record<string, unknown> = Object.fromEntries(Object.entries(v))
-  return obj['state'] === 'on' || obj['state'] === 'off'
-}
-
-function isAgentsResponse(v: unknown): v is { agents: Array<{ name: string } | string> } {
-  if (typeof v !== 'object' || v === null) return false
-  if (!('agents' in v)) return false
-  const obj: Record<string, unknown> = Object.fromEntries(Object.entries(v))
-  return Array.isArray(obj['agents'])
-}
-
-function isOverlayPayload(v: unknown): v is OverlayPayload {
-  if (typeof v !== 'object' || v === null) return false
-  if (!('mode' in v)) return false
-  const obj: Record<string, unknown> = Object.fromEntries(Object.entries(v))
-  const mode = obj['mode']
-  if (typeof mode !== 'string') return false
-  const validModes: string[] = ['success', 'recording', 'cancelled', 'error', 'message', 'hidden']
-  if (!validModes.includes(mode)) return false
-  if ('text' in v) {
-    const text = obj['text']
-    if (text !== undefined && typeof text !== 'string') return false
-  }
-  return true
-}
+import {
+  isMicResponse,
+  isAgentsResponse,
+  isOverlayPayload,
+  type OverlayPayload
+} from './typeGuards'
+import { createTargetStore } from './state/targetStore'
 
 // Single instance lock
 if (!app.requestSingleInstanceLock()) {
@@ -63,21 +38,7 @@ const DAEMON_DIR = join(PROJECT_ROOT, 'daemon')
 const WAKE_WORD_SCRIPT = join(DAEMON_DIR, 'wake_word.py')
 const VENV_PACKAGES = join(DAEMON_DIR, '.venv/lib/python3.14/site-packages')
 
-function readLastTarget(): string {
-  try {
-    return readFileSync(LAST_TARGET_FILE, 'utf8').trim() || 'command'
-  } catch {
-    return 'command'
-  }
-}
-
-function saveLastTarget(target: string): void {
-  try {
-    writeFileSync(LAST_TARGET_FILE, target)
-  } catch {
-    /* ignore */
-  }
-}
+const targetStore = createTargetStore(LAST_TARGET_FILE)
 
 function startDaemon(): void {
   if (daemon && !daemon.killed) return
@@ -87,7 +48,7 @@ function startDaemon(): void {
       '-u',
       WAKE_WORD_SCRIPT,
       '--target',
-      readLastTarget(),
+      targetStore.read(),
       '--start-threshold',
       '0.3',
       '--stop-threshold',
@@ -304,11 +265,6 @@ function buildMenu(): Electron.Menu {
 
 // ── Overlay ───────────────────────────────────────────────────────────────────
 
-type OverlayPayload = {
-  mode: 'success' | 'recording' | 'cancelled' | 'error' | 'message' | 'hidden'
-  text?: string
-}
-
 function overlayBoundsForMode(mode: string): {
   x: number
   y: number
@@ -418,7 +374,7 @@ function startOverlayServer(): void {
 // ── IPC handlers ─────────────────────────────────────────────────────────────
 
 ipcMain.handle('get-status', async () => {
-  const target = readLastTarget()
+  const target = targetStore.read()
   try {
     const res = await fetch('http://127.0.0.1:3030/mic')
     if (res.ok) {
@@ -434,7 +390,7 @@ ipcMain.handle('get-status', async () => {
 })
 
 ipcMain.handle('set-target', (_event, { target }: { target: string }) => {
-  saveLastTarget(target)
+  targetStore.save(target)
   void fetch('http://127.0.0.1:3030/target', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
