@@ -240,11 +240,17 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
   ctx.recentAudioHashes.set(audioHash, { ts: Date.now(), inProgress: true })
 
   // ── Transcribe ─────────────────────────────────────────────────────────────
+  // Chunk-4 HIGH (transcribe.ts:240 error-return sites): we marked the hash
+  // as { inProgress: true } above so concurrent in-flight retries wait for
+  // us. Every early-return below MUST clear that entry — otherwise retries
+  // within DEDUP_WINDOW_MS wait on a ghost "inProgress" entry and the phone
+  // freezes in "transcribing" state.
   let transcript: string
   try {
     transcript = await transcribeAudio(audioBuffer, audioMime)
   } catch (err) {
     console.error('[whisper] transcription failed:', err)
+    ctx.recentAudioHashes.delete(audioHash)
     return Response.json(
       { error: 'Transcription failed: ' + String(err) },
       { status: 500, headers: corsHeaders }
@@ -252,6 +258,7 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
   }
 
   if (!transcript) {
+    ctx.recentAudioHashes.delete(audioHash)
     return Response.json(
       { error: 'Empty transcription — no speech detected' },
       { status: 422, headers: corsHeaders }
@@ -266,6 +273,7 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
     console.log(
       `[voice-bridge] cancelled (${cancelCount}x "cancel" in last 10 words) — discarding: "${transcript}"`
     )
+    ctx.recentAudioHashes.delete(audioHash)
     return Response.json({ transcript, cancelled: true }, { headers: corsHeaders })
   }
 
@@ -274,6 +282,7 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
   const isTest = /^test\b/i.test(transcript)
   if (isTest) {
     console.log(`[voice-bridge] test mode — skipping relay: ${transcript}`)
+    ctx.recentAudioHashes.delete(audioHash)
     return Response.json({ transcript, test: true }, { headers: corsHeaders })
   }
 
@@ -284,6 +293,7 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
     console.log(
       `[mic] ${micCmd.state === 'off' ? 'PAUSED' : 'RESUMED'} via voice command: "${transcript}"`
     )
+    ctx.recentAudioHashes.delete(audioHash)
     return Response.json({ transcript, mic: micCmd.state, command: true }, { headers: corsHeaders })
   }
 
@@ -360,6 +370,7 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
   const delivery = await ctx.deliverMessage(message, to)
   if (!delivery.ok) {
     console.error(`[voice-bridge] delivery failed: ${delivery.error}`)
+    ctx.recentAudioHashes.delete(audioHash)
     return Response.json(
       { transcript, to, message, delivered: false, error: delivery.error },
       { status: 502, headers: corsHeaders }

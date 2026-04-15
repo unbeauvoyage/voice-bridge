@@ -8,15 +8,19 @@
  * Integration tests use the real server to verify end-to-end behavior.
  */
 
-import { describe, test, expect, mock } from 'bun:test'
+import { describe, test, expect, beforeEach, mock } from 'bun:test'
 import { handleTranscribe, type TranscribeContext, type DedupEntry } from './transcribe.ts'
 
-// Mock whisper transcription so unit tests don't shell out to ffmpeg.
-// The fake returns a stable transcript that won't trip mic-command or
-// cancel-detection heuristics.
-mock.module('../whisper.ts', () => ({
-  transcribeAudio: async () => 'hello world'
-}))
+// Default whisper mock: returns a stable transcript that won't trip
+// mic-command or cancel-detection heuristics. Individual tests may
+// re-mock to simulate throws / empty transcripts; beforeEach restores.
+const DEFAULT_WHISPER = (): { transcribeAudio: () => Promise<string> } => ({
+  transcribeAudio: async (): Promise<string> => 'hello world'
+})
+mock.module('../whisper.ts', DEFAULT_WHISPER)
+beforeEach(() => {
+  mock.module('../whisper.ts', DEFAULT_WHISPER)
+})
 
 // Build a real Request whose formData() returns the given FormData. We stub
 // only `formData` on the instance because Bun/undici's native Request.formData
@@ -170,6 +174,73 @@ describe('transcribe route handler', () => {
     }
     expect(obj['transcript']).toBe('hello world')
     expect(obj['delivered']).toBe(true)
+  })
+
+  // Chunk-4 HIGH (transcribe.ts:240 + error-return sites): the handler marks
+  // the audio hash as { inProgress: true } before calling Whisper, but on
+  // every error-return path (transcription failure, empty transcript, cancel,
+  // test mode, mic command, delivery failure) that entry was never cleaned
+  // up or upgraded. WKWebView retries within 30s would see inProgress:true,
+  // wait DEDUP_WAIT_DEADLINE_MS, then return empty — the phone freezes in
+  // "transcribing" state. The fix: delete the entry on every error/early
+  // return so retries get a fresh attempt.
+  test('cache entry is cleaned up when transcription fails (retries do not hang)', async () => {
+    mock.module('../whisper.ts', () => ({
+      transcribeAudio: async (): Promise<string> => {
+        throw new Error('whisper exploded')
+      }
+    }))
+    const formData = new FormData()
+    formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+    const req = createMockRequest(formData)
+    const ctx = createMockContext()
+    const res = await handleTranscribe(req, ctx)
+    expect(res.status).toBe(500)
+    // Retries must not hang on a stale inProgress entry.
+    expect(ctx.recentAudioHashes.size).toBe(0)
+  })
+
+  test('cache entry is cleaned up when transcript is empty', async () => {
+    mock.module('../whisper.ts', () => ({
+      transcribeAudio: async (): Promise<string> => ''
+    }))
+    const formData = new FormData()
+    formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+    const req = createMockRequest(formData)
+    const ctx = createMockContext()
+    const res = await handleTranscribe(req, ctx)
+    expect(res.status).toBe(422)
+    expect(ctx.recentAudioHashes.size).toBe(0)
+  })
+
+  test('cache entry is cleaned up when transcript is a cancel command', async () => {
+    mock.module('../whisper.ts', () => ({
+      transcribeAudio: async (): Promise<string> => 'cancel cancel cancel'
+    }))
+    const formData = new FormData()
+    formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+    const req = createMockRequest(formData)
+    const ctx = createMockContext()
+    const res = await handleTranscribe(req, ctx)
+    expect(res.status).toBe(200)
+    const body: unknown = await res.json()
+    const obj: Record<string, unknown> = {}
+    if (typeof body === 'object' && body !== null) Object.assign(obj, body)
+    expect(obj['cancelled']).toBe(true)
+    expect(ctx.recentAudioHashes.size).toBe(0)
+  })
+
+  test('cache entry is cleaned up when delivery fails (retries re-attempt delivery)', async () => {
+    const formData = new FormData()
+    formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+    const req = createMockRequest(formData)
+    const ctx = createMockContext({
+      deliverMessage: async () => ({ ok: false, error: 'relay+cmux both down' })
+    })
+    const res = await handleTranscribe(req, ctx)
+    expect(res.status).toBe(502)
+    // Retries must re-attempt delivery, not hang on the stale inProgress entry.
+    expect(ctx.recentAudioHashes.size).toBe(0)
   })
 
   test('POST /transcribe returns 400 when form data is invalid', async () => {
