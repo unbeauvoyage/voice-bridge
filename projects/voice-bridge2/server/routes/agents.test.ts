@@ -64,6 +64,16 @@ describe('handleAgents', () => {
     expect(body['error']).toBe('Relay unavailable')
   })
 
+  test('source=relay returns error body (not cmux) when relay returns non-ok', async () => {
+    const ctx = ctxWith({ relayOk: false, workspaces: ['shouldNotAppear'] })
+    const req = new Request('http://localhost/agents?source=relay')
+    const res = await handleAgents(req, ctx)
+    const body = await readJsonObject(res)
+    expect(body['agents']).toEqual([])
+    expect(typeof body['error']).toBe('string')
+    expect(String(body['error'])).toContain('500')
+  })
+
   test('source=auto (default) returns relay JSON on success', async () => {
     const ctx = ctxWith({ relayJson: { agents: ['relay1'] }, workspaces: ['wsX'] })
     const req = new Request('http://localhost/agents')
