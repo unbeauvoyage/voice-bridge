@@ -103,16 +103,18 @@ describe('safeJsonParse behavior (via HTTP endpoints)', () => {
   })
 })
 
-// Chunk2-review HIGH2: /transcribe Content-Length is client-trusted.
-// A lying or omitted header lets hostile clients buffer oversized bodies
-// before the route-level cap fires. Defense-in-depth: Bun.serve
-// maxRequestBodySize enforces at the parser level, route-level cap keeps
-// the standard error-shape contract.
-describe('transcribe body-size enforcement (Bun.serve maxRequestBodySize)', () => {
+// Chunk2-review HIGH2: /transcribe Content-Length is client-trusted. A
+// lying or omitted header lets hostile clients buffer oversized bodies
+// before the route-level cap fires. These tests verify the end-to-end
+// response is 413 in both cases. They do NOT pin which layer produced it:
+// Bun.serve maxRequestBodySize, the route-level Content-Length preflight,
+// and the manual streaming accounting all surface as 413, which is exactly
+// the defense-in-depth we want — any one of them being turned off would
+// still let the others catch the attack.
+describe('transcribe body-size enforcement (end-to-end 413)', () => {
   test('POST /transcribe with oversized body + honest Content-Length returns 413', async () => {
-    // 50 MiB raw body — well above the 11 MiB Bun.serve cap. Bun rejects
-    // at the parser level (maxRequestBodySize works for honest CL), OR
-    // the route-level Content-Length preflight fires — both surface as 413.
+    // 50 MiB raw body — above the 11 MiB Bun.serve cap. Rejected via
+    // Bun.serve maxRequestBodySize and/or the route-level preflight.
     const big = new Uint8Array(50 * 1024 * 1024)
     const res = await fetch(`http://localhost:${TEST_PORT}/transcribe`, {
       method: 'POST',
@@ -121,14 +123,11 @@ describe('transcribe body-size enforcement (Bun.serve maxRequestBodySize)', () =
     expect(res.status).toBe(413)
   })
 
-  test('POST /transcribe with oversized streamed body and no Content-Length is rejected at parser level (413)', async () => {
-    // Stream a body larger than the cap with NO Content-Length header (the
-    // attacker scenario codex flagged). Without maxRequestBodySize, Bun
-    // buffers the full body before the handler runs, then formData() fails
-    // on the non-multipart bytes → 400 "Invalid form data". With
-    // maxRequestBodySize wired, Bun rejects at the parser level → 413
-    // (or connection reset). The 413 distinction is what proves the
-    // defense-in-depth is in place.
+  test('POST /transcribe with oversized streamed body and no Content-Length returns 413', async () => {
+    // Stream a body larger than the cap with NO Content-Length header —
+    // the attacker scenario codex flagged. On Bun 1.3.3 maxRequestBodySize
+    // does NOT enforce on chunked streams, so it's the manual streaming
+    // accounting in handleTranscribe that catches this and returns 413.
     const chunk = new Uint8Array(1024 * 1024) // 1 MiB per chunk
     const stream = new ReadableStream({
       start(controller) {

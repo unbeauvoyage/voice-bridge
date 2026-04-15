@@ -111,9 +111,15 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
 
   // Drain req.body with a byte budget when the request has a streaming
   // body. Any chunk that pushes the running total past MAX_BODY_BYTES
-  // aborts the stream and returns 413 — we never retain more than
-  // MAX_BODY_BYTES + one-chunk of memory. When req.body is null (no body,
+  // aborts the stream and returns 413. When req.body is null (no body,
   // or a unit-test Request stub), fall through to req.formData() directly.
+  //
+  // Memory: during streaming we retain up to MAX_BODY_BYTES + one chunk
+  // (the over-limit chunk that triggers rejection is read but discarded).
+  // On the success path Buffer.concat doubles this transiently, and
+  // audioFile.arrayBuffer() later materializes the file a third time; a
+  // near-cap legitimate upload can hold ~2× MAX_BODY_BYTES for a moment
+  // before transcription. This is acceptable given the 10 MiB cap.
   let formData: FormData
   if (req.body) {
     const chunks: Uint8Array[] = []
@@ -125,7 +131,11 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
         if (done) break
         totalBytes += value.byteLength
         if (totalBytes > MAX_BODY_BYTES) {
-          await reader.cancel()
+          // Fire-and-forget cancel: a hostile client could return a
+          // never-resolving or rejecting promise from its ReadableStream's
+          // cancel(), which would hang or crash this handler if awaited.
+          // We've decided to return 413 — cancel is best-effort cleanup.
+          void reader.cancel().catch(() => {})
           return Response.json(
             { error: 'Request body too large' },
             { status: 413, headers: corsHeaders }
