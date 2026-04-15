@@ -77,7 +77,10 @@ export default defineConfig(
             // pages may import feature public APIs and shared
             { from: 'page', allow: ['feature', 'shared'] },
             // feature components may use hooks, store, domain, shared
-            { from: 'feature-components', allow: ['feature-hooks', 'feature-store', 'feature-domain', 'shared'] },
+            {
+              from: 'feature-components',
+              allow: ['feature-hooks', 'feature-store', 'feature-domain', 'shared']
+            },
             // hooks may import data and domain
             { from: 'feature-hooks', allow: ['feature-domain', 'shared'] },
             // domain is pure — imports nothing app-specific

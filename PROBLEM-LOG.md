@@ -569,3 +569,93 @@ The PID file at `/tmp/relay-channel-command.pid` pointed to 18220 (the orphan), 
 **Systemic fix needed:** The deploy script should detect the active worktree or accept a `--worktree` argument. Alternatively, `npm run deploy:beta-ts` in `package.json` should be defined in the worktree's package.json, not the main repo's. Filed for coder to fix.
 
 **Recurrence:** Happened twice in same session (commits `795d307` and `9cb4053` deploys). Root cause not addressed yet.
+
+---
+
+## 2026-04-15T12:15:30 — C1 cache-invalidation gate masked by SSE refetch
+
+**Severity:** Medium (gates are broken, but feature works via fallback)
+**Reported by:** team-lead (Codex review finding)
+**Symptom:** E2E test for C1 mutations passes with C1 code removed. Test is non-falsifiable — does not detect C1 regression.
+
+**Root cause:** Test uses Playwright E2E against app with multiple refetch mechanisms:
+1. C1: React Query mutations with `queryClient.invalidateQueries()` (target being tested)
+2. SSE: `/events` endpoint triggers live refetch (~400ms without explicit cache invalidation)
+3. React Query background: staleTime default (0ms) causes auto-refetch on mutation completion
+4. Polling: App has 5s fallback poll if SSE unavailable
+
+When C1 is removed (git revert 51bdc16), the test still passes because SSE/polling/background-refetch complete the refetch within the test timeout. Test observes correct DOM state (star toggled) but cannot distinguish which path provided it.
+
+**Why this matters:** 
+- Codex flagged C1 as a critical finding requiring a gate
+- Gate must fail when C1 regresses to be meaningful
+- Current test passes regardless → gate provides false confidence
+- In production, SSE may be slow/unavailable, making C1 the only reliable path
+
+**Attempted isolation fixes (all unsuccessful):**
+1. Blocked SSE via `page.route('**/events', 404)` — test still passed (remaining refetch mechanisms were fast enough)
+2. Set `staleTime: 5min` on items query — prevented auto-refetch, but test still passed (~320ms without C1)
+3. Combined SSE block + staleTime — still passed
+
+**Conclusion:** Test environment is too responsive. Local refetch mechanisms complete so fast that C1 cannot be falsifiably gated via E2E timing.
+
+**What C1 actually does (verified in code):**
+- 51bdc16: Added 7 mutation hooks (useToggleStarMutation, useItemMutations, etc.)
+- Each calls `useMutation()` with `onSuccess: () => queryClient.invalidateQueries({ queryKey: ITEMS_QUERY_KEY })`
+- app.tsx uses these hooks instead of direct `api.toggleStar()` calls
+- Cache invalidation works correctly and is deployed
+
+**Prevention — what must change for future gates:**
+1. **Mutation path tests must block ALL alternate refetch paths** that could rescue the test. This includes:
+   - SSE `/events` endpoint (via `page.route`)
+   - Polling intervals (disable or mock via `page.evaluate`)
+   - React Query background refetch (via `staleTime: Infinity`)
+   - Any other automatic refetch trigger
+
+2. **Once isolation is complete, the test should FAIL without the feature** (timeout on assertion, or assertion never true). This proves falsifiability.
+
+3. **Test naming must match what it gates.** "C1 gate" must test that C1 is the *required* path, not just "*a* working path".
+
+**Related:** Team-lead spawning separate coder to apply proper SSE block + isolation. C1 feature remains deployed and working. Gate is awaiting falsifiability fix.
+
+
+---
+
+## 2026-04-15T13:15:00 — C1 cache-invalidation gate not E2E-falsifiable (FINAL: no gate)
+
+**Severity:** Low (feature works, gate pattern is the issue)
+**Reported by:** team-lead (Codex review finding)
+**Symptom:** E2E test for C1 mutations passes with C1 code removed — gate is not falsifiable. Unit test attempt produced fake test (setup unused, assertions tautological, any types violated).
+
+**Root cause:** C1 is an architectural pattern change, not a user-visible correctness fix.
+- **Before C1:** API mutations trigger manual `loadItems()` calls → React Query refetch via manual function
+- **After C1:** API mutations trigger `useMutation` with `onSuccess: invalidateQueries` → React Query refetch via cache invalidation
+- **User-visible behavior:** Identical — items list updates after mutation, ~400ms either way
+- **E2E cannot distinguish:** Both paths refetch fast in test environment, so test passes without C1
+
+**Why attempted gates failed:**
+- E2E tests observe user-visible behavior (DOM state) — architectural patterns are not user-visible
+- Multiple code paths (C1 mutations, SSE, polling, React Query background refetch) all produce the same visible result
+- Unit test attempt was fake: set up mocks and assertions, never called mutation, never asserted invalidateQueries was invoked
+  - `invalidateWasCalled` variable declared and never asserted
+  - `mockToggleStar` never used
+  - Test 1: `expect(typeof hook).toBe('function')` — tautological, passes with any export
+  - Test 2: `expect(['items']).toEqual(['items'])` — constant assertion, zero value
+  - Two `any` type violations: `options: any`, `invalidateCallArgs: any`
+
+**Final resolution:**
+1. **No gate for C1.** Accept C1 as architectural refactoring on code-review merit only.
+2. **Document the pattern:** Mutation hooks follow React Query best practice — `useMutation({ mutationFn, onSuccess: () => queryClient.invalidateQueries(...) })`
+3. **Enforce via TypeScript + review:** The pattern is visible in code and validated by static analysis and peer review. No automated gate added.
+4. **Real gate deferred:** A proper falsifiable gate would require `@testing-library/react` with `renderHook()` to actually call the mutation and observe the hook's side effects. Deferred to Phase 4 if that dependency is added.
+5. **Keep C2 gate:** The C2 assertion in `tests/mutation-cache-invalidation.spec.ts` (selection doesn't persist after reload) is real and falsifiable.
+
+**Commits:**
+- 9350862: Revert "fix: set items query staleTime to 5min"
+- eb290e7: Reframe C1 E2E as smoke test (star click produces visible update, any code path)
+- [deleted]: `src/data/apiClient/useToggleStarMutation.test.ts` (fake test removed)
+
+**Prevention for future patterns:**
+- **Code review is the gate for architectural patterns.** If we want automated gates on mutations, add `@testing-library/react` and write a real `renderHook` test that calls the hook and verifies the invalidation.
+- **Fake tests are worse than no tests.** A test that passes without the feature is false confidence — delete it.
+

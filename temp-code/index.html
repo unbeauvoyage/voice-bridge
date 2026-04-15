@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSS Animation Demo</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #282c34;
+            color: white;
+            font-family: sans-serif;
+        }
+
+        .container {
+            display: flex;
+            gap: 50px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .box {
+            width: 100px;
+            height: 100px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            text-align: center;
+            font-size: 14px;
+        }
+
+        /* Animation 1: Pulse */
+        .pulse {
+            background-color: #61dafb;
+            animation: pulse-animation 2s infinite;
+        }
+
+        @keyframes pulse-animation {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+
+        /* Animation 2: Spin */
+        .spin {
+            background-color: #ff7675;
+            animation: spin-animation 3s linear infinite;
+        }
+
+        @keyframes spin-animation {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* Animation 3: Float */
+        .float {
+            background-color: #55efc4;
+            animation: float-animation 2.5s ease-in-out infinite;
+        }
+
+        @keyframes float-animation {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-30px); }
+        }
+
+        /* Animation 4: Shake */
+        .shake {
+            background-color: #a29bfe;
+            animation: shake-animation 0.5s ease-in-out infinite;
+        }
+
+        @keyframes shake-animation {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+
+        h1 {
+            margin-bottom: 40px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>CSS Animations Demo</h1>
+
+    <div class="container">
+        <div class="box pulse">Pulse</div>
+        <div class="box spin">Spin</div>
+        <div class="box float">Float</div>
+        <div class="box shake">Shake</div>
+    </div>
+
+</body>
+</html>

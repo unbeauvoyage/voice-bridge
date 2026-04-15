@@ -13,7 +13,7 @@ beforeAll(async () => {
     cwd: '/Users/riseof/environment/projects/voice-bridge',
     env: { ...process.env, PORT: String(TEST_PORT) },
     stdout: 'pipe',
-    stderr: 'pipe',
+    stderr: 'pipe'
   })
 
   // Wait until server is ready (max 5s)
@@ -22,7 +22,9 @@ beforeAll(async () => {
     try {
       const res = await fetch(`http://localhost:${TEST_PORT}/health`)
       if (res.ok) break
-    } catch { /* server not ready yet — keep polling */ }
+    } catch {
+      /* server not ready yet — keep polling */
+    }
     await Bun.sleep(100)
   }
 })
@@ -36,7 +38,8 @@ describe('voice-bridge status API', () => {
     const res = await fetch(`http://localhost:${TEST_PORT}/status`)
     expect(res.ok).toBe(true)
     const body: unknown = await res.json()
-    const obj: Record<string, unknown> = typeof body === 'object' && body !== null ? Object.fromEntries(Object.entries(body)) : {}
+    const obj: Record<string, unknown> =
+      typeof body === 'object' && body !== null ? Object.fromEntries(Object.entries(body)) : {}
     expect(typeof obj['target']).toBe('string')
     expect(typeof obj['micState']).toBe('string')
   })
@@ -45,11 +48,12 @@ describe('voice-bridge status API', () => {
     const res = await fetch(`http://localhost:${TEST_PORT}/target`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target: 'test-agent' }),
+      body: JSON.stringify({ target: 'test-agent' })
     })
     expect(res.ok).toBe(true)
     const body: unknown = await res.json()
-    const obj: Record<string, unknown> = typeof body === 'object' && body !== null ? Object.fromEntries(Object.entries(body)) : {}
+    const obj: Record<string, unknown> =
+      typeof body === 'object' && body !== null ? Object.fromEntries(Object.entries(body)) : {}
     expect(obj['target']).toBe('test-agent')
   })
 
@@ -57,7 +61,8 @@ describe('voice-bridge status API', () => {
     const res = await fetch(`http://localhost:${TEST_PORT}/health`)
     expect(res.ok).toBe(true)
     const body: unknown = await res.json()
-    const obj: Record<string, unknown> = typeof body === 'object' && body !== null ? Object.fromEntries(Object.entries(body)) : {}
+    const obj: Record<string, unknown> =
+      typeof body === 'object' && body !== null ? Object.fromEntries(Object.entries(body)) : {}
     expect(obj['status']).toBe('ok')
   })
 })

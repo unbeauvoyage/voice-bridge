@@ -3,6 +3,7 @@ import { getStatus } from '../../../../data/apiClient'
 
 const STATUS_QUERY_KEY = ['status']
 
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export function useStatusQuery() {
   return useQuery({
     queryKey: STATUS_QUERY_KEY,

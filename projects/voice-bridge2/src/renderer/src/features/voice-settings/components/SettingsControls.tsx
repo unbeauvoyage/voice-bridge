@@ -4,14 +4,14 @@ const styles: Record<string, React.CSSProperties> = {
   row: {
     display: 'flex',
     alignItems: 'center',
-    gap: 8,
+    gap: 8
   },
   label: {
     fontSize: 11,
     color: '#9ca3af',
     flexShrink: 0,
     width: 38,
-    textAlign: 'right' as const,
+    textAlign: 'right' as const
   },
   select: {
     flex: 1,
@@ -22,19 +22,19 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     padding: '3px 6px',
     outline: 'none',
-    cursor: 'pointer',
+    cursor: 'pointer'
   },
   slider: {
     flex: 1,
     accentColor: '#818cf8',
-    cursor: 'pointer',
+    cursor: 'pointer'
   },
   value: {
     fontSize: 11,
     color: '#818cf8',
     width: 34,
     textAlign: 'right' as const,
-    fontVariantNumeric: 'tabular-nums',
+    fontVariantNumeric: 'tabular-nums'
   },
   numberInput: {
     width: 52,
@@ -45,33 +45,33 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     padding: '2px 6px',
     outline: 'none',
-    textAlign: 'center' as const,
+    textAlign: 'center' as const
   },
   hint: {
     fontSize: 11,
-    color: '#6b7280',
+    color: '#6b7280'
   },
   toggleWrap: {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
-    cursor: 'pointer',
+    cursor: 'pointer'
   },
   checkbox: {
     accentColor: '#818cf8',
     width: 14,
     height: 14,
-    cursor: 'pointer',
+    cursor: 'pointer'
   },
   toggleLabel: {
     fontSize: 12,
-    color: '#d1d5db',
+    color: '#d1d5db'
   },
   divider: {
     height: 1,
     background: 'rgba(255,255,255,0.07)',
-    margin: '1px 0',
-  },
+    margin: '1px 0'
+  }
 }
 
 type SettingsControlsProps = {
@@ -89,7 +89,7 @@ export function SettingsControls({
   target,
   saving,
   onTargetChange,
-  onSettingChange,
+  onSettingChange
 }: SettingsControlsProps): React.JSX.Element {
   return (
     <>
@@ -171,7 +171,7 @@ export function SettingsControls({
           onChange={(e): void =>
             onSettingChange(
               'tts_word_limit',
-              Math.max(1, Math.min(20, parseInt(e.target.value) || 1)),
+              Math.max(1, Math.min(20, parseInt(e.target.value) || 1))
             )
           }
         />
@@ -190,7 +190,7 @@ export function SettingsControls({
           onChange={(e): void =>
             onSettingChange(
               'toast_duration',
-              Math.max(1, Math.min(10, parseInt(e.target.value) || 1)),
+              Math.max(1, Math.min(10, parseInt(e.target.value) || 1))
             )
           }
         />

@@ -13,7 +13,14 @@ import { createRelayPoller } from './relay-poller'
 
 type OverlayPost = { mode: string; text: string }
 
-let relayMessages: Array<{ id: string; from: string; to: string; type: string; body: string; ts: string }> = []
+let relayMessages: Array<{
+  id: string
+  from: string
+  to: string
+  type: string
+  body: string
+  ts: string
+}> = []
 const overlayPosts: OverlayPost[] = []
 
 const RELAY_PORT = 18767
@@ -31,7 +38,7 @@ beforeAll(() => {
         return Response.json({ messages: relayMessages })
       }
       return new Response('not found', { status: 404 })
-    },
+    }
   })
 
   overlayServer = Bun.serve({
@@ -43,7 +50,7 @@ beforeAll(() => {
         return Response.json({ ok: true })
       }
       return new Response('not found', { status: 404 })
-    },
+    }
   })
 })
 
@@ -57,15 +64,29 @@ afterAll(() => {
 describe('relay poller: sends agent responses to overlay as message toasts', () => {
   test('POSTs overlay message toast for each queued message', async () => {
     relayMessages = [
-      { id: 'msg-1', from: 'chief-of-staff', to: 'ceo', type: 'done', body: 'Task finished successfully.', ts: '2026-04-15T10:00:00Z' },
-      { id: 'msg-2', from: 'atlas', to: 'ceo', type: 'status', body: 'Build is running in the background.', ts: '2026-04-15T10:00:01Z' },
+      {
+        id: 'msg-1',
+        from: 'chief-of-staff',
+        to: 'ceo',
+        type: 'done',
+        body: 'Task finished successfully.',
+        ts: '2026-04-15T10:00:00Z'
+      },
+      {
+        id: 'msg-2',
+        from: 'atlas',
+        to: 'ceo',
+        type: 'status',
+        body: 'Build is running in the background.',
+        ts: '2026-04-15T10:00:01Z'
+      }
     ]
     overlayPosts.length = 0
 
     const poller = createRelayPoller({
       relayBaseUrl: `http://localhost:${RELAY_PORT}`,
       overlayUrl: `http://localhost:${OVERLAY_PORT}/overlay`,
-      ttsEnabled: false,
+      ttsEnabled: false
     })
 
     // Run one poll cycle and wait for it to complete
@@ -85,14 +106,21 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
   test('truncates long message bodies to 120 chars in toast text', async () => {
     const longBody = 'A'.repeat(200)
     relayMessages = [
-      { id: 'msg-long', from: 'command', to: 'ceo', type: 'message', body: longBody, ts: '2026-04-15T10:00:02Z' },
+      {
+        id: 'msg-long',
+        from: 'command',
+        to: 'ceo',
+        type: 'message',
+        body: longBody,
+        ts: '2026-04-15T10:00:02Z'
+      }
     ]
     overlayPosts.length = 0
 
     const poller = createRelayPoller({
       relayBaseUrl: `http://localhost:${RELAY_PORT}`,
       overlayUrl: `http://localhost:${OVERLAY_PORT}/overlay`,
-      ttsEnabled: false,
+      ttsEnabled: false
     })
 
     await poller.pollOnce()
@@ -106,14 +134,21 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
 
   test('does not re-send duplicate messages on second poll', async () => {
     relayMessages = [
-      { id: 'dedup-1', from: 'sentinel', to: 'ceo', type: 'done', body: 'Deployment complete.', ts: '2026-04-15T10:00:03Z' },
+      {
+        id: 'dedup-1',
+        from: 'sentinel',
+        to: 'ceo',
+        type: 'done',
+        body: 'Deployment complete.',
+        ts: '2026-04-15T10:00:03Z'
+      }
     ]
     overlayPosts.length = 0
 
     const poller = createRelayPoller({
       relayBaseUrl: `http://localhost:${RELAY_PORT}`,
       overlayUrl: `http://localhost:${OVERLAY_PORT}/overlay`,
-      ttsEnabled: false,
+      ttsEnabled: false
     })
 
     // First poll — message is new, should be posted
@@ -127,25 +162,46 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
 
   test('only shows done/status/message/waiting-for-input types, filters out voice-sent etc', async () => {
     relayMessages = [
-      { id: 'type-1', from: 'agent-a', to: 'ceo', type: 'done', body: 'Done message.', ts: '2026-04-15T10:00:04Z' },
-      { id: 'type-2', from: 'agent-b', to: 'ceo', type: 'voice-sent', body: 'Voice echo — should be ignored.', ts: '2026-04-15T10:00:05Z' },
-      { id: 'type-3', from: 'agent-c', to: 'ceo', type: 'status', body: 'Status update.', ts: '2026-04-15T10:00:06Z' },
+      {
+        id: 'type-1',
+        from: 'agent-a',
+        to: 'ceo',
+        type: 'done',
+        body: 'Done message.',
+        ts: '2026-04-15T10:00:04Z'
+      },
+      {
+        id: 'type-2',
+        from: 'agent-b',
+        to: 'ceo',
+        type: 'voice-sent',
+        body: 'Voice echo — should be ignored.',
+        ts: '2026-04-15T10:00:05Z'
+      },
+      {
+        id: 'type-3',
+        from: 'agent-c',
+        to: 'ceo',
+        type: 'status',
+        body: 'Status update.',
+        ts: '2026-04-15T10:00:06Z'
+      }
     ]
     overlayPosts.length = 0
 
     const poller = createRelayPoller({
       relayBaseUrl: `http://localhost:${RELAY_PORT}`,
       overlayUrl: `http://localhost:${OVERLAY_PORT}/overlay`,
-      ttsEnabled: false,
+      ttsEnabled: false
     })
 
     await poller.pollOnce()
 
     // Only 'done' and 'status' should be shown; 'voice-sent' should be filtered
     expect(overlayPosts).toHaveLength(2)
-    expect(overlayPosts.map(p => p.text)).toEqual([
+    expect(overlayPosts.map((p) => p.text)).toEqual([
       'agent-a: Done message.',
-      'agent-c: Status update.',
+      'agent-c: Status update.'
     ])
   })
 })

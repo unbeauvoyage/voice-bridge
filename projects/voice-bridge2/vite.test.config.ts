@@ -8,18 +8,18 @@ export default defineConfig({
   root: 'src/renderer',
   resolve: {
     alias: {
-      '@renderer': resolve('src/renderer/src'),
-    },
+      '@renderer': resolve('src/renderer/src')
+    }
   },
   server: {
-    port: 5199,
+    port: 5199
   },
   build: {
     rollupOptions: {
       input: {
         index: resolve('src/renderer/index.html'),
-        overlay: resolve('src/renderer/overlay.html'),
-      },
-    },
-  },
+        overlay: resolve('src/renderer/overlay.html')
+      }
+    }
+  }
 })

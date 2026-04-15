@@ -55,32 +55,49 @@ let lastTrayBounds: Electron.Rectangle | undefined
 const OVERLAY_PORT = 47890
 
 const LAST_TARGET_FILE = join(app.getAppPath(), '..', 'tmp', 'last-target.txt')
-const PYTHON_APP = '/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python'
+const PYTHON_APP =
+  '/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python'
 // Absolute paths for dev — daemon lives in voice-bridge (original project)
 const DAEMON_DIR = '/Users/riseof/environment/projects/voice-bridge/daemon'
 const WAKE_WORD_SCRIPT = join(DAEMON_DIR, 'wake_word.py')
 const VENV_PACKAGES = join(DAEMON_DIR, '.venv/lib/python3.14/site-packages')
 
 function readLastTarget(): string {
-  try { return readFileSync(LAST_TARGET_FILE, 'utf8').trim() || 'command' } catch { return 'command' }
+  try {
+    return readFileSync(LAST_TARGET_FILE, 'utf8').trim() || 'command'
+  } catch {
+    return 'command'
+  }
 }
 
 function saveLastTarget(target: string): void {
-  try { writeFileSync(LAST_TARGET_FILE, target) } catch { /* ignore */ }
+  try {
+    writeFileSync(LAST_TARGET_FILE, target)
+  } catch {
+    /* ignore */
+  }
 }
 
 function startDaemon(): void {
   if (daemon && !daemon.killed) return
-  daemon = spawn(PYTHON_APP, [
-    '-u', WAKE_WORD_SCRIPT,
-    '--target', readLastTarget(),
-    '--start-threshold', '0.3',
-    '--stop-threshold', '0.15',
-  ], {
-    cwd: join(DAEMON_DIR, '..'),
-    env: { ...process.env, PYTHONPATH: VENV_PACKAGES },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  daemon = spawn(
+    PYTHON_APP,
+    [
+      '-u',
+      WAKE_WORD_SCRIPT,
+      '--target',
+      readLastTarget(),
+      '--start-threshold',
+      '0.3',
+      '--stop-threshold',
+      '0.15'
+    ],
+    {
+      cwd: join(DAEMON_DIR, '..'),
+      env: { ...process.env, PYTHONPATH: VENV_PACKAGES },
+      stdio: ['ignore', 'pipe', 'pipe']
+    }
+  )
   let buffer = ''
   daemon.stdout?.on('data', (chunk: Buffer) => {
     buffer += chunk.toString()
@@ -94,7 +111,9 @@ function startDaemon(): void {
         if (win && !win.isDestroyed()) {
           win.webContents.send('state-change', state)
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
   })
   daemon.stderr?.on('data', (d) => process.stderr.write(`[daemon:err] ${d}`))
@@ -106,7 +125,10 @@ function startDaemon(): void {
 }
 
 function stopDaemon(): void {
-  if (daemon) { daemon.kill('SIGTERM'); daemon = null }
+  if (daemon) {
+    daemon.kill('SIGTERM')
+    daemon = null
+  }
 }
 
 function startServer(): void {
@@ -114,16 +136,22 @@ function startServer(): void {
   const serverDir = join(app.getAppPath(), '..', '..', 'server')
   server = spawn('/Users/riseof/.bun/bin/bun', ['run', 'index.ts'], {
     cwd: serverDir,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe']
   })
   server.stdout?.on('data', (d: Buffer) => process.stdout.write(`[server] ${d}`))
   server.stderr?.on('data', (d: Buffer) => process.stderr.write(`[server:err] ${d}`))
-  server.on('exit', (code) => { console.log(`[server] exited ${code}`); server = null })
+  server.on('exit', (code) => {
+    console.log(`[server] exited ${code}`)
+    server = null
+  })
   console.log(`[server] started PID=${server.pid}`)
 }
 
 function stopServer(): void {
-  if (server) { server.kill('SIGTERM'); server = null }
+  if (server) {
+    server.kill('SIGTERM')
+    server = null
+  }
 }
 
 function createWindow(): BrowserWindow {
@@ -140,8 +168,8 @@ function createWindow(): BrowserWindow {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
-    },
+      sandbox: false
+    }
   })
 
   w.setAlwaysOnTop(true, 'pop-up-menu')
@@ -162,10 +190,14 @@ function createWindow(): BrowserWindow {
   })
   w.webContents.on('did-finish-load', () => {
     console.log('[renderer] did-finish-load')
-    w.webContents.executeJavaScript(`
+    w.webContents
+      .executeJavaScript(
+        `
       document.body.style.background = 'rgba(20,20,28,0.95)';
       console.log('[diag] root:', document.getElementById('root')?.innerHTML?.length);
-    `).catch(() => {})
+    `
+      )
+      .catch(() => {})
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -179,16 +211,17 @@ function createWindow(): BrowserWindow {
 }
 
 function positionWindowBelowTray(w: BrowserWindow, trayBounds?: Electron.Rectangle): void {
-  const rawBounds = (trayBounds && trayBounds.width > 0)
-    ? trayBounds
-    : (tray?.getBounds() ?? { x: 0, y: 0, width: 32, height: 30 })
+  const rawBounds =
+    trayBounds && trayBounds.width > 0
+      ? trayBounds
+      : (tray?.getBounds() ?? { x: 0, y: 0, width: 32, height: 30 })
 
   const trayCenter = { x: rawBounds.x + rawBounds.width / 2, y: rawBounds.y + rawBounds.height / 2 }
   const display = screen.getDisplayNearestPoint(trayCenter)
   const { workArea } = display
 
   const winBounds = w.getBounds()
-  const rawX = Math.round(rawBounds.x + (rawBounds.width / 2) - (winBounds.width / 2))
+  const rawX = Math.round(rawBounds.x + rawBounds.width / 2 - winBounds.width / 2)
   const x = Math.max(workArea.x, Math.min(rawX, workArea.x + workArea.width - winBounds.width))
   const y = workArea.y + 4
 
@@ -205,20 +238,38 @@ function showWindow(): void {
       console.log('[showWindow] did-finish-load — positioning and showing')
       if (win) positionWindowBelowTray(win, lastTrayBounds)
       win?.setAlwaysOnTop(true, 'pop-up-menu', 1)
-      win?.setVisibleOnAllWorkspaces(true, { skipTransformProcessType: true, visibleOnFullScreen: true })
+      win?.setVisibleOnAllWorkspaces(true, {
+        skipTransformProcessType: true,
+        visibleOnFullScreen: true
+      })
       win?.showInactive()
       win?.moveTop()
-      console.log('[showWindow] after showInactive, visible:', win?.isVisible(), 'bounds:', win?.getBounds())
+      console.log(
+        '[showWindow] after showInactive, visible:',
+        win?.isVisible(),
+        'bounds:',
+        win?.getBounds()
+      )
     })
     return
   }
-  console.log('[showWindow] reusing existing window — visible:', win.isVisible(), 'bounds:', win.getBounds())
+  console.log(
+    '[showWindow] reusing existing window — visible:',
+    win.isVisible(),
+    'bounds:',
+    win.getBounds()
+  )
   positionWindowBelowTray(win, lastTrayBounds)
   win.setAlwaysOnTop(true, 'pop-up-menu', 1)
   win.setVisibleOnAllWorkspaces(true, { skipTransformProcessType: true, visibleOnFullScreen: true })
   win.showInactive()
   win.moveTop()
-  console.log('[showWindow] after showInactive, visible:', win.isVisible(), 'bounds:', win.getBounds())
+  console.log(
+    '[showWindow] after showInactive, visible:',
+    win.isVisible(),
+    'bounds:',
+    win.getBounds()
+  )
 }
 
 function buildMenu(): Electron.Menu {
@@ -227,18 +278,41 @@ function buildMenu(): Electron.Menu {
     { type: 'separator' },
     { label: 'Settings', click: () => showWindow() },
     { type: 'separator' },
-    { label: 'Restart Daemon', click: () => { stopDaemon(); startDaemon() } },
+    {
+      label: 'Restart Daemon',
+      click: () => {
+        stopDaemon()
+        startDaemon()
+      }
+    },
     { label: 'Stop Daemon', click: stopDaemon },
     { type: 'separator' },
-    { label: 'Quit', click: () => { stopDaemon(); stopServer(); tray?.destroy(); tray = null; app.exit(0) } },
+    {
+      label: 'Quit',
+      click: () => {
+        stopDaemon()
+        stopServer()
+        tray?.destroy()
+        tray = null
+        app.exit(0)
+      }
+    }
   ])
 }
 
 // ── Overlay ───────────────────────────────────────────────────────────────────
 
-type OverlayPayload = { mode: 'success' | 'recording' | 'cancelled' | 'error' | 'message' | 'hidden'; text?: string }
+type OverlayPayload = {
+  mode: 'success' | 'recording' | 'cancelled' | 'error' | 'message' | 'hidden'
+  text?: string
+}
 
-function overlayBoundsForMode(mode: string): { x: number; y: number; width: number; height: number } {
+function overlayBoundsForMode(mode: string): {
+  x: number
+  y: number
+  width: number
+  height: number
+} {
   const { width: sw } = screen.getPrimaryDisplay().workAreaSize
   if (mode === 'message') {
     return { x: sw - 480 - 18, y: 30, width: 480, height: 80 }
@@ -265,8 +339,8 @@ function createOverlayWindow(): BrowserWindow {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
-    },
+      sandbox: false
+    }
   })
 
   w.setAlwaysOnTop(true, 'screen-saver')
@@ -304,7 +378,9 @@ function startOverlayServer(): void {
       return
     }
     let body = ''
-    req.on('data', (chunk: Buffer) => { body += chunk.toString() })
+    req.on('data', (chunk: Buffer) => {
+      body += chunk.toString()
+    })
     req.on('end', () => {
       try {
         const parsed: unknown = JSON.parse(body)
@@ -340,7 +416,9 @@ ipcMain.handle('get-status', async () => {
         return { target, micState: data.state }
       }
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return { target, micState: 'on' as const }
 })
 
@@ -349,7 +427,7 @@ ipcMain.handle('set-target', (_event, { target }: { target: string }) => {
   void fetch('http://127.0.0.1:3030/target', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ target }),
+    body: JSON.stringify({ target })
   }).catch(() => {})
 })
 
@@ -371,7 +449,9 @@ ipcMain.handle('get-agents', async () => {
         return data.agents.map((a) => (typeof a === 'string' ? a : a.name))
       }
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return ['command', 'chief-of-staff', 'productivitesse']
 })
 
@@ -402,5 +482,12 @@ app.whenReady().then(() => {
   startDaemon()
 })
 
-app.on('before-quit', () => { stopDaemon(); stopServer(); tray?.destroy(); tray = null })
-app.on('window-all-closed', () => { /* tray app — keep alive */ })
+app.on('before-quit', () => {
+  stopDaemon()
+  stopServer()
+  tray?.destroy()
+  tray = null
+})
+app.on('window-all-closed', () => {
+  /* tray app — keep alive */
+})

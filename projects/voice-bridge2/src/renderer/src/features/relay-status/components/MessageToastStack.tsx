@@ -21,7 +21,7 @@ function MessageToastItem({ toast }: MessageToastItemProps): React.JSX.Element {
         userSelect: 'none',
         pointerEvents: 'none',
         opacity: toast.fadeOut ? 0 : 1,
-        transition: 'opacity 1s ease',
+        transition: 'opacity 1s ease'
       }}
     >
       {toast.agent && (
@@ -30,7 +30,7 @@ function MessageToastItem({ toast }: MessageToastItemProps): React.JSX.Element {
             color: 'rgb(74,143,255)',
             fontSize: 18,
             fontWeight: 500,
-            marginBottom: toast.body ? 4 : 0,
+            marginBottom: toast.body ? 4 : 0
           }}
         >
           {toast.agent}
@@ -42,7 +42,7 @@ function MessageToastItem({ toast }: MessageToastItemProps): React.JSX.Element {
             color: 'rgb(217,235,255)',
             fontSize: 18,
             fontWeight: 500,
-            lineHeight: 1.4,
+            lineHeight: 1.4
           }}
         >
           {toast.body}
@@ -65,7 +65,7 @@ export function MessageToastStack({ toasts }: MessageToastStackProps): React.JSX
         left: 0,
         display: 'flex',
         flexDirection: 'column',
-        gap: 8,
+        gap: 8
       }}
     >
       {toasts.map((t) => (

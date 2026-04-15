@@ -37,7 +37,7 @@ export function RecordingOverlay({ target }: RecordingOverlayProps): React.JSX.E
         padding: '0 22px',
         fontFamily: FONT,
         userSelect: 'none',
-        pointerEvents: 'none',
+        pointerEvents: 'none'
       }}
     >
       <span
@@ -47,7 +47,7 @@ export function RecordingOverlay({ target }: RecordingOverlayProps): React.JSX.E
           fontWeight: 700,
           opacity: pulse ? 1.0 : 0.35,
           transition: 'opacity 0.1s ease',
-          letterSpacing: '0.04em',
+          letterSpacing: '0.04em'
         }}
       >
         ⏺ REC
@@ -58,7 +58,7 @@ export function RecordingOverlay({ target }: RecordingOverlayProps): React.JSX.E
           fontSize: 19,
           fontWeight: 400,
           fontVariantNumeric: 'tabular-nums',
-          letterSpacing: '0.06em',
+          letterSpacing: '0.06em'
         }}
       >
         {timeStr}
@@ -67,7 +67,7 @@ export function RecordingOverlay({ target }: RecordingOverlayProps): React.JSX.E
         style={{
           color: 'rgb(74,143,255)',
           fontSize: 18,
-          fontWeight: 500,
+          fontWeight: 500
         }}
       >
         → {target}

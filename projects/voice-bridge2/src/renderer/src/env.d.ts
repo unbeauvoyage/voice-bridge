@@ -7,7 +7,9 @@ declare global {
     __voiceBridge?: {
       hide(): void
       setTarget(target: string): Promise<void>
-      onStateChange(cb: (s: { wakeState?: WakeState; micState?: MicState; transcript?: string }) => void): () => void
+      onStateChange(
+        cb: (s: { wakeState?: WakeState; micState?: MicState; transcript?: string }) => void
+      ): () => void
     }
     __overlayBridge?: {
       onShow(cb: (payload: OverlayPayload) => void): () => void

@@ -21,42 +21,26 @@ const FALLBACK = 'command'
 
 describe('llmRoute fast-path: "to X please" routing', () => {
   test('routes "to chief of staff please do this" → chief-of-staff', async () => {
-    const result = await llmRoute(
-      'to chief of staff please do this',
-      KNOWN_AGENTS,
-      FALLBACK,
-    )
+    const result = await llmRoute('to chief of staff please do this', KNOWN_AGENTS, FALLBACK)
     expect(result.agent).toBe('chief-of-staff')
     expect(result.agentChanged).toBe(true)
   })
 
   test('routes "to command please route this" → command', async () => {
-    const result = await llmRoute(
-      'to command please route this',
-      KNOWN_AGENTS,
-      FALLBACK,
-    )
+    const result = await llmRoute('to command please route this', KNOWN_AGENTS, FALLBACK)
     expect(result.agent).toBe('command')
     // command is the fallback so agentChanged is false
     expect(result.agentChanged).toBe(false)
   })
 
   test('routes "to productivitesse please fix the bug" → productivitesse', async () => {
-    const result = await llmRoute(
-      'to productivitesse please fix the bug',
-      KNOWN_AGENTS,
-      FALLBACK,
-    )
+    const result = await llmRoute('to productivitesse please fix the bug', KNOWN_AGENTS, FALLBACK)
     expect(result.agent).toBe('productivitesse')
     expect(result.agentChanged).toBe(true)
   })
 
   test('falls back to command when "please" present but no agent match', async () => {
-    const result = await llmRoute(
-      'please do something unaddressed',
-      KNOWN_AGENTS,
-      FALLBACK,
-    )
+    const result = await llmRoute('please do something unaddressed', KNOWN_AGENTS, FALLBACK)
     expect(result.agent).toBe(FALLBACK)
     expect(result.agentChanged).toBe(false)
   })
@@ -68,7 +52,7 @@ describe('llmRoute fast-path: "to X please" routing', () => {
     const result = await llmRoute(
       'to knowledge-base please search for something',
       KNOWN_AGENTS,
-      FALLBACK,
+      FALLBACK
     )
     expect(result.agent).toBe('knowledge-base')
     expect(result.agentChanged).toBe(true)

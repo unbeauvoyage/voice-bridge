@@ -15,12 +15,12 @@ export const useSettingsStore = create<SettingsState>()(
       setSettings: (settings) => set({ settings }),
       updateSetting: (key, value) =>
         set((state) => ({
-          settings: { ...state.settings, [key]: value },
-        })),
+          settings: { ...state.settings, [key]: value }
+        }))
     }),
     {
       name: 'voice-bridge-settings',
-      partialize: (state) => ({ settings: state.settings }),
+      partialize: (state) => ({ settings: state.settings })
     }
   )
 )

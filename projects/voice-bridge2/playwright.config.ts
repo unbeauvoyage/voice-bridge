@@ -9,18 +9,18 @@ export default defineConfig({
   reporter: 'list',
   use: {
     baseURL: 'http://localhost:5199',
-    trace: 'on-first-retry',
+    trace: 'on-first-retry'
   },
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
+      use: { ...devices['Desktop Chrome'] }
+    }
   ],
   webServer: {
     command: 'bunx vite --config vite.test.config.ts',
     port: 5199,
     reuseExistingServer: !process.env['CI'],
-    timeout: 30000,
-  },
+    timeout: 30000
+  }
 })

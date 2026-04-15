@@ -1,4 +1,3 @@
-/* eslint-disable react-refresh/only-export-components */
 // This file is the overlay page entry point — components render directly to DOM.
 import { useState, useEffect, useRef } from 'react'
 import { RecordingOverlay, StatusOverlay } from '../features/voice'
@@ -17,7 +16,7 @@ export function OverlayPage(): React.JSX.Element {
     mode: 'hidden',
     target: '',
     fadeOut: false,
-    visible: false,
+    visible: false
   })
   const [toasts, setToasts] = useState<MessageToast[]>([])
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)

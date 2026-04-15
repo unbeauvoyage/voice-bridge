@@ -5,21 +5,21 @@ import { test, expect } from '@playwright/test'
 test('recording pill is visible when overlay mode is recording', async ({ page }) => {
   // Inject mock __overlayBridge BEFORE the page loads so useEffect captures it
   await page.addInitScript(() => {
-    const callbacks: Array<(payload: { mode: string; text?: string }) => void> = []
-    window.__overlayBridge = {
-      onShow(cb: (payload: { mode: string; text?: string }) => void): () => void {
+    type OverlayPayload = { mode: string; text?: string }
+    const callbacks: Array<(payload: OverlayPayload) => void> = []
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+    const win = window as Record<string, unknown>
+    win.__overlayBridge = {
+      onShow(cb: (payload: OverlayPayload) => void): () => void {
         callbacks.push(cb)
         return (): void => {
           const idx = callbacks.indexOf(cb)
           if (idx >= 0) callbacks.splice(idx, 1)
         }
-      },
+      }
     }
     // Expose a way to trigger the overlay from outside
-    ;(window as unknown as Record<string, unknown>)['__triggerOverlay'] = (payload: {
-      mode: string
-      text?: string
-    }): void => {
+    win.__triggerOverlay = (payload: OverlayPayload): void => {
       callbacks.forEach((cb) => cb(payload))
     }
   })
@@ -28,9 +28,10 @@ test('recording pill is visible when overlay mode is recording', async ({ page }
 
   // Trigger recording mode after the component is mounted
   await page.evaluate(() => {
-    ;(window as unknown as Record<string, (p: { mode: string; text?: string }) => void>)[
-      '__triggerOverlay'
-    ]({ mode: 'recording', text: 'command' })
+    type OverlayPayload = { mode: string; text?: string }
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+    const win = window as Record<string, (p: OverlayPayload) => void>
+    win.__triggerOverlay({ mode: 'recording', text: 'command' })
   })
 
   // The recording pill should appear — it contains "REC"
@@ -39,20 +40,20 @@ test('recording pill is visible when overlay mode is recording', async ({ page }
 
 test('message toast shows agent name when mode is message', async ({ page }) => {
   await page.addInitScript(() => {
-    const callbacks: Array<(payload: { mode: string; text?: string }) => void> = []
-    window.__overlayBridge = {
-      onShow(cb: (payload: { mode: string; text?: string }) => void): () => void {
+    type OverlayPayload = { mode: string; text?: string }
+    const callbacks: Array<(payload: OverlayPayload) => void> = []
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+    const win = window as Record<string, unknown>
+    win.__overlayBridge = {
+      onShow(cb: (payload: OverlayPayload) => void): () => void {
         callbacks.push(cb)
         return (): void => {
           const idx = callbacks.indexOf(cb)
           if (idx >= 0) callbacks.splice(idx, 1)
         }
-      },
+      }
     }
-    ;(window as unknown as Record<string, unknown>)['__triggerOverlay'] = (payload: {
-      mode: string
-      text?: string
-    }): void => {
+    win.__triggerOverlay = (payload: OverlayPayload): void => {
       callbacks.forEach((cb) => cb(payload))
     }
   })
@@ -60,9 +61,10 @@ test('message toast shows agent name when mode is message', async ({ page }) => 
   await page.goto('/overlay.html')
 
   await page.evaluate(() => {
-    ;(window as unknown as Record<string, (p: { mode: string; text?: string }) => void>)[
-      '__triggerOverlay'
-    ]({ mode: 'message', text: 'atlas: Task completed' })
+    type OverlayPayload = { mode: string; text?: string }
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+    const win = window as Record<string, (p: OverlayPayload) => void>
+    win.__triggerOverlay({ mode: 'message', text: 'atlas: Task completed' })
   })
 
   // MessageToastStack renders agent name

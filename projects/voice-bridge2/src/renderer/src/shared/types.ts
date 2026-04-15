@@ -38,7 +38,9 @@ export function isStatusResponse(v: unknown): v is StatusResponse {
   if (typeof v !== 'object' || v === null) return false
   if (!('target' in v) || !('micState' in v)) return false
   const obj: Record<string, unknown> = Object.fromEntries(Object.entries(v))
-  return typeof obj['target'] === 'string' && (obj['micState'] === 'on' || obj['micState'] === 'off')
+  return (
+    typeof obj['target'] === 'string' && (obj['micState'] === 'on' || obj['micState'] === 'off')
+  )
 }
 
 export function isAgentsResponse(v: unknown): v is AgentsResponse {
@@ -64,7 +66,7 @@ export const DEFAULT_SETTINGS: Settings = {
   stop_threshold: 0.05,
   tts_word_limit: 3,
   tts_enabled: true,
-  toast_duration: 3,
+  toast_duration: 3
 }
 
 export const SERVER = 'http://127.0.0.1:3030'

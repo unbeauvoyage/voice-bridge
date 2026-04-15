@@ -20,7 +20,7 @@ export function useSettings(): UseSettingsResult {
         await fetch(`${SERVER}/settings`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(patch),
+          body: JSON.stringify(patch)
         })
       } catch {
         /* ignore */
@@ -37,7 +37,7 @@ export function useSettings(): UseSettingsResult {
         return next
       })
     },
-    [storeUpdateSetting, saveSettings],
+    [storeUpdateSetting, saveSettings]
   )
 
   useEffect(() => {
@@ -47,9 +47,7 @@ export function useSettings(): UseSettingsResult {
   return { settings, updateSetting }
 }
 
-export function useLoadSettings(
-  setSettings: React.Dispatch<React.SetStateAction<Settings>>,
-): void {
+export function useLoadSettings(setSettings: React.Dispatch<React.SetStateAction<Settings>>): void {
   useEffect(() => {
     void (async () => {
       try {

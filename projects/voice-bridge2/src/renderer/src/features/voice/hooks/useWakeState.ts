@@ -11,7 +11,7 @@ const DEFAULT_STATE: DaemonState = {
   target: 'command',
   micState: 'on',
   wakeState: 'idle',
-  transcript: '',
+  transcript: ''
 }
 
 export function useWakeState(): UseWakeStateResult {

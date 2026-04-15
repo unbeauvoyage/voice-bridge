@@ -4,6 +4,7 @@ import type { PartialSettings } from '../../../../data/apiClient/types.gen'
 
 const SETTINGS_QUERY_KEY = ['settings']
 
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export function useSettingsQuery() {
   return useQuery({
     queryKey: SETTINGS_QUERY_KEY,
@@ -11,6 +12,7 @@ export function useSettingsQuery() {
   })
 }
 
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export function useSettingsMutation() {
   const queryClient = useQueryClient()
   return useMutation({

@@ -27,9 +27,17 @@ const bridge = {
   async getStatus(): Promise<StatusPayload> {
     const result: unknown = await ipcRenderer.invoke('get-status')
     // ipcMain.handle('get-status') always returns StatusPayload — narrow for type safety
-    if (typeof result === 'object' && result !== null && 'target' in result && 'micState' in result) {
+    if (
+      typeof result === 'object' &&
+      result !== null &&
+      'target' in result &&
+      'micState' in result
+    ) {
       const obj: Record<string, unknown> = Object.fromEntries(Object.entries(result))
-      if (typeof obj['target'] === 'string' && (obj['micState'] === 'on' || obj['micState'] === 'off')) {
+      if (
+        typeof obj['target'] === 'string' &&
+        (obj['micState'] === 'on' || obj['micState'] === 'off')
+      ) {
         return { target: obj['target'], micState: obj['micState'] }
       }
     }
@@ -47,10 +55,12 @@ const bridge = {
     ipcRenderer.on('state-change', handler)
     return () => ipcRenderer.removeListener('state-change', handler)
   },
-  hide(): void { ipcRenderer.send('hide-window') },
+  hide(): void {
+    ipcRenderer.send('hide-window')
+  },
   async showOverlay(payload: OverlayPayload): Promise<void> {
     await ipcRenderer.invoke('show-overlay', payload)
-  },
+  }
 }
 
 contextBridge.exposeInMainWorld('__voiceBridge', bridge)
@@ -62,7 +72,7 @@ const overlayBridge = {
     const handler = (_event: IpcRendererEvent, payload: OverlayPayload): void => cb(payload)
     ipcRenderer.on('overlay-show', handler)
     return () => ipcRenderer.removeListener('overlay-show', handler)
-  },
+  }
 }
 
 contextBridge.exposeInMainWorld('__overlayBridge', overlayBridge)

@@ -67,7 +67,7 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
     let messages: QueuedMessage[]
     try {
       const res = await fetch(`${relayBaseUrl}/queue/ceo`, {
-        signal: AbortSignal.timeout(5_000),
+        signal: AbortSignal.timeout(5_000)
       })
       if (!res.ok) return
       const data = (await res.json()) as QueueResponse
@@ -92,7 +92,7 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ mode: 'message', text: toastText }),
-          signal: AbortSignal.timeout(3_000),
+          signal: AbortSignal.timeout(3_000)
         })
       } catch {
         // Overlay not running — best effort
@@ -104,7 +104,14 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
         if (wordCount <= ttsWordLimit) {
           try {
             // edge-tts --voice en-US-JennyNeural --text "..." --write-media /tmp/tts.mp3 && afplay /tmp/tts.mp3
-            spawn('sh', ['-c', `edge-tts --voice en-US-JennyNeural --text ${JSON.stringify(msg.body)} --write-media /tmp/vb2-tts.mp3 && afplay /tmp/vb2-tts.mp3`], { stdio: 'ignore' })
+            spawn(
+              'sh',
+              [
+                '-c',
+                `edge-tts --voice en-US-JennyNeural --text ${JSON.stringify(msg.body)} --write-media /tmp/vb2-tts.mp3 && afplay /tmp/vb2-tts.mp3`
+              ],
+              { stdio: 'ignore' }
+            )
           } catch {
             // TTS unavailable — ignore
           }
@@ -148,7 +155,8 @@ export function startRelayPoller(opts: {
       const raw = readFileSync(opts.settingsPath, 'utf8') as string
       const settings = JSON.parse(raw) as Record<string, unknown>
       if (settings['tts_enabled'] === true) ttsEnabled = true
-      if (typeof settings['tts_word_limit'] === 'number') ttsWordLimit = settings['tts_word_limit'] as number
+      if (typeof settings['tts_word_limit'] === 'number')
+        ttsWordLimit = settings['tts_word_limit'] as number
     } catch {
       // settings file absent or unreadable — use defaults
     }
@@ -158,7 +166,7 @@ export function startRelayPoller(opts: {
     relayBaseUrl: opts.relayBaseUrl,
     overlayUrl: opts.overlayUrl,
     ttsEnabled,
-    ttsWordLimit,
+    ttsWordLimit
   })
   poller.start()
   return poller

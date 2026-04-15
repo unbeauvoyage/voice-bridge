@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createRoot } from 'react-dom/client';
 import type { KnowledgeItemPreview, KnowledgeItemDetail } from './api.ts';
 import { api, BASE, toKnowledgeItemId, type KnowledgeItemId, type TagsResponse, type TagStatsResponse, type ReadingStatsResponse, type Collection, type Feed, type StatsSummary, type TagSuggestion, type SummaryVersion, type FilterPreset, type Highlight, type QuickPreviewResult, type KnowledgeSection, type SummaryQuality, type PromptVersion } from './api.ts';
+import { useSettingsStore, useListStore, useUIStore, useSearchStore, useDataStore, useGlobalsStore } from './stores/index.ts';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -195,27 +196,29 @@ function SystemStatusRow({ label, ok, installCmd, docsUrl }: { label: string; ok
 }
 
 function SettingsPanel({ onClose }: { onClose: () => void }) {
-  const [lang, setLang] = useState<string>('english');
-  const [keepTerms, setKeepTerms] = useState<boolean>(true);
-  const [saved, setSaved] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-  const [sysStatus, setSysStatus] = useState<SystemStatus | null>(null);
-  const [testDataCount, setTestDataCount] = useState(0);
-  const [devOpen, setDevOpen] = useState(false);
-  const [clearStatus, setClearStatus] = useState<string | null>(null);
-  const [dailyGoal, setDailyGoal] = useState(3);
-  const [weeklyGoal, setWeeklyGoal] = useState(15);
-  const [rebuildStatus, setRebuildStatus] = useState<string | null>(null);
-  const [promptsOpen, setPromptsOpen] = useState(false);
-  const [summaryPrompts, setSummaryPrompts] = useState<PromptVersion[]>([]);
-  const [chatPrompts, setChatPrompts] = useState<PromptVersion[]>([]);
-  const [summaryPromptsOpen, setSummaryPromptsOpen] = useState(false);
-  const [chatPromptsOpen, setChatPromptsOpen] = useState(false);
-  const [summaryPromptDraft, setSummaryPromptDraft] = useState('');
-  const [chatPromptDraft, setChatPromptDraft] = useState('');
-  const [summaryPromptSaveStatus, setSummaryPromptSaveStatus] = useState<string | null>(null);
-  const [chatPromptSaveStatus, setChatPromptSaveStatus] = useState<string | null>(null);
+  const {
+    lang, setLang,
+    keepTerms, setKeepTerms,
+    saved, setSaved,
+    loading, setLoading,
+    notificationsEnabled, setNotificationsEnabled,
+    sysStatus, setSysStatus,
+    testDataCount, setTestDataCount,
+    devOpen, setDevOpen,
+    clearStatus, setClearStatus,
+    dailyGoal, setDailyGoal,
+    weeklyGoal, setWeeklyGoal,
+    rebuildStatus, setRebuildStatus,
+    promptsOpen, setPromptsOpen,
+    summaryPrompts, setSummaryPrompts,
+    chatPrompts, setChatPrompts,
+    summaryPromptsOpen, setSummaryPromptsOpen,
+    chatPromptsOpen, setChatPromptsOpen,
+    summaryPromptDraft, setSummaryPromptDraft,
+    chatPromptDraft, setChatPromptDraft,
+    summaryPromptSaveStatus, setSummaryPromptSaveStatus,
+    chatPromptSaveStatus, setChatPromptSaveStatus,
+  } = useSettingsStore();
 
   useEffect(() => {
     api.getSettings().then((s) => {
@@ -428,7 +431,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
                       <div style={{ marginTop: 8 }}>
                         <button
                           className="settings-developer-toggle"
-                          onClick={() => setSummaryPromptsOpen((v) => !v)}
+                          onClick={() => setSummaryPromptsOpen(!summaryPromptsOpen)}
                           style={{ fontSize: 12 }}
                         >
                           History ({summaryPrompts.filter((p) => !p.is_active).length}) {summaryPromptsOpen ? '\u25B2' : '\u25BC'}
@@ -477,7 +480,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
                       <div style={{ marginTop: 8 }}>
                         <button
                           className="settings-developer-toggle"
-                          onClick={() => setChatPromptsOpen((v) => !v)}
+                          onClick={() => setChatPromptsOpen(!chatPromptsOpen)}
                           style={{ fontSize: 12 }}
                         >
                           History ({chatPrompts.filter((p) => !p.is_active).length}) {chatPromptsOpen ? '\u25B2' : '\u25BC'}
@@ -502,7 +505,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
             </div>
             {testDataCount > 0 && (
               <div className="settings-section settings-developer-section">
-                <button className="settings-developer-toggle" onClick={() => setDevOpen((v) => !v)}>
+                <button className="settings-developer-toggle" onClick={() => setDevOpen(!devOpen)}>
                   Developer {devOpen ? '▲' : '▼'}
                 </button>
                 {devOpen && (
@@ -3436,89 +3439,99 @@ function saveSearchHistory(history: string[]) {
 }
 
 function App() {
-  const [allItems, setAllItems] = useState<KnowledgeItemPreview[]>([]);
-  const [tagData, setTagData] = useState<TagData>({ approved: [], pending: [], rejected: [] });
-  const [tagStatusMap, setTagStatusMap] = useState<Record<string, string>>({});
+  // List store
+  const {
+    allItems, setAllItems,
+    tagData, setTagData,
+    tagStatusMap, setTagStatusMap,
+    loading, setLoading,
+    selectedId, setSelectedId,
+    searchText, setSearchText,
+    semanticMode, setSemanticMode,
+    activeTagFilters, setActiveTagFilters,
+    activeDays, setActiveDays,
+    showStarredOnly, setShowStarredOnly,
+    filterStudyLater, setFilterStudyLater,
+    showArchivedOnly, setShowArchivedOnly,
+    queueFilter, setQueueFilter,
+    typeFilter, setTypeFilter,
+    unreadOnly, setUnreadOnly,
+    sortOption, setSortOption,
+    filterPresets, setFilterPresets,
+    showPresetsDropdown, setShowPresetsDropdown,
+    presetNameInput, setPresetNameInput,
+    showPresetSaveInput, setShowPresetSaveInput,
+    selectedIds, setSelectedIds,
+    deleteToast, setDeleteToast,
+    batchCollectionPickerOpen, setBatchCollectionPickerOpen,
+    flashIds, setFlashIds,
+    visibleCount, setVisibleCount,
+    detailCacheVersion, setDetailCacheVersion,
+  } = useListStore();
 
-  const [loading, setLoading] = useState(true);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [searchText, setSearchText] = useState('');
-  const [semanticMode, setSemanticMode] = useState(false);
-  const [activeTagFilters, setActiveTagFilters] = useState<string[]>([]);
-  const [activeDays, setActiveDays] = useState(0);
-  const [showTagsPanel, setShowTagsPanel] = useState(false);
-  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
-  const [showShortcuts, setShowShortcuts] = useState(false);
-  const [showBulkAdd, setShowBulkAdd] = useState(false);
-  const [showTagCloud, setShowTagCloud] = useState(false);
-  const [tagStats, setTagStats] = useState<TagStatsResponse | null>(null);
-  const [showStatsPanel, setShowStatsPanel] = useState(false);
-  const [tagSuggestionsCount, setTagSuggestionsCount] = useState(0);
-  const [queueFilter, setQueueFilter] = useState<'processing' | 'error' | null>(null);
-  const [showStarredOnly, setShowStarredOnly] = useState(false);
-  const [filterStudyLater, setFilterStudyLater] = useState(false);
-  const [showArchivedOnly, setShowArchivedOnly] = useState(false);
-  const [flashIds, setFlashIds] = useState<Set<string>>(new Set());
-  const [filterPresets, setFilterPresets] = useState<FilterPreset[]>([]);
-  const [showPresetsDropdown, setShowPresetsDropdown] = useState(false);
-  const [presetNameInput, setPresetNameInput] = useState('');
-  const [showPresetSaveInput, setShowPresetSaveInput] = useState(false);
+  // UI store
+  const {
+    showSettingsPanel, setShowSettingsPanel,
+    showTagsPanel, setShowTagsPanel,
+    showBulkAdd, setShowBulkAdd,
+    showTagCloud, setShowTagCloud,
+    showStatsPanel, setShowStatsPanel,
+    showCollectionsPanel, setShowCollectionsPanel,
+    showQueuePanel, setShowQueuePanel,
+    showQuickCapture, setShowQuickCapture,
+    showShortcuts, setShowShortcuts,
+    showStreakPopover, setShowStreakPopover,
+    showSourcesPopover, setShowSourcesPopover,
+    showAllSources, setShowAllSources,
+    shareToast, setShareToast,
+    ollamaDismissed, setOllamaDismissed,
+  } = useUIStore();
+
+  // Search store
+  const {
+    searchQuery, setSearchQuery,
+    semanticResults, setSemanticResults,
+    semanticLoading, setSemanticLoading,
+    ftsResults, setFtsResults,
+    searchHistory, setSearchHistory,
+    searchFocused, setSearchFocused,
+  } = useSearchStore();
+
+  // Data store
+  const {
+    queueLog, setQueueLog,
+    clearedIds, setClearedIds,
+    tagStats, setTagStats,
+    readingStats, setReadingStats,
+    domainStats, setDomainStats,
+    tagSuggestionsCount, setTagSuggestionsCount,
+    collections, setCollections,
+    itemsInCollections, setItemsInCollections,
+    ollamaOk, setOllamaOk,
+    ephemeralItems, setEphemeralItems,
+  } = useDataStore();
+
+  // Globals store
+  const {
+    theme, setTheme,
+    notificationsOn, setNotificationsOn,
+  } = useGlobalsStore();
+
+  // Refs and local state
   const prevItemsRef = useRef<KnowledgeItemPreview[]>([]);
   const detailCache = useRef<Map<string, KnowledgeItemDetail>>(new Map());
-  const [detailCacheVersion, setDetailCacheVersion] = useState(0);
-
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [semanticResults, setSemanticResults] = useState<KnowledgeItemPreview[] | null>(null);
-  const [semanticLoading, setSemanticLoading] = useState(false);
-  const [ftsResults, setFtsResults] = useState<KnowledgeItemPreview[] | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const listPaneRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const [visibleCount, setVisibleCount] = useState(30);
 
-  // Search history
-  const [searchHistory, setSearchHistory] = useState<string[]>(() => loadSearchHistory());
-  const [searchFocused, setSearchFocused] = useState(false);
-
-  // Queue log
-  const [queueLog, setQueueLog] = useState<QueueLogEntry[]>([]);
-  const [clearedIds, setClearedIds] = useState<Set<string>>(new Set());
-  const [showQueuePanel, setShowQueuePanel] = useState(false);
-
-  // Share toast
-  const [shareToast, setShareToast] = useState(false);
-
-  // Theme
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
-
-  // Reading stats
-  const [readingStats, setReadingStats] = useState<ReadingStatsResponse | null>(null);
-  const [showStreakPopover, setShowStreakPopover] = useState(false);
-
-  // Domain stats
-  const [domainStats, setDomainStats] = useState<{ domain: string; count: number; lastSaved: string }[]>([]);
-  const [showSourcesPopover, setShowSourcesPopover] = useState(false);
-  const [showAllSources, setShowAllSources] = useState(false);
-
-  // Ollama status
-  const [ollamaOk, setOllamaOk] = useState<boolean | null>(null);
-  const [ollamaDismissed, setOllamaDismissed] = useState(false);
-
-  // Collections
-  const [collections, setCollections] = useState<Collection[]>([]);
+  // Collections state (needs local state for active collection picker)
   const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
-  const [showCollectionsPanel, setShowCollectionsPanel] = useState(false);
-  const [itemsInCollections, setItemsInCollections] = useState<Set<string>>(new Set());
 
-  // Quick capture
-  const [showQuickCapture, setShowQuickCapture] = useState(false);
-
-  // Ephemeral items (in-memory previews)
-  const [ephemeralItems, setEphemeralItems] = useState<EphemeralItem[]>([]);
-
-  // Notifications (persisted setting loaded with others)
-  const [notificationsOn, setNotificationsOn] = useState(false);
+  // Initialize search history from localStorage
+  useEffect(() => {
+    setSearchHistory(loadSearchHistory());
+  }, [setSearchHistory]);
 
   // Load theme from settings on mount
   useEffect(() => {
@@ -3530,7 +3543,7 @@ function App() {
       document.body.classList.toggle('theme-dark', resolved === 'dark');
       setNotificationsOn((s['notifications_enabled'] ?? '0') === '1');
     }).catch(() => {});
-  }, []);
+  }, [setTheme, setNotificationsOn]);
 
   function toggleTheme() {
     const next: 'dark' | 'light' = theme === 'dark' ? 'light' : 'dark';
@@ -3546,7 +3559,7 @@ function App() {
     api.getDomainStats().then(setDomainStats).catch(() => {});
     api.listCollections().then(setCollections).catch(() => {});
     api.getFilterPresets().then(setFilterPresets).catch(() => {});
-  }, []);
+  }, [setReadingStats, setDomainStats, setCollections, setFilterPresets]);
 
   // Ollama status polling
   useEffect(() => {
@@ -3559,7 +3572,7 @@ function App() {
     checkOllama();
     const interval = setInterval(checkOllama, 30_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [setOllamaOk, setOllamaDismissed]);
 
   // Sort
   type SortOption = 'newest' | 'oldest' | 'recently-read' | 'highest-rated' | 'most-starred' | 'title-az' | 'title-za';
@@ -3567,37 +3580,27 @@ function App() {
   function isSortOption(v: string): v is SortOption {
     return SORT_OPTIONS.some(t => t === v);
   }
-  const [sortOption, setSortOption] = useState<SortOption>(() => {
+
+  // Initialize sort option from localStorage on mount
+  useEffect(() => {
     const stored = localStorage.getItem('kb-sort');
-    return (stored !== null && isSortOption(stored)) ? stored : 'newest';
-  });
+    if (stored !== null && isSortOption(stored)) {
+      setSortOption(stored);
+    }
+  }, [setSortOption]);
 
   function handleSortChange(opt: SortOption) {
     setSortOption(opt);
     localStorage.setItem('kb-sort', opt);
   }
 
-  // Type filter
-  type TypeFilter = 'all' | 'youtube' | 'article' | 'pdf';
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
-
-  // Unread only filter
-  const [unreadOnly, setUnreadOnly] = useState(false);
-
-  // Batch selection
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [deleteToast, setDeleteToast] = useState<string | null>(null);
-  const [batchCollectionPickerOpen, setBatchCollectionPickerOpen] = useState(false);
-
   const selectionMode = selectedIds.size > 0;
 
   function toggleSelect(id: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
   }
 
   function clearSelection() {
@@ -3607,7 +3610,8 @@ function App() {
   async function handleBatchStar() {
     const ids = Array.from(selectedIds);
     await Promise.all(ids.map((id) => api.toggleStar(id).then(({ starred }) => {
-      setAllItems((prev) => prev.map((it) => it.id === id ? { ...it, starred } : it));
+      const updated = allItems.map((it) => it.id === id ? { ...it, starred } : it);
+      setAllItems(updated);
     }).catch(() => {})));
   }
 
@@ -3616,7 +3620,8 @@ function App() {
     if (!window.confirm(`Delete ${ids.length} item${ids.length !== 1 ? 's' : ''}?`)) return;
     try {
       await api.batchDelete(ids);
-      setAllItems((prev) => prev.filter((it) => !selectedIds.has(it.id)));
+      const filtered = allItems.filter((it) => !selectedIds.has(it.id));
+      setAllItems(filtered);
       clearSelection();
       setDeleteToast(`Deleted ${ids.length} item${ids.length !== 1 ? 's' : ''}`);
       setTimeout(() => setDeleteToast(null), 2500);
@@ -3714,7 +3719,9 @@ function App() {
       if (searchText.startsWith('#')) {
         const tag = searchText.slice(1).trim();
         if (tag) {
-          setActiveTagFilters((prev) => prev.includes(tag) ? prev : [...prev, tag]);
+          if (!activeTagFilters.includes(tag)) {
+            setActiveTagFilters([...activeTagFilters, tag]);
+          }
           setSearchText('');
           setSearchQuery('');
         }
@@ -3723,11 +3730,9 @@ function App() {
       setSearchQuery(searchText);
       // Save non-empty queries to history
       if (searchText.trim()) {
-        setSearchHistory((prev) => {
-          const deduped = [searchText.trim(), ...prev.filter((s) => s !== searchText.trim())].slice(0, MAX_HISTORY);
-          saveSearchHistory(deduped);
-          return deduped;
-        });
+        const deduped = [searchText.trim(), ...searchHistory.filter((s) => s !== searchText.trim())].slice(0, MAX_HISTORY);
+        saveSearchHistory(deduped);
+        setSearchHistory(deduped);
       }
     }, 300);
     return () => { if (searchDebounce.current) clearTimeout(searchDebounce.current); };
@@ -3770,29 +3775,22 @@ function App() {
         })
         .map((it) => it.id);
       if (newlyDone.length > 0) {
-        setFlashIds((existing) => {
-          const next = new Set([...existing, ...newlyDone]);
-          return next;
-        });
+        const next = new Set([...flashIds, ...newlyDone]);
+        setFlashIds(next);
         setTimeout(() => {
-          setFlashIds((existing) => {
-            const next = new Set(existing);
-            newlyDone.forEach((id) => next.delete(id));
-            return next;
-          });
+          const cleared = new Set(flashIds);
+          newlyDone.forEach((id) => cleared.delete(id));
+          setFlashIds(cleared);
         }, 1500);
         // Browser notifications for newly done items
-        setNotificationsOn((enabled) => {
-          if (enabled && 'Notification' in window && Notification.permission === 'granted') {
-            for (const id of newlyDone) {
-              const it = items.find((x) => x.id === id);
-              if (it?.title) {
-                new Notification('✓ Knowledge Base', { body: it.title, icon: '/favicon.ico' });
-              }
+        if (notificationsOn && 'Notification' in window && Notification.permission === 'granted') {
+          for (const id of newlyDone) {
+            const it = items.find((x) => x.id === id);
+            if (it?.title) {
+              new Notification('✓ Knowledge Base', { body: it.title, icon: '/favicon.ico' });
             }
           }
-          return enabled;
-        });
+        }
       }
       prevItemsRef.current = items;
       setAllItems(items);
@@ -3821,14 +3819,13 @@ function App() {
 
   function handleRetryItem(entry: QueueLogEntry) {
     // Optimistically mark as queued for instant feedback
-    setQueueLog((prev) =>
-      prev.map((e) => {
-        if (e.id !== entry.id) return e;
-        const updated: QueueLogEntry = { ...e, status: 'queued' as const };
-        delete updated.error;
-        return updated;
-      })
-    );
+    const updated = queueLog.map((e) => {
+      if (e.id !== entry.id) return e;
+      const retried: QueueLogEntry = { ...e, status: 'queued' as const };
+      delete retried.error;
+      return retried;
+    });
+    setQueueLog(updated);
     return api.retryItem(entry.id)
       .then(() => refreshQueueLog())
       .catch(() => refreshQueueLog());
@@ -3836,11 +3833,9 @@ function App() {
 
   function clearCompletedFromLog() {
     // Hide done items from UI via clearedIds; items remain in DB
-    setClearedIds((prev) => {
-      const next = new Set(prev);
-      queueLog.filter((e) => e.status === 'done').forEach((e) => next.add(e.id));
-      return next;
-    });
+    const next = new Set(clearedIds);
+    queueLog.filter((e) => e.status === 'done').forEach((e) => next.add(e.id));
+    setClearedIds(next);
   }
 
   async function loadTags() {
@@ -3868,9 +3863,8 @@ function App() {
     setSelectedId(item.id);
     // Mark read
     api.markRead(item.id).then(() => {
-      setAllItems((prev) =>
-        prev.map((it) => it.id === item.id ? { ...it, readAt: new Date().toISOString() } : it)
-      );
+      const updated = allItems.map((it) => it.id === item.id ? { ...it, readAt: new Date().toISOString() } : it);
+      setAllItems(updated);
       api.getReadingStats().then(setReadingStats).catch(() => {});
     }).catch(() => {});
     // Fetch full detail (with transcript) into cache — don't pollute preview list
@@ -3878,7 +3872,7 @@ function App() {
       const full = await api.getItem(item.id);
       detailCache.current.set(full.id, full);
       // Trigger re-render so reader picks up cached detail
-      setDetailCacheVersion((v) => v + 1);
+      setDetailCacheVersion(detailCacheVersion + 1);
     } catch {}
   }
 
@@ -4000,12 +3994,12 @@ function App() {
   // Infinite scroll: load more when sentinel enters view
   useEffect(() => {
     const observer = new IntersectionObserver(
-      ([entry]) => { if (entry?.isIntersecting) setVisibleCount((n) => n + 20); },
+      ([entry]) => { if (entry?.isIntersecting) setVisibleCount(visibleCount + 20); },
       { root: listPaneRef.current }
     );
     if (sentinelRef.current) observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [filteredItems]);
+  }, [filteredItems, visibleCount]);
 
   // Use cached detail if available, otherwise fall back to preview
   const selectedItem = useMemo((): KnowledgeItemDetail | KnowledgeItemPreview | EphemeralItem | null => {
@@ -4080,18 +4074,20 @@ function App() {
         const cur = allItems.find((it) => it.id === curId);
         if (!cur) return;
         if (cur.readAt) {
-          api.markUnread(cur.id).then(() =>
-            setAllItems((prev) => prev.map((it) => {
+          api.markUnread(cur.id).then(() => {
+            const unmarked = allItems.map((it) => {
               if (it.id !== cur.id) return it;
               const updated = { ...it };
               delete updated.readAt;
               return updated;
-            }))
-          ).catch(() => {});
+            });
+            setAllItems(unmarked);
+          }).catch(() => {});
         } else {
-          api.markRead(cur.id).then(() =>
-            setAllItems((prev) => prev.map((it) => it.id === cur.id ? { ...it, readAt: new Date().toISOString() } : it))
-          ).catch(() => {});
+          api.markRead(cur.id).then(() => {
+            const marked = allItems.map((it) => it.id === cur.id ? { ...it, readAt: new Date().toISOString() } : it);
+            setAllItems(marked);
+          }).catch(() => {});
         }
       }
     }
@@ -4100,11 +4096,13 @@ function App() {
   }, [allItems]);
 
   function addTagFilter(tag: string) {
-    setActiveTagFilters((prev) => prev.includes(tag) ? prev : [...prev, tag]);
+    if (!activeTagFilters.includes(tag)) {
+      setActiveTagFilters([...activeTagFilters, tag]);
+    }
   }
 
   function removeTagFilter(tag: string) {
-    setActiveTagFilters((prev) => prev.filter((t) => t !== tag));
+    setActiveTagFilters(activeTagFilters.filter((t) => t !== tag));
   }
 
   function clearAll() {
@@ -4126,11 +4124,9 @@ function App() {
   }
 
   function removeFromHistory(term: string) {
-    setSearchHistory((prev) => {
-      const next = prev.filter((s) => s !== term);
-      saveSearchHistory(next);
-      return next;
-    });
+    const next = searchHistory.filter((s) => s !== term);
+    saveSearchHistory(next);
+    setSearchHistory(next);
   }
 
   function clearHistory() {
@@ -4143,39 +4139,45 @@ function App() {
   async function handleStar(id: string) {
     try {
       const { starred } = await api.toggleStar(id);
-      setAllItems((prev) => prev.map((it) => it.id === id ? { ...it, starred } : it));
+      const updated = allItems.map((it) => it.id === id ? { ...it, starred } : it);
+      setAllItems(updated);
     } catch {}
   }
 
   async function handlePin(id: string) {
     try {
       const { pinned } = await api.togglePin(id);
-      setAllItems((prev) => prev.map((it) => it.id === id ? { ...it, pinned } : it));
+      const updated = allItems.map((it) => it.id === id ? { ...it, pinned } : it);
+      setAllItems(updated);
     } catch {}
   }
 
   async function handleArchive(id: string) {
     try {
       const { archived } = await api.archiveItem(id);
-      setAllItems((prev) => prev.map((it) => it.id === id ? { ...it, archived } : it));
+      const updated = allItems.map((it) => it.id === id ? { ...it, archived } : it);
+      setAllItems(updated);
     } catch {}
   }
 
   async function handleStudyLater(id: string) {
     const result = await api.toggleStudyLater(id);
-    setAllItems((prev) => prev.map((it) => it.id === id ? { ...it, studyLater: result.studyLater } : it));
+    const updated = allItems.map((it) => it.id === id ? { ...it, studyLater: result.studyLater } : it);
+    setAllItems(updated);
   }
 
   async function handleDelete(id: string) {
     await api.deleteItem(id);
-    setAllItems((prev) => prev.filter((it) => it.id !== id));
+    const filtered = allItems.filter((it) => it.id !== id);
+    setAllItems(filtered);
     setSelectedId(null);
   }
 
   async function handleRate(id: string, rating: number) {
     try {
       await api.rateItem(id, rating);
-      setAllItems((prev) => prev.map((it) => it.id === id ? { ...it, rating } : it));
+      const updated = allItems.map((it) => it.id === id ? { ...it, rating } : it);
+      setAllItems(updated);
     } catch {}
   }
 
@@ -4337,14 +4339,14 @@ function App() {
           ))}
           <button
             className={`starred-filter-btn${showStarredOnly ? ' active' : ''}`}
-            onClick={() => setShowStarredOnly((v) => !v)}
+            onClick={() => setShowStarredOnly(!showStarredOnly)}
             title="Show starred only"
           >
             &#x2605; Starred
           </button>
           <button
             className={`filter-chip${filterStudyLater ? ' active' : ''}`}
-            onClick={() => setFilterStudyLater((v) => !v)}
+            onClick={() => setFilterStudyLater(!filterStudyLater)}
             title="Show Study Later only"
           >
             📚 Study Later

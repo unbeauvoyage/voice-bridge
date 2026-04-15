@@ -1,7 +1,14 @@
 import { useState, useEffect, useCallback } from 'react'
 import { SettingsControls } from '../features/voice-settings'
 import { useWakeState } from '../features/voice'
-import { isAgentsResponse, isPartialSettings, KNOWN_AGENTS, SERVER, DEFAULT_SETTINGS, type Settings } from '../shared/types'
+import {
+  isAgentsResponse,
+  isPartialSettings,
+  KNOWN_AGENTS,
+  SERVER,
+  DEFAULT_SETTINGS,
+  type Settings
+} from '../shared/types'
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
@@ -17,32 +24,32 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif',
     color: '#e5e5ea',
     userSelect: 'none',
-    overflowY: 'auto',
+    overflowY: 'auto'
   },
   header: {
     display: 'flex',
     alignItems: 'center',
-    gap: 8,
+    gap: 8
   },
   dot: {
     width: 10,
     height: 10,
     borderRadius: '50%',
     flexShrink: 0,
-    transition: 'background 0.3s',
+    transition: 'background 0.3s'
   },
   statusText: {
     fontSize: 13,
     fontWeight: 500,
     flex: 1,
-    color: '#e5e5ea',
+    color: '#e5e5ea'
   },
   micBadge: {
     fontSize: 10,
     fontWeight: 600,
     letterSpacing: '0.05em',
     color: '#6b7280',
-    transition: 'opacity 0.3s',
+    transition: 'opacity 0.3s'
   },
   transcriptBox: {
     background: 'rgba(255,255,255,0.05)',
@@ -50,14 +57,14 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '7px 9px',
     flex: 1,
     overflow: 'hidden',
-    minHeight: 40,
+    minHeight: 40
   },
   transcriptLabel: {
     fontSize: 10,
     color: '#6b7280',
     marginBottom: 3,
     textTransform: 'uppercase' as const,
-    letterSpacing: '0.06em',
+    letterSpacing: '0.06em'
   },
   transcriptText: {
     fontSize: 12,
@@ -66,8 +73,8 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: 'hidden',
     display: '-webkit-box',
     WebkitLineClamp: 3,
-    WebkitBoxOrient: 'vertical',
-  },
+    WebkitBoxOrient: 'vertical'
+  }
 }
 
 function stateColor(s: 'idle' | 'listening' | 'recording' | 'processing'): string {
@@ -142,31 +149,34 @@ export function SettingsPage(): React.JSX.Element {
     })()
   }, [])
 
-  const handleTargetChange = useCallback(async (target: string): Promise<void> => {
-    setSaving(true)
-    setState((s) => ({ ...s, target }))
-    try {
-      if (window.__voiceBridge) {
-        await window.__voiceBridge.setTarget(target)
-      } else {
-        await fetch(`${SERVER}/target`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ target }),
-        })
+  const handleTargetChange = useCallback(
+    async (target: string): Promise<void> => {
+      setSaving(true)
+      setState((s) => ({ ...s, target }))
+      try {
+        if (window.__voiceBridge) {
+          await window.__voiceBridge.setTarget(target)
+        } else {
+          await fetch(`${SERVER}/target`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ target })
+          })
+        }
+      } catch {
+        /* ignore */
+      } finally {
+        setSaving(false)
       }
-    } catch {
-      /* ignore */
-    } finally {
-      setSaving(false)
-    }
-  }, [setState])
+    },
+    [setState]
+  )
 
   const handleSettingChange = useCallback(
     <K extends keyof Settings>(key: K, value: Settings[K]): void => {
       setSettings((s) => ({ ...s, [key]: value }))
     },
-    [],
+    []
   )
 
   const dot = stateColor(state.wakeState)
@@ -185,7 +195,7 @@ export function SettingsPage(): React.JSX.Element {
           fontSize: 18,
           cursor: 'pointer',
           lineHeight: 1,
-          padding: '4px 8px',
+          padding: '4px 8px'
         }}
         title="Close"
       >

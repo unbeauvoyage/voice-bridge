@@ -27,6 +27,6 @@ export const useWakeStore = create<WakeStateStore>((set) => ({
       target: state.target,
       micState: state.micState,
       wakeState: state.wakeState,
-      transcript: state.transcript,
-    }),
+      transcript: state.transcript
+    })
 }))

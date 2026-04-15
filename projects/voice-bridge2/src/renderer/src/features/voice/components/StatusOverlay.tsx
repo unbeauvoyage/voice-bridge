@@ -14,19 +14,19 @@ function getStatusConfig(mode: StatusMode, target: string): StatusConfig {
       return {
         text: `✓  Delivered → ${target}`,
         color: 'rgb(51,217,102)',
-        borderColor: 'rgba(51,217,102,0.6)',
+        borderColor: 'rgba(51,217,102,0.6)'
       }
     case 'cancelled':
       return {
         text: '⊘  Cancelled',
         color: 'rgb(255,192,0)',
-        borderColor: 'rgba(255,192,0,0.6)',
+        borderColor: 'rgba(255,192,0,0.6)'
       }
     case 'error':
       return {
         text: '✗  Delivery failed',
         color: 'rgb(255,69,59)',
-        borderColor: 'rgba(255,69,59,0.6)',
+        borderColor: 'rgba(255,69,59,0.6)'
       }
   }
 }
@@ -57,7 +57,7 @@ export function StatusOverlay({ mode, target, fadeOut }: StatusOverlayProps): Re
         userSelect: 'none',
         pointerEvents: 'none',
         opacity: fadeOut ? 0 : 1,
-        transition: 'opacity 1s ease',
+        transition: 'opacity 1s ease'
       }}
     >
       <span style={{ color: cfg.color, fontSize: 16, fontWeight: 500 }}>{cfg.text}</span>
