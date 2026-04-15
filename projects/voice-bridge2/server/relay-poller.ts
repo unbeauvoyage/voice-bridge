@@ -9,6 +9,7 @@
  */
 
 import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 
 // Types replicated inline so this module has no path-alias dependencies.
 type SendRequest = { from: string; to: string; type: string; body: string }
@@ -24,10 +25,6 @@ interface QueuedMessage {
   type: string
   body: string
   ts: string
-}
-
-interface QueueResponse {
-  messages: QueuedMessage[]
 }
 
 /** Message types that should be shown in the overlay */
@@ -63,6 +60,32 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
   const seenIds = new Set<string>()
   let intervalHandle: Timer | null = null
 
+  function isQueuedMessage(value: unknown): value is QueuedMessage {
+    if (value === null || typeof value !== 'object') return false
+    return (
+      'id' in value &&
+      typeof value.id === 'string' &&
+      'from' in value &&
+      typeof value.from === 'string' &&
+      'to' in value &&
+      typeof value.to === 'string' &&
+      'type' in value &&
+      typeof value.type === 'string' &&
+      'body' in value &&
+      typeof value.body === 'string' &&
+      'ts' in value &&
+      typeof value.ts === 'string'
+    )
+  }
+
+  function parseQueueResponse(value: unknown): QueuedMessage[] {
+    if (value === null || typeof value !== 'object') return []
+    if (!('messages' in value)) return []
+    const raw = value.messages
+    if (!Array.isArray(raw)) return []
+    return raw.filter(isQueuedMessage)
+  }
+
   async function pollOnce(): Promise<void> {
     let messages: QueuedMessage[]
     try {
@@ -70,8 +93,8 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
         signal: AbortSignal.timeout(5_000)
       })
       if (!res.ok) return
-      const data = (await res.json()) as QueueResponse
-      messages = Array.isArray(data.messages) ? data.messages : []
+      const data: unknown = await res.json()
+      messages = parseQueueResponse(data)
     } catch {
       // Relay offline — silent skip
       return
@@ -151,12 +174,16 @@ export function startRelayPoller(opts: {
   let ttsWordLimit = 50
   if (opts.settingsPath) {
     try {
-      const { readFileSync } = require('node:fs') as typeof import('node:fs')
-      const raw = readFileSync(opts.settingsPath, 'utf8') as string
-      const settings = JSON.parse(raw) as Record<string, unknown>
-      if (settings['tts_enabled'] === true) ttsEnabled = true
-      if (typeof settings['tts_word_limit'] === 'number')
-        ttsWordLimit = settings['tts_word_limit'] as number
+      const raw: string = readFileSync(opts.settingsPath, 'utf8')
+      const parsed: unknown = JSON.parse(raw)
+      if (parsed !== null && typeof parsed === 'object') {
+        if ('tts_enabled' in parsed && parsed.tts_enabled === true) {
+          ttsEnabled = true
+        }
+        if ('tts_word_limit' in parsed && typeof parsed.tts_word_limit === 'number') {
+          ttsWordLimit = parsed.tts_word_limit
+        }
+      }
     } catch {
       // settings file absent or unreadable — use defaults
     }

@@ -7,7 +7,18 @@ import eslintPluginReactRefresh from 'eslint-plugin-react-refresh'
 import boundaries from 'eslint-plugin-boundaries'
 
 export default defineConfig(
-  { ignores: ['**/node_modules', '**/dist', '**/out'] },
+  {
+    ignores: [
+      '**/node_modules',
+      '**/dist',
+      '**/out',
+      '**/.claude/worktrees/**',
+      // OpenAPI codegen output — generated, not hand-maintained
+      'src/data/apiClient/**/*.gen.ts',
+      'src/data/apiClient/client/**',
+      'src/data/apiClient/core/**'
+    ]
+  },
   tseslint.configs.recommended,
   eslintPluginReact.configs.flat.recommended,
   eslintPluginReact.configs.flat['jsx-runtime'],

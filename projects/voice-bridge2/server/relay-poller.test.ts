@@ -13,6 +13,17 @@ import { createRelayPoller } from './relay-poller'
 
 type OverlayPost = { mode: string; text: string }
 
+function isOverlayPost(value: unknown): value is OverlayPost {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    'mode' in value &&
+    typeof value.mode === 'string' &&
+    'text' in value &&
+    typeof value.text === 'string'
+  )
+}
+
 let relayMessages: Array<{
   id: string
   from: string
@@ -45,8 +56,10 @@ beforeAll(() => {
     port: OVERLAY_PORT,
     async fetch(req) {
       if (req.method === 'POST' && new URL(req.url).pathname === '/overlay') {
-        const body = (await req.json()) as OverlayPost
-        overlayPosts.push(body)
+        const body: unknown = await req.json()
+        if (isOverlayPost(body)) {
+          overlayPosts.push(body)
+        }
         return Response.json({ ok: true })
       }
       return new Response('not found', { status: 404 })
@@ -94,11 +107,10 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
 
     expect(overlayPosts).toHaveLength(2)
 
-    const post1 = overlayPosts[0]!
+    const [post1, post2] = overlayPosts
+    if (!post1 || !post2) throw new Error('expected two overlay posts')
     expect(post1.mode).toBe('message')
     expect(post1.text).toBe('chief-of-staff: Task finished successfully.')
-
-    const post2 = overlayPosts[1]!
     expect(post2.mode).toBe('message')
     expect(post2.text).toBe('atlas: Build is running in the background.')
   })
@@ -126,7 +138,8 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
     await poller.pollOnce()
 
     expect(overlayPosts).toHaveLength(1)
-    const post = overlayPosts[0]!
+    const [post] = overlayPosts
+    if (!post) throw new Error('expected one overlay post')
     // "command: " is 9 chars, body truncated to 120 chars
     expect(post.text).toBe(`command: ${'A'.repeat(120)}`)
     expect(post.text.length).toBe(9 + 120)
