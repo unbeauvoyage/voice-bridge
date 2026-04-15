@@ -86,11 +86,18 @@ export type TranscribeContext = {
 export async function handleTranscribe(req: Request, ctx: TranscribeContext): Promise<Response> {
   const corsHeaders = { 'Access-Control-Allow-Origin': '*' }
 
-  // ── Preflight: reject oversized bodies BEFORE formData parsing ───────────
-  // A hostile/broken client sending a 100 MiB payload would otherwise be
-  // fully buffered, copied to arrayBuffer(), and expanded to WAV before
-  // any size check. Reading Content-Length is cheap and catches the common
-  // case; we still enforce the real file size after parsing.
+  // ── Preflight + streaming accounting ─────────────────────────────────────
+  // Three-layer defense against oversized bodies (Stage-4 codex
+  // chunk2-review HIGH2):
+  //   1. Bun.serve maxRequestBodySize (set in server/index.ts) enforces at
+  //      parser level for honest Content-Length.
+  //   2. Content-Length preflight here — cheap, catches honest-CL DoS
+  //      before we touch the body.
+  //   3. Streaming accounting below — Bun's maxRequestBodySize does NOT
+  //      fire for Transfer-Encoding: chunked / streamed bodies (verified
+  //      repro on Bun 1.3.3), so we count bytes ourselves as they arrive
+  //      and abort the moment the cap is exceeded, WITHOUT buffering the
+  //      full hostile payload.
   const contentLengthHeader = req.headers.get('content-length')
   if (contentLengthHeader !== null) {
     const declared = Number(contentLengthHeader)
@@ -102,12 +109,46 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
     }
   }
 
-  // ── Parse form data ───────────────────────────────────────────────────────
+  // Drain req.body with a byte budget when the request has a streaming
+  // body. Any chunk that pushes the running total past MAX_BODY_BYTES
+  // aborts the stream and returns 413 — we never retain more than
+  // MAX_BODY_BYTES + one-chunk of memory. When req.body is null (no body,
+  // or a unit-test Request stub), fall through to req.formData() directly.
   let formData: FormData
-  try {
-    formData = await req.formData()
-  } catch {
-    return Response.json({ error: 'Invalid form data' }, { status: 400, headers: corsHeaders })
+  if (req.body) {
+    const chunks: Uint8Array[] = []
+    let totalBytes = 0
+    const reader = req.body.getReader()
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        totalBytes += value.byteLength
+        if (totalBytes > MAX_BODY_BYTES) {
+          await reader.cancel()
+          return Response.json(
+            { error: 'Request body too large' },
+            { status: 413, headers: corsHeaders }
+          )
+        }
+        chunks.push(value)
+      }
+    } finally {
+      reader.releaseLock()
+    }
+    try {
+      const bodyBuf = Buffer.concat(chunks)
+      const parseReq = new Response(bodyBuf, { headers: req.headers })
+      formData = await parseReq.formData()
+    } catch {
+      return Response.json({ error: 'Invalid form data' }, { status: 400, headers: corsHeaders })
+    }
+  } else {
+    try {
+      formData = await req.formData()
+    } catch {
+      return Response.json({ error: 'Invalid form data' }, { status: 400, headers: corsHeaders })
+    }
   }
 
   // ── Extract form fields ────────────────────────────────────────────────────

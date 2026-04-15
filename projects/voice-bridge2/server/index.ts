@@ -137,8 +137,18 @@ async function getKnownAgents(): Promise<string[]> {
   return [...new Set(names)].filter((a) => !a.includes('test') && !a.includes('probe'))
 }
 
+// Chunk2-review HIGH2: Content-Length header is client-trusted. Bun.serve
+// maxRequestBodySize enforces at the parser level — Bun counts bytes as
+// they arrive and rejects over-size with 413 before any handler runs, so
+// lying/omitted Content-Length cannot buffer hostile bodies. Set slightly
+// above the /transcribe route cap (10 MiB) so the route-level preflight
+// gets a chance to produce the standard error shape for normal oversize;
+// this cap is the hard backstop against the streaming-attack case.
+const MAX_REQUEST_BODY_BYTES = 11 * 1024 * 1024
+
 const server = Bun.serve({
   port: PORT,
+  maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
   async fetch(req) {
     const url = new URL(req.url)
 

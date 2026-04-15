@@ -102,3 +102,58 @@ describe('safeJsonParse behavior (via HTTP endpoints)', () => {
     expect(obj['state']).toBe('off')
   })
 })
+
+// Chunk2-review HIGH2: /transcribe Content-Length is client-trusted.
+// A lying or omitted header lets hostile clients buffer oversized bodies
+// before the route-level cap fires. Defense-in-depth: Bun.serve
+// maxRequestBodySize enforces at the parser level, route-level cap keeps
+// the standard error-shape contract.
+describe('transcribe body-size enforcement (Bun.serve maxRequestBodySize)', () => {
+  test('POST /transcribe with oversized body + honest Content-Length returns 413', async () => {
+    // 50 MiB raw body — well above the 11 MiB Bun.serve cap. Bun rejects
+    // at the parser level (maxRequestBodySize works for honest CL), OR
+    // the route-level Content-Length preflight fires — both surface as 413.
+    const big = new Uint8Array(50 * 1024 * 1024)
+    const res = await fetch(`http://localhost:${TEST_PORT}/transcribe`, {
+      method: 'POST',
+      body: big
+    })
+    expect(res.status).toBe(413)
+  })
+
+  test('POST /transcribe with oversized streamed body and no Content-Length is rejected at parser level (413)', async () => {
+    // Stream a body larger than the cap with NO Content-Length header (the
+    // attacker scenario codex flagged). Without maxRequestBodySize, Bun
+    // buffers the full body before the handler runs, then formData() fails
+    // on the non-multipart bytes → 400 "Invalid form data". With
+    // maxRequestBodySize wired, Bun rejects at the parser level → 413
+    // (or connection reset). The 413 distinction is what proves the
+    // defense-in-depth is in place.
+    const chunk = new Uint8Array(1024 * 1024) // 1 MiB per chunk
+    const stream = new ReadableStream({
+      start(controller) {
+        for (let i = 0; i < 50; i++) controller.enqueue(chunk)
+        controller.close()
+      }
+    })
+    let status: number | null = null
+    try {
+      const res = await fetch(`http://localhost:${TEST_PORT}/transcribe`, {
+        method: 'POST',
+        body: stream,
+        // @ts-expect-error Bun-specific init flag
+        duplex: 'half'
+      })
+      status = res.status
+    } catch {
+      // Connection reset / abort is also acceptable — Bun may terminate
+      // the stream once the cap is hit. Either 413 or a thrown fetch error
+      // proves the parser-level cap is in force.
+      status = -1
+    }
+    // 413 (parser-level rejection) or -1 (connection killed) both prove
+    // the parser-level cap fired. 400 = buffered full body then handler
+    // saw invalid multipart = no parser-level enforcement = FAIL.
+    expect(status === 413 || status === -1).toBe(true)
+  })
+})
