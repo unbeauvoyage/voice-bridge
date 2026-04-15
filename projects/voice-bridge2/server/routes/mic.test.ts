@@ -1,0 +1,84 @@
+import { describe, test, expect } from 'bun:test'
+import { handleMic, type MicContext } from './mic.ts'
+
+async function readJsonObject(res: Response): Promise<Record<string, unknown>> {
+  const raw: unknown = await res.json()
+  if (typeof raw !== 'object' || raw === null) throw new Error('non-object body')
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(raw)) out[k] = v
+  return out
+}
+
+function makeCtx(initial: boolean): { ctx: MicContext; read: () => boolean } {
+  let state = initial
+  const ctx: MicContext = {
+    isMicOn: () => state,
+    setMic: (on: boolean) => {
+      state = on
+    }
+  }
+  return { ctx, read: () => state }
+}
+
+describe('handleMic', () => {
+  test('GET returns current state "on"', async () => {
+    const { ctx } = makeCtx(true)
+    const res = await handleMic(new Request('http://localhost/mic'), ctx)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*')
+    const body = await readJsonObject(res)
+    expect(body['state']).toBe('on')
+  })
+
+  test('GET returns current state "off"', async () => {
+    const { ctx } = makeCtx(false)
+    const res = await handleMic(new Request('http://localhost/mic'), ctx)
+    const body = await readJsonObject(res)
+    expect(body['state']).toBe('off')
+  })
+
+  test('POST { state: "off" } pauses the mic', async () => {
+    const { ctx, read } = makeCtx(true)
+    const req = new Request('http://localhost/mic', {
+      method: 'POST',
+      body: JSON.stringify({ state: 'off' }),
+      headers: { 'Content-Type': 'application/json' }
+    })
+    const res = await handleMic(req, ctx)
+    const body = await readJsonObject(res)
+    expect(body['state']).toBe('off')
+    expect(read()).toBe(false)
+  })
+
+  test('POST { state: "on" } resumes the mic', async () => {
+    const { ctx, read } = makeCtx(false)
+    const req = new Request('http://localhost/mic', {
+      method: 'POST',
+      body: JSON.stringify({ state: 'on' }),
+      headers: { 'Content-Type': 'application/json' }
+    })
+    const res = await handleMic(req, ctx)
+    const body = await readJsonObject(res)
+    expect(body['state']).toBe('on')
+    expect(read()).toBe(true)
+  })
+
+  test('POST with malformed body falls back to mic off (state !== "on")', async () => {
+    const { ctx, read } = makeCtx(true)
+    const req = new Request('http://localhost/mic', {
+      method: 'POST',
+      body: 'not json'
+    })
+    const res = await handleMic(req, ctx)
+    const body = await readJsonObject(res)
+    expect(body['state']).toBe('off')
+    expect(read()).toBe(false)
+  })
+
+  test('unsupported method returns undefined-ish (null) — index dispatcher handles fallthrough', async () => {
+    const { ctx } = makeCtx(true)
+    const req = new Request('http://localhost/mic', { method: 'DELETE' })
+    const res = await handleMic(req, ctx)
+    expect(res).toBeNull()
+  })
+})

@@ -17,6 +17,7 @@ import { listWorkspaceNames } from './cmux.ts'
 import { startRelayPoller } from './relay-poller.ts'
 import { handleTranscribe, type TranscribeContext, type DedupEntry } from './routes/transcribe.ts'
 import { handleMessages, type MessagesContext } from './routes/messages.ts'
+import { handleMic, type MicContext } from './routes/mic.ts'
 import {
   SERVER_PORT,
   RELAY_BASE_URL_DEFAULT,
@@ -203,17 +204,9 @@ const server = Bun.serve({
     // GET  /mic         — { state: "on"|"off" }
     // POST /mic         — { state: "on"|"off" } → toggle
     if (url.pathname === '/mic') {
-      const headers = { 'Access-Control-Allow-Origin': '*' }
-      if (req.method === 'GET') {
-        return Response.json({ state: isMicOn() ? 'on' : 'off' }, { headers })
-      }
-      if (req.method === 'POST') {
-        const body = safeJsonParse(await req.text())
-        const on = body['state'] === 'on'
-        setMic(on)
-        console.log(`[mic] ${on ? 'RESUMED' : 'PAUSED'} via API`)
-        return Response.json({ state: on ? 'on' : 'off' }, { headers })
-      }
+      const micCtx: MicContext = { isMicOn, setMic }
+      const res = await handleMic(req, micCtx)
+      if (res) return res
     }
 
     // ── Agents list ───────────────────────────────────────────────────────────
