@@ -1,3 +1,5 @@
+Archive of older entries: PROBLEM-LOG-2026-Q1.md
+
 # Problem Log
 
 A permanent record of problems encountered, their root causes, fixes, and what was learned. Every agent contributes. Every significant problem gets an entry.
