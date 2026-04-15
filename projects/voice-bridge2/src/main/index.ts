@@ -54,10 +54,12 @@ let lastTrayBounds: Electron.Rectangle | undefined
 
 const OVERLAY_PORT = 47890
 
-const LAST_TARGET_FILE = join(app.getAppPath(), '..', 'tmp', 'last-target.txt')
+// __dirname in the compiled out/main/index.js is <project>/out/main — go up twice to reach project root
+const PROJECT_ROOT = join(__dirname, '..', '..')
+const LAST_TARGET_FILE = join(PROJECT_ROOT, 'tmp', 'last-target.txt')
 const PYTHON_APP =
   '/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python'
-const DAEMON_DIR = join(app.getAppPath(), 'daemon')
+const DAEMON_DIR = join(PROJECT_ROOT, 'daemon')
 const WAKE_WORD_SCRIPT = join(DAEMON_DIR, 'wake_word.py')
 const VENV_PACKAGES = join(DAEMON_DIR, '.venv/lib/python3.14/site-packages')
 
@@ -132,7 +134,7 @@ function stopDaemon(): void {
 
 function startServer(): void {
   if (server && !server.killed) return
-  const serverDir = join(app.getAppPath(), 'server')
+  const serverDir = join(PROJECT_ROOT, 'server')
   server = spawn('/Users/riseof/.bun/bin/bun', ['run', 'index.ts'], {
     cwd: serverDir,
     stdio: ['ignore', 'pipe', 'pipe']

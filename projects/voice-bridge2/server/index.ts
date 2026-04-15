@@ -564,15 +564,18 @@ const server = Bun.serve({
         if (!existing) {
           // Replicate run_daemon.sh: use Python.app (has mic entitlements) with venv PYTHONPATH
           const pythonApp =
-            '/opt/homebrew/Cellar/python@3.14/3.14.0/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python'
+            '/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python'
           const script = join(daemonDir, 'wake_word.py')
           const venvPackages = join(daemonDir, '.venv/lib/python3.14/site-packages')
-          const child = spawn(pythonApp, ['-u', script, '--target', 'jarvis'], {
+          const child = spawn(pythonApp, ['-u', script, '--target', loadLastTarget()], {
             cwd: join(daemonDir, '..'),
             detached: true,
             stdio: 'ignore',
             env: { ...process.env, PYTHONPATH: venvPackages }
           })
+          child.on('error', (err: Error) =>
+            console.error('[wake-word] spawn failed:', err.message)
+          )
           child.unref()
           console.log(`[wake-word] started (PID ${child.pid})`)
         }
