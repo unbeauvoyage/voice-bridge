@@ -11,14 +11,15 @@
 import { describe, test, expect } from 'bun:test'
 import { handleTranscribe, type TranscribeContext, type DedupEntry } from './transcribe.ts'
 
-// Mock Request with FormData
-function createMockRequest(body: FormData): Request {
-  const req: Request = {
+// Build a real Request whose formData() returns the given FormData. We stub
+// only `formData` on the instance because Bun/undici's native Request.formData
+// requires a matching body stream; for unit tests we want the in-memory form.
+function createMockRequest(body: FormData, headerMap: Record<string, string> = {}): Request {
+  const req = new Request('http://localhost:3030/transcribe', {
     method: 'POST',
-    url: 'http://localhost:3030/transcribe',
-    formData: async () => body,
-    text: async () => ''
-  }
+    headers: headerMap
+  })
+  Object.defineProperty(req, 'formData', { value: async () => body })
   return req
 }
 
@@ -63,15 +64,51 @@ describe('transcribe route handler', () => {
     expect(obj['error']).toMatch(/Missing audio/)
   })
 
+  test('POST /transcribe returns 413 when Content-Length exceeds MAX_BODY_BYTES', async () => {
+    const formData = new FormData()
+    const req = createMockRequest(formData, { 'content-length': String(20 * 1024 * 1024) })
+    const ctx = createMockContext()
+    const res = await handleTranscribe(req, ctx)
+    expect(res.status).toBe(413)
+  })
+
+  test('POST /transcribe returns 413 when audio File size exceeds cap', async () => {
+    const formData = new FormData()
+    const big = new Uint8Array(9 * 1024 * 1024)
+    formData.append('audio', new File([big], 'big.webm', { type: 'audio/webm' }))
+    const req = createMockRequest(formData)
+    const ctx = createMockContext()
+    const res = await handleTranscribe(req, ctx)
+    expect(res.status).toBe(413)
+  })
+
+  test('POST /transcribe returns 415 when audio MIME is not in allowlist', async () => {
+    const formData = new FormData()
+    formData.append('audio', new File([new Uint8Array(100)], 'bad.exe', { type: 'application/x-msdownload' }))
+    const req = createMockRequest(formData)
+    const ctx = createMockContext()
+    const res = await handleTranscribe(req, ctx)
+    expect(res.status).toBe(415)
+  })
+
+  test('POST /transcribe returns 400 when `to` field exceeds MAX_TO_LEN', async () => {
+    const formData = new FormData()
+    formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+    formData.append('to', 'x'.repeat(200))
+    const req = createMockRequest(formData)
+    const ctx = createMockContext()
+    const res = await handleTranscribe(req, ctx)
+    expect(res.status).toBe(400)
+  })
+
   test('POST /transcribe returns 400 when form data is invalid', async () => {
     // Simulate invalid form data parsing
-    const req: Request = {
-      method: 'POST',
-      url: 'http://localhost:3030/transcribe',
-      formData: async () => {
+    const req = new Request('http://localhost:3030/transcribe', { method: 'POST' })
+    Object.defineProperty(req, 'formData', {
+      value: async () => {
         throw new Error('Invalid form data')
       }
-    }
+    })
     const ctx = createMockContext()
 
     const res = await handleTranscribe(req, ctx)

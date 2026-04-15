@@ -4,6 +4,14 @@
  * Audio deduplication prevents WKWebView retries (slow Whisper transcription)
  * from flooding the relay with duplicate messages.
  *
+ * Boundary validation (Stage-4 codex finding transcribe.ts:61 HIGH — no
+ * upload cap): the handler rejects oversized or non-audio bodies BEFORE
+ * spending CPU on formData parsing and WAV expansion.
+ *   - Content-Length over MAX_BODY_BYTES → 413 before req.formData()
+ *   - audio File size over MAX_AUDIO_BYTES → 413
+ *   - audio MIME not in ALLOWED_AUDIO_MIME → 415
+ *   - `to` field longer than MAX_TO_LEN → 400
+ *
  * Routing logic:
  * 1. If "please" in first 7 words → llmRoute detects agent (OVERRIDES explicit `to`)
  * 2. Else if explicit `to` set → use it, full transcript
@@ -16,6 +24,28 @@ import { deliverViaCmux } from '../cmux.ts'
 import { llmRoute } from '../llmRouter.ts'
 import { isCancelCommand } from '../cancelUtils.ts'
 import { DEDUP_WAIT_DEADLINE_MS } from '../config.ts'
+
+// Body size: 10 MiB absolute cap at the HTTP boundary. A 60s voice message
+// at webm/opus ~32kbps is ~240 KiB, so this is ~40× typical; legitimate
+// traffic will never hit it.
+const MAX_BODY_BYTES = 10 * 1024 * 1024
+// Audio file cap — slightly tighter than body so non-audio form overhead
+// (headers, boundary markers) cannot push us near the body limit.
+const MAX_AUDIO_BYTES = 8 * 1024 * 1024
+// MIME allowlist. Anything else (including octet-stream, text/*) is 415.
+const ALLOWED_AUDIO_MIME = new Set([
+  'audio/webm',
+  'audio/ogg',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/mp4',
+  'audio/mpeg',
+  'audio/aac',
+  'audio/flac'
+])
+// Reasonable cap for a routing target name. Longer strings are almost
+// certainly hostile or buggy.
+const MAX_TO_LEN = 128
 
 /**
  * Deduplication state: tracks recent audio by hash to prevent WKWebView retries
@@ -56,6 +86,22 @@ export type TranscribeContext = {
 export async function handleTranscribe(req: Request, ctx: TranscribeContext): Promise<Response> {
   const corsHeaders = { 'Access-Control-Allow-Origin': '*' }
 
+  // ── Preflight: reject oversized bodies BEFORE formData parsing ───────────
+  // A hostile/broken client sending a 100 MiB payload would otherwise be
+  // fully buffered, copied to arrayBuffer(), and expanded to WAV before
+  // any size check. Reading Content-Length is cheap and catches the common
+  // case; we still enforce the real file size after parsing.
+  const contentLengthHeader = req.headers.get('content-length')
+  if (contentLengthHeader !== null) {
+    const declared = Number(contentLengthHeader)
+    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+      return Response.json(
+        { error: 'Request body too large' },
+        { status: 413, headers: corsHeaders }
+      )
+    }
+  }
+
   // ── Parse form data ───────────────────────────────────────────────────────
   let formData: FormData
   try {
@@ -69,10 +115,31 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
   const transcribeOnly = formData.get('transcribe_only') === '1'
   const toField = formData.get('to')
   const explicitTo = typeof toField === 'string' ? toField.trim() : ''
+  if (explicitTo.length > MAX_TO_LEN) {
+    return Response.json(
+      { error: `\`to\` field exceeds ${MAX_TO_LEN} chars` },
+      { status: 400, headers: corsHeaders }
+    )
+  }
   let to = explicitTo || ctx.loadLastTarget()
 
   if (!audioFile || !(audioFile instanceof File)) {
     return Response.json({ error: 'Missing audio field' }, { status: 400, headers: corsHeaders })
+  }
+
+  // ── Audio size + MIME validation ──────────────────────────────────────────
+  if (audioFile.size > MAX_AUDIO_BYTES) {
+    return Response.json(
+      { error: 'Audio file too large' },
+      { status: 413, headers: corsHeaders }
+    )
+  }
+  const audioMime = audioFile.type || 'audio/webm'
+  if (!ALLOWED_AUDIO_MIME.has(audioMime)) {
+    return Response.json(
+      { error: `Unsupported audio MIME: ${audioMime}` },
+      { status: 415, headers: corsHeaders }
+    )
   }
 
   // ── Audio buffer + dedup ───────────────────────────────────────────────────
