@@ -9,7 +9,7 @@
     "test": "npm run typecheck && npm run lint",
     "format": "prettier --write .",
     "lint": "eslint --cache .",
-    "codegen": "openapi-ts --input src/data/openapi.json --output src/data/apiClient/generated",
+    "codegen": "openapi-ts",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",

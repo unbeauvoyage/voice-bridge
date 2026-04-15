@@ -1,0 +1,311 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "voice-bridge2 API",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:3030"
+    }
+  ],
+  "paths": {
+    "/settings": {
+      "get": {
+        "operationId": "getSettings",
+        "summary": "Fetch current settings from daemon/settings.json",
+        "responses": {
+          "200": {
+            "description": "Settings object",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Settings file not found"
+          }
+        }
+      },
+      "post": {
+        "operationId": "updateSettings",
+        "summary": "Update settings (partial or full merge)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartialSettings"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Merged settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON"
+          },
+          "500": {
+            "description": "Write error"
+          }
+        }
+      }
+    },
+    "/status": {
+      "get": {
+        "operationId": "getStatus",
+        "summary": "Get current target and mic state",
+        "responses": {
+          "200": {
+            "description": "Status object",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mic": {
+      "get": {
+        "operationId": "getMicState",
+        "summary": "Get microphone state",
+        "responses": {
+          "200": {
+            "description": "Mic state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "enum": ["on", "off"]
+                    }
+                  },
+                  "required": ["state"]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "setMicState",
+        "summary": "Set microphone state",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "enum": ["on", "off"]
+                  }
+                },
+                "required": ["state"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated mic state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "enum": ["on", "off"]
+                    }
+                  },
+                  "required": ["state"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents": {
+      "get": {
+        "operationId": "listAgents",
+        "summary": "List available agents from relay or workspaces",
+        "parameters": [
+          {
+            "name": "source",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["relay", "workspaces", "auto"],
+              "default": "auto"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agents list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/target": {
+      "post": {
+        "operationId": "setTarget",
+        "summary": "Set the current target agent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "type": "string"
+                  }
+                },
+                "required": ["target"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated target",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "target": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["target"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing target"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Settings": {
+        "type": "object",
+        "properties": {
+          "start_threshold": {
+            "type": "number"
+          },
+          "stop_threshold": {
+            "type": "number"
+          },
+          "tts_word_limit": {
+            "type": "number"
+          },
+          "tts_enabled": {
+            "type": "boolean"
+          },
+          "toast_duration": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "start_threshold",
+          "stop_threshold",
+          "tts_word_limit",
+          "tts_enabled",
+          "toast_duration"
+        ]
+      },
+      "PartialSettings": {
+        "type": "object",
+        "properties": {
+          "start_threshold": {
+            "type": "number"
+          },
+          "stop_threshold": {
+            "type": "number"
+          },
+          "tts_word_limit": {
+            "type": "number"
+          },
+          "tts_enabled": {
+            "type": "boolean"
+          },
+          "toast_duration": {
+            "type": "number"
+          }
+        }
+      },
+      "StatusResponse": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string"
+          },
+          "micState": {
+            "type": "string",
+            "enum": ["on", "off"]
+          }
+        },
+        "required": ["target", "micState"]
+      },
+      "AgentsResponse": {
+        "type": "object",
+        "properties": {
+          "agents": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["name"]
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        "required": ["agents"]
+      }
+    }
+  }
+}
