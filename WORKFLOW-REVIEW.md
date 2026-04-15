@@ -20,6 +20,8 @@ summary: Concrete patterns that are earning their keep, concrete patterns that a
 
 - **Relay permission persistence** — shipped 2026-04-15 (commit 90f90d9 area). Permission requests no longer loop on relay restart. Postmortem-driven fix that actually closed the loop.
 
+- **Inline self-review in commit body as codex-rate-limit fallback** — when codex CLI is rate-limited mid-refactor, team lead substitutes Stage 1/4 gates with a 4-point adversarial self-review written directly into the commit body (concerns + decisions), then runs a post-hoc codex Stage-4 batch at rate-limit recovery using narrow `"adversarial pass — what did I miss in the inline self-review?"` prompts grouped by semantic family (5 calls covering 8 commits, not 8 separate calls). Evidence: voice-bridge2 `server/index.ts` route extraction 2026-04-16 — 8-commit cycle (e904c4c, ac4dafa, 05a22f3, 6532c5c, cb76bbd, 75e01f8, 6f731bb, 6d95dfc) landed with 603→297 line shrinkage, +61 offline DI tests, zero regressions, two latent bugs logged to `voice-bridge2/ISSUES.md` (DFRR) rather than in-refactor fixed. Invariants that make this safe: scoped `git add <files>` never `-A`, all lint/typecheck fixes in the same commit (no follow-up churn), latent bugs rescued to ISSUES.md not silently fixed.
+
 - **One-shot Agent fallback when team members stall** — chief-of-staff's 4 Phase C sweep coders stalled; Agent tool (without team membership) unblocked. When team infrastructure fails, one-shot is a reliable escape hatch (BACKLOG "Team-internal coder lifecycle appears broken").
 
 # What Breaks
