@@ -245,14 +245,14 @@ const server = Bun.serve({
         )
       }
 
-      // Cancel detection: if last 10 words contain >1 "cancel", discard
-      const lastTenWords = transcript.trim().split(/\s+/).slice(-10)
-      const cancelCount = lastTenWords.filter((w) =>
-        /^cancel$/i.test(w.replace(/[^a-zA-Z]/g, ''))
-      ).length
-      if (cancelCount > 1) {
+      // Cancel detection: if last 10 words contain >=2 "cancel", discard.
+      // Uses \bcancel\b on the rejoined tail so punctuation, dashes, and
+      // mid-word separators between tokens don't hide matches.
+      const tailText = transcript.trim().split(/\s+/).slice(-10).join(' ')
+      const cancelMatches = tailText.match(/\bcancel\b/gi) ?? []
+      if (cancelMatches.length > 1) {
         console.log(
-          `[voice-bridge] cancelled (${cancelCount}x "cancel" in last 10 words) — discarding: "${transcript}"`
+          `[voice-bridge] cancelled (${cancelMatches.length}x "cancel" in last 10 words) — discarding: "${transcript}"`
         )
         return Response.json({ transcript, cancelled: true }, { headers: corsHeaders })
       }
