@@ -1,11 +1,15 @@
 /**
- * POST /target — { target: string } → persists new target
+ * POST /target — { target: string } → persists new target.
  *
- * Validates that the body has a non-empty `target` string (after trimming),
- * persists via the injected saveLastTarget callback, and echoes the trimmed
- * value. Malformed JSON, missing field, non-string field, or all-whitespace
- * field all return 400 "Missing target".
+ * Boundary validation (Stage-4 codex chunk2-review HIGH — /target was the
+ * 4th site still using the old `safeJsonParse` copy-loop, which is
+ * prototype-pollutable via `{"__proto__":{"target":"pwned"}}`): body is
+ * validated against a strict Zod schema before any lookup. Unknown keys,
+ * non-string target, and malformed JSON all return 400.
  */
+
+import { z } from 'zod'
+import { parseJsonBody } from './validation.ts'
 
 export type TargetContext = {
   saveLastTarget: (target: string) => void
@@ -13,24 +17,16 @@ export type TargetContext = {
 
 const CORS_HEADERS = { 'Access-Control-Allow-Origin': '*' } as const
 
-function safeJsonParse(text: string): Record<string, unknown> {
-  try {
-    const parsed: unknown = JSON.parse(text)
-    if (typeof parsed === 'object' && parsed !== null) {
-      const out: Record<string, unknown> = {}
-      for (const [k, v] of Object.entries(parsed)) out[k] = v
-      return out
-    }
-    return {}
-  } catch {
-    return {}
-  }
-}
+const TargetPostSchema = z
+  .object({
+    target: z.string().min(1).max(128)
+  })
+  .strict()
 
 export async function handleTarget(req: Request, ctx: TargetContext): Promise<Response> {
-  const body = safeJsonParse(await req.text())
-  const raw = body['target']
-  const target = (typeof raw === 'string' ? raw : '').trim()
+  const parsed = parseJsonBody(await req.text(), TargetPostSchema)
+  if (!parsed.ok) return parsed.response
+  const target = parsed.data.target.trim()
   if (!target) {
     return Response.json({ error: 'Missing target' }, { status: 400, headers: CORS_HEADERS })
   }

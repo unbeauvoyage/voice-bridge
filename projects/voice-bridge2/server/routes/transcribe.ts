@@ -134,18 +134,20 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
       { status: 413, headers: corsHeaders }
     )
   }
-  const audioMime = audioFile.type || 'audio/webm'
-  if (!ALLOWED_AUDIO_MIME.has(audioMime)) {
+  // Require an explicit allowed MIME — blank/missing used to fall through
+  // via `|| 'audio/webm'`, so a File with type='' reached ffmpeg/Whisper
+  // and failed as 500. Boundary rejects it as 415 now.
+  const audioMime = audioFile.type
+  if (!audioMime || !ALLOWED_AUDIO_MIME.has(audioMime)) {
     return Response.json(
-      { error: `Unsupported audio MIME: ${audioMime}` },
+      { error: `Unsupported audio MIME: ${audioMime || '(blank)'}` },
       { status: 415, headers: corsHeaders }
     )
   }
 
   // ── Audio buffer + dedup ───────────────────────────────────────────────────
   const audioBuffer = Buffer.from(await audioFile.arrayBuffer())
-  const mimeType = audioFile.type || 'audio/webm'
-  console.log(`[voice-bridge] audio received: ${audioBuffer.length} bytes, mime: ${mimeType}`)
+  console.log(`[voice-bridge] audio received: ${audioBuffer.length} bytes, mime: ${audioMime}`)
 
   // Dedup: reject if same audio bytes seen within 30s (WKWebView retry on slow Whisper)
   ctx.evictStaleHashes()
@@ -184,7 +186,7 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
   // ── Transcribe ─────────────────────────────────────────────────────────────
   let transcript: string
   try {
-    transcript = await transcribeAudio(audioBuffer, mimeType)
+    transcript = await transcribeAudio(audioBuffer, audioMime)
   } catch (err) {
     console.error('[whisper] transcription failed:', err)
     return Response.json(

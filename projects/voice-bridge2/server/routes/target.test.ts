@@ -46,7 +46,7 @@ describe('handleTarget', () => {
     expect(saved()).toBe('command')
   })
 
-  test('missing target field returns 400 "Missing target"', async () => {
+  test('missing target field returns 400 validation_failed', async () => {
     const { ctx, saved } = makeCtx()
     const req = new Request('http://localhost/target', {
       method: 'POST',
@@ -55,7 +55,7 @@ describe('handleTarget', () => {
     const res = await handleTarget(req, ctx)
     expect(res.status).toBe(400)
     const body = await readJsonObject(res)
-    expect(body['error']).toBe('Missing target')
+    expect(body['error']).toBe('validation_failed')
     expect(saved()).toBeNull()
   })
 
@@ -89,6 +89,34 @@ describe('handleTarget', () => {
     })
     const res = await handleTarget(req, ctx)
     expect(res.status).toBe(400)
+    expect(saved()).toBeNull()
+  })
+
+  // Canary: prior `safeJsonParse` used `out[k] = v` in a for-of on
+  // Object.entries; a payload with `__proto__` key could flip
+  // `body.target === 'pwned'` via the prototype chain, persisting "pwned"
+  // via saveLastTarget. Zod's strict schema rejects the payload first.
+  test('POST with __proto__ payload does NOT persist target (prototype-pollution canary)', async () => {
+    const { ctx, saved } = makeCtx()
+    const req = new Request('http://localhost/target', {
+      method: 'POST',
+      body: '{"__proto__":{"target":"pwned"}}'
+    })
+    const res = await handleTarget(req, ctx)
+    expect(res.status).toBe(400)
+    expect(saved()).toBeNull()
+  })
+
+  test('unknown keys are rejected by strict schema', async () => {
+    const { ctx, saved } = makeCtx()
+    const req = new Request('http://localhost/target', {
+      method: 'POST',
+      body: JSON.stringify({ target: 'matrix', extra: 'no' })
+    })
+    const res = await handleTarget(req, ctx)
+    expect(res.status).toBe(400)
+    const body = await readJsonObject(res)
+    expect(body['error']).toBe('validation_failed')
     expect(saved()).toBeNull()
   })
 })

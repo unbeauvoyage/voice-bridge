@@ -91,6 +91,19 @@ describe('transcribe route handler', () => {
     expect(res.status).toBe(415)
   })
 
+  // Stage-4 codex chunk2-review MED: blank/missing MIME used to fall through
+  // via `audioFile.type || 'audio/webm'`, so a File with type=''
+  // reached ffmpeg/Whisper and failed as 500. Require an explicit allowed
+  // MIME at the boundary — reject blank as 415.
+  test('POST /transcribe returns 415 when audio MIME is blank (no allowlist bypass)', async () => {
+    const formData = new FormData()
+    formData.append('audio', new File([new Uint8Array(100)], 'blob', { type: '' }))
+    const req = createMockRequest(formData)
+    const ctx = createMockContext()
+    const res = await handleTranscribe(req, ctx)
+    expect(res.status).toBe(415)
+  })
+
   test('POST /transcribe returns 400 when `to` field exceeds MAX_TO_LEN', async () => {
     const formData = new FormData()
     formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))

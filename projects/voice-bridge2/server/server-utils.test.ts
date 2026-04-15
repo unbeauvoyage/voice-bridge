@@ -62,14 +62,14 @@ describe('safeJsonParse behavior (via HTTP endpoints)', () => {
       headers: { 'Content-Type': 'application/json' },
       body: 'not-valid-json'
     })
-    // Malformed body → safeJsonParse returns {} → target field missing → 400
+    // Malformed body → Zod boundary rejects as validation_failed → 400
     expect(res.status).toBe(400)
     const body: unknown = await res.json()
     const obj: Record<string, unknown> = {}
     if (typeof body === 'object' && body !== null) {
       Object.assign(obj, body)
     }
-    expect(obj['error']).toBe('Missing target')
+    expect(obj['error']).toBe('validation_failed')
   })
 
   test('POST /mic with valid JSON {state: "on"} sets mic on', async () => {
