@@ -7,6 +7,6 @@ export function useAgentsQuery() {
   return useQuery({
     queryKey: AGENTS_QUERY_KEY,
     queryFn: () => listAgents({}),
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 5 * 60 * 1000 // 5 minutes
   })
 }

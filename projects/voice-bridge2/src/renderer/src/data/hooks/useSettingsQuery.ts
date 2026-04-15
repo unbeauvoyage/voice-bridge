@@ -7,7 +7,7 @@ const SETTINGS_QUERY_KEY = ['settings']
 export function useSettingsQuery() {
   return useQuery({
     queryKey: SETTINGS_QUERY_KEY,
-    queryFn: () => getSettings(),
+    queryFn: () => getSettings()
   })
 }
 
@@ -17,6 +17,6 @@ export function useSettingsMutation() {
     mutationFn: (patch: PartialSettings) => updateSettings({ body: patch }),
     onSuccess: (data) => {
       queryClient.setQueryData(SETTINGS_QUERY_KEY, data)
-    },
+    }
   })
 }
