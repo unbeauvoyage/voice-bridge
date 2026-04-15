@@ -16,7 +16,10 @@ export default defineConfig(
       // OpenAPI codegen output — generated, not hand-maintained
       'src/data/apiClient/**/*.gen.ts',
       'src/data/apiClient/client/**',
-      'src/data/apiClient/core/**'
+      'src/data/apiClient/core/**',
+      // daemon/ — Python subprocess scripts, JXA macOS automation, and .venv packages.
+      // These are not part of the TypeScript app; linting them is noise.
+      'daemon/**'
     ]
   },
   tseslint.configs.recommended,
@@ -81,26 +84,47 @@ export default defineConfig(
       ],
       // F5 — layer rules within a feature
       // Note: 'boundaries/dependencies' is the v6 rename of 'boundaries/element-types'.
+      // Both 'from' and 'allow' use v6 object selector syntax to silence legacy selector warnings.
       'boundaries/dependencies': [
         'warn',
         {
           default: 'disallow',
           rules: [
             // pages may import feature public APIs and shared
-            { from: 'page', allow: ['feature', 'shared'] },
+            {
+              from: [{ type: 'page' }],
+              allow: [{ to: { type: 'feature' } }, { to: { type: 'shared' } }]
+            },
             // feature components may use hooks, store, domain, shared
             {
-              from: 'feature-components',
-              allow: ['feature-hooks', 'feature-store', 'feature-domain', 'shared']
+              from: [{ type: 'feature-components' }],
+              allow: [
+                { to: { type: 'feature-hooks' } },
+                { to: { type: 'feature-store' } },
+                { to: { type: 'feature-domain' } },
+                { to: { type: 'shared' } }
+              ]
             },
             // hooks may import data and domain
-            { from: 'feature-hooks', allow: ['feature-domain', 'shared'] },
+            {
+              from: [{ type: 'feature-hooks' }],
+              allow: [{ to: { type: 'feature-domain' } }, { to: { type: 'shared' } }]
+            },
             // domain is pure — imports nothing app-specific
-            { from: 'feature-domain', allow: [] },
+            {
+              from: [{ type: 'feature-domain' }],
+              allow: []
+            },
             // store may import domain for types only
-            { from: 'feature-store', allow: ['feature-domain'] },
+            {
+              from: [{ type: 'feature-store' }],
+              allow: [{ to: { type: 'feature-domain' } }]
+            },
             // shared imports nothing from features
-            { from: 'shared', allow: ['shared'] }
+            {
+              from: [{ type: 'shared' }],
+              allow: [{ to: { type: 'shared' } }]
+            }
           ]
         }
       ]
