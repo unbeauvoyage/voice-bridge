@@ -18,6 +18,7 @@ import { deliverToAgent } from './relay.ts'
 import { deliverViaCmux, listWorkspaceNames } from './cmux.ts'
 import { llmRoute } from './llmRouter.ts'
 import { startRelayPoller } from './relay-poller.ts'
+import { isCancelCommand } from './cancelUtils.ts'
 
 const PORT = Number(process.env.PORT ?? 3030)
 const PUBLIC_DIR = join(import.meta.dir, '../public')
@@ -245,14 +246,12 @@ const server = Bun.serve({
         )
       }
 
-      // Cancel detection: if last 10 words contain >=2 "cancel", discard.
-      // Uses \bcancel\b on the rejoined tail so punctuation, dashes, and
-      // mid-word separators between tokens don't hide matches.
-      const tailText = transcript.trim().split(/\s+/).slice(-10).join(' ')
-      const cancelMatches = tailText.match(/\bcancel\b/gi) ?? []
-      if (cancelMatches.length > 1) {
+      // Cancel detection: >=2 "cancel" in last 10 words → discard recording
+      if (isCancelCommand(transcript)) {
+        const tailText = transcript.trim().split(/\s+/).slice(-10).join(' ')
+        const cancelCount = (tailText.match(/\bcancel\b/gi) ?? []).length
         console.log(
-          `[voice-bridge] cancelled (${cancelMatches.length}x "cancel" in last 10 words) — discarding: "${transcript}"`
+          `[voice-bridge] cancelled (${cancelCount}x "cancel" in last 10 words) — discarding: "${transcript}"`
         )
         return Response.json({ transcript, cancelled: true }, { headers: corsHeaders })
       }
