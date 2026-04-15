@@ -19,11 +19,18 @@ import { deliverViaCmux, listWorkspaceNames } from './cmux.ts'
 import { llmRoute } from './llmRouter.ts'
 import { startRelayPoller } from './relay-poller.ts'
 import { isCancelCommand } from './cancelUtils.ts'
+import {
+  SERVER_PORT,
+  RELAY_BASE_URL_DEFAULT,
+  OVERLAY_URL_DEFAULT,
+  RELAY_TIMEOUT_MS,
+  DEDUP_WINDOW_MS,
+  DEDUP_WAIT_DEADLINE_MS
+} from './config.ts'
 
-const PORT = Number(process.env.PORT ?? 3030)
+const PORT = Number(process.env.PORT ?? SERVER_PORT)
 const PUBLIC_DIR = join(import.meta.dir, '../public')
-const RELAY_BASE_URL = process.env.RELAY_BASE_URL ?? 'http://localhost:8767'
-const RELAY_TIMEOUT_MS = 30_000
+const RELAY_BASE_URL = process.env.RELAY_BASE_URL ?? RELAY_BASE_URL_DEFAULT
 const LAST_TARGET_FILE = join(import.meta.dir, '../tmp/last-target.txt')
 
 // Audio dedup — WKWebView retries fetches when Whisper is slow, causing duplicate relay delivery.
@@ -32,7 +39,6 @@ type DedupEntry =
   | { ts: number; transcript: string; to: string; message: string }
   | { ts: number; inProgress: true }
 const recentAudioHashes = new Map<string, DedupEntry>()
-const DEDUP_WINDOW_MS = 30_000
 
 function hashAudioBuffer(buf: Buffer): string {
   const hasher = new Bun.CryptoHasher('sha256')
@@ -132,6 +138,20 @@ async function getKnownAgents(): Promise<string[]> {
 
 // Sticky last-used target — persisted to disk so it survives server restarts
 
+// Parses a JSON text string, returning an empty object on any parse failure.
+// Used wherever HTTP handlers need to tolerate malformed request bodies.
+function safeJsonParse(text: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return Object.fromEntries(Object.entries(parsed))
+    }
+    return {}
+  } catch {
+    return {}
+  }
+}
+
 const server = Bun.serve({
   port: PORT,
   async fetch(req) {
@@ -201,7 +221,7 @@ const server = Bun.serve({
         if ('inProgress' in existing) {
           // First request still transcribing — wait for it to complete rather than returning empty,
           // because returning empty causes the phone to freeze in "transcribing" state (Tailscale latency triggers WKWebView retries)
-          const deadline = Date.now() + 90_000
+          const deadline = Date.now() + DEDUP_WAIT_DEADLINE_MS
           while (Date.now() < deadline) {
             await Bun.sleep(300)
             const updated = recentAudioHashes.get(audioHash)
@@ -338,7 +358,11 @@ const server = Bun.serve({
       try {
         await deliverToAgent(message, to)
         console.log(`[relay] → ${to}: ${message}`)
-      } catch {
+      } catch (err) {
+        console.error(
+          '[voice-bridge] relay delivery failed:',
+          err instanceof Error ? err.message : String(err)
+        )
         // Relay not running — fall back to direct cmux injection
         try {
           deliverViaCmux(message, to)
@@ -404,13 +428,8 @@ const server = Bun.serve({
         return Response.json({ state: isMicOn() ? 'on' : 'off' }, { headers })
       }
       if (req.method === 'POST') {
-        let body: { state?: string } = {}
-        try {
-          body = await req.json()
-        } catch {
-          /* malformed body — default to empty */
-        }
-        const on = body.state === 'on'
+        const body = safeJsonParse(await req.text())
+        const on = body['state'] === 'on'
         setMic(on)
         console.log(`[mic] ${on ? 'RESUMED' : 'PAUSED'} via API`)
         return Response.json({ state: on ? 'on' : 'off' }, { headers })
@@ -460,13 +479,8 @@ const server = Bun.serve({
     // POST /target — { target: string } → saves new target
     if (req.method === 'POST' && url.pathname === '/target') {
       const headers = { 'Access-Control-Allow-Origin': '*' }
-      let body: { target?: string } = {}
-      try {
-        body = await req.json()
-      } catch {
-        /* malformed body — default to empty */
-      }
-      const target = (body.target ?? '').trim()
+      const body = safeJsonParse(await req.text())
+      const target = (typeof body['target'] === 'string' ? body['target'] : '').trim()
       if (!target) {
         return Response.json({ error: 'Missing target' }, { status: 400, headers })
       }
@@ -574,7 +588,7 @@ console.log(`voice-bridge server running at http://localhost:${server.port}`)
 console.log(`Mobile UI (HTTPS required): use mkcert for non-localhost access`)
 
 // Start relay response poller — agent replies appear as overlay message toasts
-const OVERLAY_URL = process.env.OVERLAY_URL ?? 'http://localhost:47890/overlay'
+const OVERLAY_URL = process.env.OVERLAY_URL ?? OVERLAY_URL_DEFAULT
 const SETTINGS_PATH = join(import.meta.dir, '../daemon/settings.json')
 startRelayPoller({
   relayBaseUrl: RELAY_BASE_URL,
