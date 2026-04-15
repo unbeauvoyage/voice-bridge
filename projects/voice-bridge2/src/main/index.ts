@@ -57,8 +57,7 @@ const OVERLAY_PORT = 47890
 const LAST_TARGET_FILE = join(app.getAppPath(), '..', 'tmp', 'last-target.txt')
 const PYTHON_APP =
   '/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python'
-// Absolute paths for dev — daemon lives in voice-bridge (original project)
-const DAEMON_DIR = '/Users/riseof/environment/projects/voice-bridge/daemon'
+const DAEMON_DIR = join(app.getAppPath(), 'daemon')
 const WAKE_WORD_SCRIPT = join(DAEMON_DIR, 'wake_word.py')
 const VENV_PACKAGES = join(DAEMON_DIR, '.venv/lib/python3.14/site-packages')
 
@@ -133,11 +132,12 @@ function stopDaemon(): void {
 
 function startServer(): void {
   if (server && !server.killed) return
-  const serverDir = join(app.getAppPath(), '..', '..', 'server')
+  const serverDir = join(app.getAppPath(), 'server')
   server = spawn('/Users/riseof/.bun/bin/bun', ['run', 'index.ts'], {
     cwd: serverDir,
     stdio: ['ignore', 'pipe', 'pipe']
   })
+  server.on('error', (err: Error) => console.error('[server] spawn failed:', err.message))
   server.stdout?.on('data', (d: Buffer) => process.stdout.write(`[server] ${d}`))
   server.stderr?.on('data', (d: Buffer) => process.stderr.write(`[server:err] ${d}`))
   server.on('exit', (code) => {
