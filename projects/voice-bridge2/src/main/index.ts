@@ -1,16 +1,11 @@
 import { app, Tray, Menu, nativeImage, BrowserWindow, ipcMain, screen } from 'electron'
-import * as http from 'http'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
-import {
-  isMicResponse,
-  isAgentsResponse,
-  isOverlayPayload,
-  type OverlayPayload
-} from './typeGuards'
+import { isMicResponse, isAgentsResponse, type OverlayPayload } from './typeGuards'
 import { createTargetStore } from './state/targetStore'
 import { createDaemonController } from './processes/daemon'
 import { createBackendServerController } from './processes/backendServer'
+import { createOverlayServerController } from './overlay/overlayServer'
 
 // Single instance lock
 if (!app.requestSingleInstanceLock()) {
@@ -55,6 +50,11 @@ const daemonController = createDaemonController({
 const backendServerController = createBackendServerController({
   bunBinary: '/Users/riseof/.bun/bin/bun',
   serverDir: join(PROJECT_ROOT, 'server')
+})
+
+const overlayServerController = createOverlayServerController({
+  port: OVERLAY_PORT,
+  showOverlay: (payload) => showOverlay(payload)
 })
 
 function createWindow(): BrowserWindow {
@@ -195,6 +195,7 @@ function buildMenu(): Electron.Menu {
       click: () => {
         daemonController.stop()
         backendServerController.stop()
+        overlayServerController.stop()
         tray?.destroy()
         tray = null
         app.exit(0)
@@ -277,40 +278,6 @@ function showOverlay(payload: OverlayPayload): void {
   overlayWin.webContents.send('overlay-show', payload)
 }
 
-function startOverlayServer(): void {
-  const server = http.createServer((req, res) => {
-    if (req.method !== 'POST' || req.url !== '/overlay') {
-      res.writeHead(404)
-      res.end()
-      return
-    }
-    let body = ''
-    req.on('data', (chunk: Buffer) => {
-      body += chunk.toString()
-    })
-    req.on('end', () => {
-      try {
-        const parsed: unknown = JSON.parse(body)
-        if (!isOverlayPayload(parsed)) {
-          res.writeHead(400)
-          res.end()
-          return
-        }
-        showOverlay(parsed)
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end('{"ok":true}')
-      } catch {
-        res.writeHead(400)
-        res.end()
-      }
-    })
-  })
-  server.listen(OVERLAY_PORT, '127.0.0.1', () => {
-    console.log(`[overlay-server] listening on http://127.0.0.1:${OVERLAY_PORT}`)
-  })
-  server.on('error', (e: Error) => console.error(`[overlay-server] error: ${e.message}`))
-}
-
 // ── IPC handlers ─────────────────────────────────────────────────────────────
 
 ipcMain.handle('get-status', async () => {
@@ -384,7 +351,7 @@ app.whenReady().then(() => {
     tray?.popUpContextMenu(buildMenu())
   })
 
-  startOverlayServer()
+  overlayServerController.start()
   backendServerController.start()
   daemonController.start()
 })
@@ -392,6 +359,7 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   daemonController.stop()
   backendServerController.stop()
+  overlayServerController.stop()
   tray?.destroy()
   tray = null
 })
