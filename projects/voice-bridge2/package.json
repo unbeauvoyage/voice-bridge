@@ -9,6 +9,7 @@
     "test": "npm run typecheck && npm run lint",
     "format": "prettier --write .",
     "lint": "eslint --cache .",
+    "codegen": "openapi-ts --input src/data/openapi.json --output src/data/apiClient/generated",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
@@ -23,9 +24,12 @@
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
-    "@electron-toolkit/utils": "^4.0.0"
+    "@electron-toolkit/utils": "^4.0.0",
+    "@tanstack/react-query": "^5.99.0",
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@hey-api/openapi-ts": "^0.96.0",
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
     "@electron-toolkit/tsconfig": "^2.0.0",
