@@ -9,6 +9,7 @@ import { createOverlayServerController } from './overlay/overlayServer'
 import { createOverlayManager } from './overlay/overlayWindow'
 import { createMainWindowManager } from './windows/mainWindow'
 import { registerIpcHandlers } from './ipc'
+import { buildMenuTemplate, attachTrayBehavior, type TrayController } from './tray'
 
 // Single instance lock
 if (!app.requestSingleInstanceLock()) {
@@ -20,7 +21,7 @@ if (!app.requestSingleInstanceLock()) {
 app.dock?.hide()
 
 let tray: Tray | null = null
-let lastTrayBounds: Electron.Rectangle | undefined
+let trayCtrl: TrayController | null = null
 
 const OVERLAY_PORT = 47890
 
@@ -116,7 +117,7 @@ function createMainBrowserWindow(): BrowserWindow {
 const mainWindowManager = createMainWindowManager({
   createWindow: () => createMainBrowserWindow(),
   getTrayBounds: () => tray?.getBounds() ?? { x: 0, y: 0, width: 32, height: 30 },
-  getLastTrayBounds: () => lastTrayBounds,
+  getLastTrayBounds: () => trayCtrl?.getLastTrayBounds(),
   getWorkAreaForPoint: (x, y) => screen.getDisplayNearestPoint({ x, y }).workArea
 })
 
@@ -125,23 +126,15 @@ function showWindow(): void {
 }
 
 function buildMenu(): Electron.Menu {
-  return Menu.buildFromTemplate([
-    { label: 'Hey Jarvis — Running', enabled: false },
-    { type: 'separator' },
-    { label: 'Settings', click: () => showWindow() },
-    { type: 'separator' },
-    {
-      label: 'Restart Daemon',
-      click: () => {
+  return Menu.buildFromTemplate(
+    buildMenuTemplate({
+      onSettings: () => showWindow(),
+      onRestartDaemon: () => {
         daemonController.stop()
         daemonController.start()
-      }
-    },
-    { label: 'Stop Daemon', click: () => daemonController.stop() },
-    { type: 'separator' },
-    {
-      label: 'Quit',
-      click: () => {
+      },
+      onStopDaemon: () => daemonController.stop(),
+      onQuit: () => {
         daemonController.stop()
         backendServerController.stop()
         overlayServerController.stop()
@@ -149,8 +142,8 @@ function buildMenu(): Electron.Menu {
         tray = null
         app.exit(0)
       }
-    }
-  ])
+    })
+  )
 }
 
 // ── Overlay window ───────────────────────────────────────────────────────────
@@ -223,16 +216,20 @@ app.whenReady().then(() => {
   tray.setToolTip('Hey Jarvis — click to open settings')
   tray.setIgnoreDoubleClickEvents(true)
 
-  tray.on('click', (_event, bounds) => {
-    lastTrayBounds = bounds
-    if (mainWindowManager.isVisible()) {
-      mainWindowManager.hide()
-    } else {
-      showWindow()
+  const trayShim = {
+    on: (event: 'click' | 'right-click', listener: (...args: unknown[]) => void): unknown => {
+      if (event === 'click') return tray?.on('click', (...args) => listener(...args))
+      return tray?.on('right-click', (...args) => listener(...args))
+    },
+    popUpContextMenu: (menu: unknown): void => {
+      if (menu instanceof Menu) tray?.popUpContextMenu(menu)
     }
-  })
-  tray.on('right-click', () => {
-    tray?.popUpContextMenu(buildMenu())
+  }
+  trayCtrl = attachTrayBehavior(trayShim, {
+    buildMenu: () => buildMenu(),
+    showMainWindow: () => showWindow(),
+    hideMainWindow: () => mainWindowManager.hide(),
+    isMainWindowVisible: () => mainWindowManager.isVisible()
   })
 
   overlayServerController.start()
