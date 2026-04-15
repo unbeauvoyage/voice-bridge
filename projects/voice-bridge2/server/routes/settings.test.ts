@@ -1,7 +1,13 @@
 import { describe, test, expect } from 'bun:test'
 import { handleSettings, type SettingsContext } from './settings.ts'
 
-async function readJsonObject(res: Response): Promise<Record<string, unknown>> {
+function expectResponse(res: Response | null): Response {
+  if (!res) throw new Error('expected Response, got null')
+  return res
+}
+
+async function readJsonObject(res: Response | null): Promise<Record<string, unknown>> {
+  if (!res) throw new Error('expected Response, got null')
   const raw: unknown = await res.json()
   if (typeof raw !== 'object' || raw === null) throw new Error('non-object body')
   const out: Record<string, unknown> = {}
@@ -31,10 +37,10 @@ describe('handleSettings', () => {
     const { ctx } = makeCtx({ existing: '{"toast_duration":3,"tts_enabled":true}' })
     const req = new Request('http://localhost/settings')
     const res = await handleSettings(req, ctx)
-    expect(res.status).toBe(200)
-    expect(res.headers.get('Content-Type')).toBe('application/json')
-    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*')
-    const text = await res.text()
+    expect(res?.status).toBe(200)
+    expect(res?.headers.get('Content-Type')).toBe('application/json')
+    expect(res?.headers.get('Access-Control-Allow-Origin')).toBe('*')
+    const text = await expectResponse(res).text()
     expect(text).toBe('{"toast_duration":3,"tts_enabled":true}')
   })
 
@@ -42,7 +48,7 @@ describe('handleSettings', () => {
     const { ctx } = makeCtx({ existing: null })
     const req = new Request('http://localhost/settings')
     const res = await handleSettings(req, ctx)
-    expect(res.status).toBe(404)
+    expect(res?.status).toBe(404)
     const body = await readJsonObject(res)
     expect(body['error']).toBe('settings.json not found')
   })
@@ -56,7 +62,7 @@ describe('handleSettings', () => {
       body: JSON.stringify({ toast_duration: 5 })
     })
     const res = await handleSettings(req, ctx)
-    expect(res.status).toBe(200)
+    expect(res?.status).toBe(200)
     const body = await readJsonObject(res)
     expect(body['toast_duration']).toBe(5)
     expect(body['tts_enabled']).toBe(true)
@@ -77,19 +83,96 @@ describe('handleSettings', () => {
       body: JSON.stringify({ start_threshold: 0.5 })
     })
     const res = await handleSettings(req, ctx)
-    expect(res.status).toBe(200)
+    expect(res?.status).toBe(200)
     expect(lastWritten()).not.toBeNull()
     const body = await readJsonObject(res)
     expect(body['start_threshold']).toBe(0.5)
   })
 
-  test('POST with invalid JSON body returns 400', async () => {
+  test('POST with invalid JSON body returns 400 validation_failed', async () => {
     const { ctx, lastWritten } = makeCtx({ existing: '{}' })
     const req = new Request('http://localhost/settings', { method: 'POST', body: 'not json' })
     const res = await handleSettings(req, ctx)
-    expect(res.status).toBe(400)
+    expect(res?.status).toBe(400)
     const body = await readJsonObject(res)
-    expect(body['error']).toBe('Invalid JSON')
+    expect(body['error']).toBe('validation_failed')
+    expect(lastWritten()).toBeNull()
+  })
+
+  test('POST with unknown key returns 400 (strict schema)', async () => {
+    const { ctx, lastWritten } = makeCtx({ existing: '{}' })
+    const req = new Request('http://localhost/settings', {
+      method: 'POST',
+      body: JSON.stringify({ bogus_key: 1 })
+    })
+    const res = await handleSettings(req, ctx)
+    expect(res?.status).toBe(400)
+    expect(lastWritten()).toBeNull()
+  })
+
+  test('POST with out-of-range start_threshold (-1) returns 400', async () => {
+    const { ctx, lastWritten } = makeCtx({ existing: '{}' })
+    const req = new Request('http://localhost/settings', {
+      method: 'POST',
+      body: JSON.stringify({ start_threshold: -1 })
+    })
+    const res = await handleSettings(req, ctx)
+    expect(res?.status).toBe(400)
+    expect(lastWritten()).toBeNull()
+  })
+
+  test('POST with out-of-range stop_threshold (1.5) returns 400', async () => {
+    const { ctx, lastWritten } = makeCtx({ existing: '{}' })
+    const req = new Request('http://localhost/settings', {
+      method: 'POST',
+      body: JSON.stringify({ stop_threshold: 1.5 })
+    })
+    const res = await handleSettings(req, ctx)
+    expect(res?.status).toBe(400)
+    expect(lastWritten()).toBeNull()
+  })
+
+  test('POST with non-integer tts_word_limit returns 400', async () => {
+    const { ctx, lastWritten } = makeCtx({ existing: '{}' })
+    const req = new Request('http://localhost/settings', {
+      method: 'POST',
+      body: JSON.stringify({ tts_word_limit: 1.5 })
+    })
+    const res = await handleSettings(req, ctx)
+    expect(res?.status).toBe(400)
+    expect(lastWritten()).toBeNull()
+  })
+
+  test('POST with negative toast_duration returns 400', async () => {
+    const { ctx, lastWritten } = makeCtx({ existing: '{}' })
+    const req = new Request('http://localhost/settings', {
+      method: 'POST',
+      body: JSON.stringify({ toast_duration: -5 })
+    })
+    const res = await handleSettings(req, ctx)
+    expect(res?.status).toBe(400)
+    expect(lastWritten()).toBeNull()
+  })
+
+  test('POST with string tts_enabled returns 400', async () => {
+    const { ctx, lastWritten } = makeCtx({ existing: '{}' })
+    const req = new Request('http://localhost/settings', {
+      method: 'POST',
+      body: JSON.stringify({ tts_enabled: 'yes' })
+    })
+    const res = await handleSettings(req, ctx)
+    expect(res?.status).toBe(400)
+    expect(lastWritten()).toBeNull()
+  })
+
+  test('POST with __proto__ payload returns 400 (prototype-pollution canary)', async () => {
+    const { ctx, lastWritten } = makeCtx({ existing: '{}' })
+    const req = new Request('http://localhost/settings', {
+      method: 'POST',
+      body: '{"__proto__":{"tts_enabled":false}}'
+    })
+    const res = await handleSettings(req, ctx)
+    expect(res?.status).toBe(400)
     expect(lastWritten()).toBeNull()
   })
 
@@ -97,10 +180,10 @@ describe('handleSettings', () => {
     const { ctx } = makeCtx({ existing: '{}', writeThrows: true })
     const req = new Request('http://localhost/settings', {
       method: 'POST',
-      body: JSON.stringify({ a: 1 })
+      body: JSON.stringify({ toast_duration: 5 })
     })
     const res = await handleSettings(req, ctx)
-    expect(res.status).toBe(500)
+    expect(res?.status).toBe(500)
     const body = await readJsonObject(res)
     const err = body['error']
     expect(typeof err).toBe('string')
@@ -111,8 +194,8 @@ describe('handleSettings', () => {
     const { ctx } = makeCtx({ existing: 'not valid json' })
     const req = new Request('http://localhost/settings')
     const res = await handleSettings(req, ctx)
-    expect(res.status).toBe(200)
-    const text = await res.text()
+    expect(res?.status).toBe(200)
+    const text = await expectResponse(res).text()
     expect(text).toBe('not valid json')
   })
 
