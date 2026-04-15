@@ -21,6 +21,7 @@ import { handleMic, type MicContext } from './routes/mic.ts'
 import { handleStatus, type StatusContext } from './routes/status.ts'
 import { handleTarget, type TargetContext } from './routes/target.ts'
 import { handleAgents, type AgentsContext } from './routes/agents.ts'
+import { handleSettings, type SettingsContext } from './routes/settings.ts'
 import {
   SERVER_PORT,
   RELAY_BASE_URL_DEFAULT,
@@ -218,46 +219,22 @@ const server = Bun.serve({
     }
 
     // ── Settings ─────────────────────────────────────────────────────────────
-    // GET  /settings — read daemon/settings.json
-    // POST /settings — write daemon/settings.json (partial or full update)
     if (url.pathname === '/settings') {
-      const headers = { 'Access-Control-Allow-Origin': '*' }
       const settingsPath = join(import.meta.dir, '../daemon/settings.json')
-
-      if (req.method === 'GET') {
-        try {
-          const raw = readFileSync(settingsPath, 'utf8')
-          return new Response(raw, { headers: { ...headers, 'Content-Type': 'application/json' } })
-        } catch {
-          return Response.json({ error: 'settings.json not found' }, { status: 404, headers })
+      const ctx: SettingsContext = {
+        readSettings: () => {
+          try {
+            return readFileSync(settingsPath, 'utf8')
+          } catch {
+            return null
+          }
+        },
+        writeSettings: (content: string) => {
+          writeFileSync(settingsPath, content)
         }
       }
-
-      if (req.method === 'POST') {
-        let incoming: Record<string, unknown> = {}
-        try {
-          incoming = await req.json()
-        } catch {
-          return Response.json({ error: 'Invalid JSON' }, { status: 400, headers })
-        }
-        let current: Record<string, unknown> = {}
-        try {
-          current = JSON.parse(readFileSync(settingsPath, 'utf8'))
-        } catch {
-          /* file may not exist yet */
-        }
-        const merged = { ...current, ...incoming }
-        try {
-          writeFileSync(settingsPath, JSON.stringify(merged, null, 2))
-        } catch (err) {
-          return Response.json(
-            { error: 'Failed to write settings: ' + String(err) },
-            { status: 500, headers }
-          )
-        }
-        console.log(`[settings] updated: ${JSON.stringify(incoming)}`)
-        return Response.json(merged, { headers })
-      }
+      const res = await handleSettings(req, ctx)
+      if (res) return res
     }
 
     // ── Wake word process control ─────────────────────────────────────────────
