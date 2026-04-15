@@ -10,6 +10,8 @@ import { createOverlayManager } from './overlay/overlayWindow'
 import { createMainWindowManager } from './windows/mainWindow'
 import { registerIpcHandlers } from './ipc'
 import { buildMenuTemplate, attachTrayBehavior, type TrayController } from './tray'
+import { discoverPythonApp } from './pythonApp'
+import { spawnSync } from 'node:child_process'
 
 // Single instance lock
 if (!app.requestSingleInstanceLock()) {
@@ -28,8 +30,7 @@ const OVERLAY_PORT = 47890
 // __dirname in the compiled out/main/index.js is <project>/out/main — go up twice to reach project root
 const PROJECT_ROOT = join(__dirname, '..', '..')
 const LAST_TARGET_FILE = join(PROJECT_ROOT, 'tmp', 'last-target.txt')
-const PYTHON_APP =
-  '/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python'
+const PYTHON_APP = discoverPythonApp({ spawnSync, env: process.env })
 const DAEMON_DIR = join(PROJECT_ROOT, 'daemon')
 const WAKE_WORD_SCRIPT = join(DAEMON_DIR, 'wake_word.py')
 const VENV_PACKAGES = join(DAEMON_DIR, '.venv/lib/python3.14/site-packages')

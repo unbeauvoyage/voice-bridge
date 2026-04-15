@@ -24,6 +24,7 @@ import { handleAgents, type AgentsContext } from './routes/agents.ts'
 import { handleSettings, type SettingsContext } from './routes/settings.ts'
 import { handleWakeWord, type WakeWordContext } from './routes/wakeWord.ts'
 import { handleHealth, handleIndexHtml, type IndexHtmlContext } from './routes/meta.ts'
+import { discoverPythonApp } from './pythonApp.ts'
 import {
   SERVER_PORT,
   RELAY_BASE_URL_DEFAULT,
@@ -257,8 +258,7 @@ const server = Bun.serve({
         },
         start: (target: string) => {
           // Replicate run_daemon.sh: use Python.app (has mic entitlements) with venv PYTHONPATH
-          const pythonApp =
-            '/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python'
+          const pythonApp = discoverPythonApp({ spawnSync, env: process.env })
           const script = join(daemonDir, 'wake_word.py')
           const venvPackages = join(daemonDir, '.venv/lib/python3.14/site-packages')
           const child = spawn(pythonApp, ['-u', script, '--target', target], {
