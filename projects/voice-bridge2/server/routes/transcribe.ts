@@ -1,3 +1,6 @@
+// Single-handler file — dedup + hallucination filter extracted (dedup.ts).
+// Remaining logic is one cohesive request lifecycle; further splitting creates artificial seams.
+
 /**
  * POST /transcribe handler — receives audio, transcribes via Whisper, routes to agent.
  *
