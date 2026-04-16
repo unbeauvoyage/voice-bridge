@@ -207,7 +207,8 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
     guardFactory = () => fixedGuard
   }
 
-  const seenIds = new Set<string>()
+  const seenIds = new Map<string, number>() // id → timestamp for TTL eviction
+  const SEEN_ID_TTL_MS = 60 * 60 * 1000 // 1 hour
   // Track overlay POST failure count per message id. After 3 consecutive failures,
   // the message is marked seen to prevent infinite retry when overlay is persistently down.
   // The count is cleared when overlay POST succeeds.
@@ -246,6 +247,12 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
   }
 
   async function pollOnce(): Promise<void> {
+    // Evict stale seenIds entries (older than 1 hour) to prevent unbounded growth.
+    const now = Date.now()
+    for (const [id, ts] of seenIds) {
+      if (now - ts > SEEN_ID_TTL_MS) seenIds.delete(id)
+    }
+
     // Read TTS settings at the start of each cycle so UI changes (e.g. toggling
     // TTS) take effect without a server restart. Matches the Python daemon's
     // 5-second hot-reload approach (daemon/wake_word.py:192-203).
@@ -299,7 +306,7 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
 
       if (overlayOk) {
         // Success: mark seen and clear any failure count
-        seenIds.add(msg.id)
+        seenIds.set(msg.id, Date.now())
         overlayFailCount.delete(msg.id)
       } else {
         // Failure: increment count; after cap, mark seen to stop retrying
@@ -309,7 +316,7 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
           console.warn(
             `[relay-poller] overlay POST failed ${failures}x for msg ${msg.id} — marking seen to prevent infinite retry`
           )
-          seenIds.add(msg.id)
+          seenIds.set(msg.id, Date.now())
           overlayFailCount.delete(msg.id)
         }
         // Not yet at cap: leave message unseen so next poll retries

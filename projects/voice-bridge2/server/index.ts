@@ -83,8 +83,8 @@ function setMic(on: boolean): void {
     try {
       mkdirSync(MIC_PAUSE_DIR, { recursive: true })
       writeFileSync(MANUAL_TOKEN, '')
-    } catch {
-      /* ignore write errors */
+    } catch (err) {
+      console.error('[mic] failed to write pause token:', err instanceof Error ? err.message : String(err))
     }
   }
 }
@@ -115,8 +115,8 @@ function loadLastTarget(): string {
 function saveLastTarget(target: string): void {
   try {
     writeFileSync(LAST_TARGET_FILE, target)
-  } catch {
-    /* ignore write errors */
+  } catch (err) {
+    console.error('[target] failed to persist last target:', err instanceof Error ? err.message : String(err))
   }
 }
 

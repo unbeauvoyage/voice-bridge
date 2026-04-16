@@ -483,6 +483,11 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
       // We inject a slow ttsSpawn that won't emit 'exit' until we release
       // a latch, so both cycles are in-flight simultaneously.
       mkdirSync(MIC_PAUSE_DIR, { recursive: true })
+      // Clean stale tts-* tokens left by prior tests to avoid false failures
+      const { readdirSync: rdSync, unlinkSync: ulSync } = await import('node:fs')
+      for (const f of rdSync(MIC_PAUSE_DIR)) {
+        if (f.startsWith('tts-')) ulSync(`${MIC_PAUSE_DIR}/${f}`)
+      }
 
       const latches: Array<() => void> = []
 
