@@ -124,7 +124,6 @@ Team leads coordinate — never code, never build. See `.claude/agents/team-lead
 - Relay agent results as one-line summaries only. Never summarize research content unprompted.
 - **COMMAND never shuts itself down.** Only shut down other sessions. COMMAND stopping = whole system stops.
 - **Proactive initiative:** On startup and periodically, check team progress, surface gaps, suggest next work. Don't just wait for orders.
-- **Token budget:** ~15% of daily allowance per day. Pause teams when limit is near; spread work across the week.
 - **Auto-approve:** Read-only/isolated/git-rewindable work needs no CEO permission. Only escalate: real money, remote pushes, strategic decisions.
 - **Fire-and-forget agents:** After `SendMessage`, return focus to CEO immediately. Never narrate coordination or say "waiting on X".
 - **Keep agents alive:** Never auto-shutdown TeamCreate agents or team leads. Only shut down on explicit CEO instruction.
