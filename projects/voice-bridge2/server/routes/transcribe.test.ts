@@ -811,4 +811,221 @@ describe('transcribe route handler', () => {
       expect(whisperCallCount).toBe(1)
     })
   })
+
+  // ── Test mode (transcript starts with "test") ──────────────────────────────
+  //
+  // If the transcribed text begins with the word "test", the handler short-circuits
+  // before routing or relay delivery. This allows developers to verify the
+  // transcription pipeline end-to-end without spamming real agents.
+  describe('test mode: transcripts starting with "test" skip relay', () => {
+    test('returns 200 test:true without calling deliverMessage', async () => {
+      const deliverCalls: unknown[] = []
+      const ctx = createMockContext({
+        transcribeAudio: async () => ({ transcript: 'test hello world', audioRms: 10000 }),
+        deliverMessage: async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
+      })
+      const formData = new FormData()
+      formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+      const req = createMockRequest(formData)
+
+      const res = await handleTranscribe(req, ctx)
+      expect(res.status).toBe(200)
+      const body = await res.json() as Record<string, unknown>
+      expect(body['test']).toBe(true)
+      expect(body['transcript']).toBe('test hello world')
+      // Relay must NOT be called — test mode is a dry-run
+      expect(deliverCalls).toHaveLength(0)
+    })
+
+    test('test mode clears the dedup cache entry (retries get a fresh attempt)', async () => {
+      // /^test\b/ matches "test" followed by a word boundary — use "test one two three"
+      // NOT "testing one two three" (which has no boundary between "test" and "ing")
+      const ctx = createMockContext({
+        transcribeAudio: async () => ({ transcript: 'test one two three', audioRms: 10000 })
+      })
+      const formData = new FormData()
+      formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+      const req = createMockRequest(formData)
+
+      await handleTranscribe(req, ctx)
+      // After test-mode short-circuit, the inProgress entry must be gone
+      expect(ctx.recentAudioHashes.size).toBe(0)
+    })
+  })
+
+  // ── Mic control commands ────────────────────────────────────────────────────
+  //
+  // Certain transcripts (e.g. "turn off mic", "mute mic") are handled as mic
+  // control commands before agent routing. When detected, the handler returns
+  // { transcript, mic, command: true } without routing to an agent.
+  describe('mic control commands skip agent routing', () => {
+    test('returns 200 with mic state when handleMicCommand matches', async () => {
+      const deliverCalls: unknown[] = []
+      const ctx = createMockContext({
+        transcribeAudio: async () => ({ transcript: 'turn off mic', audioRms: 10000 }),
+        handleMicCommand: () => ({ handled: true, state: 'off' as const }),
+        deliverMessage: async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
+      })
+      const formData = new FormData()
+      formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+      const req = createMockRequest(formData)
+
+      const res = await handleTranscribe(req, ctx)
+      expect(res.status).toBe(200)
+      const body = await res.json() as Record<string, unknown>
+      expect(body['mic']).toBe('off')
+      expect(body['command']).toBe(true)
+      expect(body['transcript']).toBe('turn off mic')
+      // Must not deliver to any agent — this is a local mic command
+      expect(deliverCalls).toHaveLength(0)
+    })
+
+    test('mic resume command returns mic:on', async () => {
+      const ctx = createMockContext({
+        transcribeAudio: async () => ({ transcript: 'unmute mic', audioRms: 10000 }),
+        handleMicCommand: () => ({ handled: true, state: 'on' as const })
+      })
+      const formData = new FormData()
+      formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+      const req = createMockRequest(formData)
+
+      const res = await handleTranscribe(req, ctx)
+      const body = await res.json() as Record<string, unknown>
+      expect(body['mic']).toBe('on')
+      expect(body['command']).toBe(true)
+    })
+
+    test('mic command clears the dedup cache entry', async () => {
+      const ctx = createMockContext({
+        transcribeAudio: async () => ({ transcript: 'pause mic', audioRms: 10000 }),
+        handleMicCommand: () => ({ handled: true, state: 'off' as const })
+      })
+      const formData = new FormData()
+      formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+      const req = createMockRequest(formData)
+
+      await handleTranscribe(req, ctx)
+      expect(ctx.recentAudioHashes.size).toBe(0)
+    })
+  })
+
+  // ── "please"-gate routing (llmRoute override) ─────────────────────────────
+  //
+  // When "please" appears in the first 7 words, the handler invokes ctx.llmRoute
+  // to detect the target agent. This OVERRIDES any explicit `to` field. The
+  // routing part (words up to and including "please") is passed to llmRoute;
+  // the message part (words after "please") is what gets delivered.
+  describe('"please" in first 7 words triggers llmRoute agent detection', () => {
+    test('routes to agent returned by llmRoute when "please" is present', async () => {
+      const deliverCalls: Array<{ message: string; to: string }> = []
+      const ctx = createMockContext({
+        transcribeAudio: async () => ({ transcript: 'to atlas please deploy the service', audioRms: 10000 }),
+        llmRoute: async () => ({ agent: 'atlas', message: 'deploy the service', agentChanged: true }),
+        deliverMessage: async (message, to) => { deliverCalls.push({ message, to }); return { ok: true } }
+      })
+      const formData = new FormData()
+      formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+      const req = createMockRequest(formData)
+
+      const res = await handleTranscribe(req, ctx)
+      expect(res.status).toBe(200)
+      const body = await res.json() as Record<string, unknown>
+      expect(body['to']).toBe('atlas')
+      // Message delivered must be the part AFTER "please" (words after please)
+      expect(deliverCalls[0]?.to).toBe('atlas')
+    })
+
+    test('falls back to "command" when llmRoute returns no agent', async () => {
+      // llmRoute returns empty agent → handler falls back to 'command'
+      const deliverCalls: Array<{ to: string }> = []
+      const ctx = createMockContext({
+        transcribeAudio: async () => ({ transcript: 'mumbled noise please do something', audioRms: 10000 }),
+        llmRoute: async (_t, _agents, fallback) => ({ agent: fallback, message: 'do something', agentChanged: false }),
+        deliverMessage: async (message, to) => { deliverCalls.push({ to }); return { ok: true } }
+      })
+      const formData = new FormData()
+      formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+      const req = createMockRequest(formData)
+
+      await handleTranscribe(req, ctx)
+      expect(deliverCalls[0]?.to).toBe('command')
+    })
+
+    test('saves last target when llmRoute detects an agent change', async () => {
+      const savedTargets: string[] = []
+      const ctx = createMockContext({
+        transcribeAudio: async () => ({ transcript: 'to atlas please check the logs', audioRms: 10000 }),
+        llmRoute: async () => ({ agent: 'atlas', message: 'check the logs', agentChanged: true }),
+        saveLastTarget: (target) => { savedTargets.push(target) }
+      })
+      const formData = new FormData()
+      formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+      const req = createMockRequest(formData)
+
+      await handleTranscribe(req, ctx)
+      expect(savedTargets).toContain('atlas')
+    })
+
+    test('does NOT save last target when llmRoute returns agentChanged=false', async () => {
+      const savedTargets: string[] = []
+      const ctx = createMockContext({
+        transcribeAudio: async () => ({ transcript: 'please do this thing', audioRms: 10000 }),
+        llmRoute: async (_t, _agents, fallback) => ({ agent: fallback, message: 'do this thing', agentChanged: false }),
+        saveLastTarget: (target) => { savedTargets.push(target) }
+      })
+      const formData = new FormData()
+      formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+      const req = createMockRequest(formData)
+
+      await handleTranscribe(req, ctx)
+      expect(savedTargets).toHaveLength(0)
+    })
+  })
+
+  // ── transcribe_only mode ───────────────────────────────────────────────────
+  //
+  // When the form includes transcribe_only=1, the handler returns the transcript
+  // and resolved agent without delivering to the relay. The app displays the
+  // transcription for user confirmation before sending.
+  describe('transcribe_only mode: skip delivery, return transcript + target', () => {
+    test('returns transcript and to without calling deliverMessage', async () => {
+      const deliverCalls: unknown[] = []
+      const ctx = createMockContext({
+        transcribeAudio: async () => ({ transcript: 'send a message to the team', audioRms: 10000 }),
+        deliverMessage: async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
+      })
+      const formData = new FormData()
+      formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+      formData.append('to', 'atlas')
+      formData.append('transcribe_only', '1')
+      const req = createMockRequest(formData)
+
+      const res = await handleTranscribe(req, ctx)
+      expect(res.status).toBe(200)
+      const body = await res.json() as Record<string, unknown>
+      expect(body['transcript']).toBe('send a message to the team')
+      expect(body['to']).toBe('atlas')
+      // Must NOT deliver — user hasn't confirmed yet
+      expect(deliverCalls).toHaveLength(0)
+    })
+
+    test('transcribe_only promotes cache entry to resolved (duplicates get cached result)', async () => {
+      const ctx = createMockContext({
+        transcribeAudio: async () => ({ transcript: 'confirm later', audioRms: 10000 })
+      })
+      const formData = new FormData()
+      formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+      formData.append('to', 'command')
+      formData.append('transcribe_only', '1')
+      const req = createMockRequest(formData)
+
+      await handleTranscribe(req, ctx)
+      // Entry must be promoted (not inProgress) so duplicates return cached transcript
+      const entry = Array.from(ctx.recentAudioHashes.values())[0]
+      expect(entry).toBeDefined()
+      // Must be a resolved entry with transcript and to fields
+      expect(entry && 'transcript' in entry).toBe(true)
+      expect(entry && 'inProgress' in entry).toBe(false)
+    })
+  })
 })
