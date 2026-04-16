@@ -356,12 +356,20 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
               '--write-media',
               mp3Path
             ])
-            await Promise.race([
-              once(edgeTtsChild, 'exit'),
-              new Promise<void>((resolve) => setTimeout(resolve, edgeTtsTimeoutMs))
-            ]).catch(() => {
-              /* edge-tts may exit non-zero — proceed to afplay anyway */
-            })
+            const edgeTtsResult = await Promise.race([
+              once(edgeTtsChild, 'exit').then(() => 'exited' as const),
+              new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), edgeTtsTimeoutMs))
+            ]).catch(() => 'exited' as const /* edge-tts may exit non-zero — treat as done */)
+            // If the timeout won, kill the abandoned edge-tts process so it stops
+            // writing to mp3Path while afplay may be reading it.
+            // Duck-typed via 'kill' in check: works with real ChildProcess, harmless on plain EventEmitter.
+            if (
+              edgeTtsResult === 'timeout' &&
+              'kill' in edgeTtsChild &&
+              typeof edgeTtsChild.kill === 'function'
+            ) {
+              edgeTtsChild.kill()
+            }
 
             // Step 2: Spawn afplay now that edge-tts has finished (or timed out).
             // 60-second cap prevents hanging if afplay never exits.
@@ -395,11 +403,15 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
   function start(): void {
     if (intervalHandle !== null) return
     // Fire immediately, then on interval.
-    // The inFlight guard is applied only on interval ticks (not the initial
-    // eager fire) so the first poll always runs. Interval ticks skip if the
-    // previous cycle is still awaiting TTS afplay, preventing two concurrent
-    // TTS playbacks from racing when the poll interval is shorter than TTS time.
-    void pollOnce()
+    // inFlight is set BEFORE the eager fire so that if an interval tick fires
+    // while the eager pollOnce is still awaiting TTS, the tick is correctly
+    // dropped by the inFlight guard. Without this, calling start() once and
+    // having a very short POLL_INTERVAL_MS could let an interval tick launch a
+    // second concurrent pollOnce before the eager one finishes.
+    inFlight = true
+    pollOnce().finally(() => {
+      inFlight = false
+    })
     intervalHandle = setInterval(() => {
       if (inFlight) return
       inFlight = true

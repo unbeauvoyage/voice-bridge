@@ -192,8 +192,13 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
   describe('TTS shell-injection hardening', () => {
     test('TTS spawn uses argv only — command is not `sh` and no `-c` flag', async () => {
       const calls: Array<{ command: string; args: string[] }> = []
+      // Must return an EventEmitter — returning void (undefined) causes once(undefined, 'exit')
+      // to throw a TypeError that is swallowed by the catch block, making tests pass by accident.
       const recorder: TtsSpawn = (command, args) => {
         calls.push({ command, args })
+        const e = new EventEmitter()
+        process.nextTick(() => e.emit('exit', 0, null))
+        return e
       }
       relayMessages = [
         {
@@ -238,8 +243,13 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
       }
 
       const calls: Array<{ command: string; args: string[] }> = []
+      // Must return an EventEmitter — returning void causes once(undefined, 'exit') to throw,
+      // swallowed by catch block, making assertions pass by accident rather than by correctness.
       const recorder: TtsSpawn = (command, args) => {
         calls.push({ command, args })
+        const e = new EventEmitter()
+        process.nextTick(() => e.emit('exit', 0, null))
+        return e
       }
       relayMessages = [
         {
@@ -291,6 +301,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
 
       // Fake TtsSpawn returns a fake ChildProcess-like EventEmitter so the
       // poller can await the afplay exit event.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args unused in fake spawn; command drives event recording
       const fakeSpawn: TtsSpawn = (command, _args) => {
         events.push(`spawn:${command}`)
         // Return a fake EventEmitter so caller can do once(child, 'exit')
@@ -352,6 +363,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
       // must still fire — otherwise the mic stays hot forever.
       const events: string[] = []
 
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args unused in fake spawn; command drives throw behavior
       const throwingSpawn: TtsSpawn = (command, _args) => {
         if (command === 'afplay') {
           throw new Error('afplay not found')
@@ -792,6 +804,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
       let callCount = 0
       const ttsCallCommands: string[] = []
 
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args unused in recording spawn; command is captured
       const recordingSpawn: TtsSpawn = (command, _args) => {
         ttsCallCommands.push(command)
         const child = new EventEmitter()
@@ -846,6 +859,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
       // If getSettings throws for any reason, TTS must be suppressed (safe default).
       const ttsCallCommands: string[] = []
 
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args unused in recording spawn; command is captured
       const recordingSpawn: TtsSpawn = (command, _args) => {
         ttsCallCommands.push(command)
         const child = new EventEmitter()
@@ -1054,6 +1068,160 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
       // Neither path should be the old fixed /tmp/vb2-tts.mp3
       expect(path1).not.toBe('/tmp/vb2-tts.mp3')
       expect(path2).not.toBe('/tmp/vb2-tts.mp3')
+    })
+  })
+
+  // ── MAJOR: kill edge-tts child process when timeout fires ────────────────
+  //
+  // When edgeTtsTimeoutMs wins the Promise.race, the edge-tts ChildProcess was
+  // abandoned — never killed. It kept writing to mp3Path while afplay opened the
+  // same file, partially defeating the sequencing fix.
+  //
+  // Fix: after Promise.race resolves, detect 'timeout' and call kill() on the
+  // child via duck-typing: (edgeTtsChild as any).kill?.().
+  describe('MAJOR: kills edge-tts process when timeout fires', () => {
+    test('kill() is called on the edge-tts child when edgeTtsTimeoutMs elapses before exit', async () => {
+      // Inject a TtsSpawn that returns an EventEmitter with a mock kill() method.
+      // edge-tts never emits 'exit' — simulates a hung download.
+      // After pollOnce resolves (timeout fires), kill() must have been called.
+      let killCalled = false
+
+      // Subclass EventEmitter to add a kill() method without a type assertion.
+      // The production fix duck-types 'kill' in edgeTtsChild — this subclass satisfies that check.
+      class KillableEmitter extends EventEmitter {
+        kill(): void {
+          killCalled = true
+        }
+      }
+      const makeEmitter = (): KillableEmitter => new KillableEmitter()
+
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args unused in fake spawn
+      const fakeSpawn: TtsSpawn = (command, _args) => {
+        if (command === 'edge-tts') {
+          // Never emits 'exit' — will trigger the timeout
+          return makeEmitter()
+        }
+        // afplay: emit exit immediately so pollOnce can complete
+        const child = new EventEmitter()
+        process.nextTick(() => child.emit('exit', 0, null))
+        return child
+      }
+
+      relayMessages = [
+        {
+          id: 'kill-timeout-1',
+          from: 'atlas',
+          to: 'ceo',
+          type: 'message',
+          body: 'Kill timeout test.',
+          ts: '2026-04-16T18:00:00Z'
+        }
+      ]
+      overlayPosts.length = 0
+
+      const poller = createRelayPoller({
+        relayBaseUrl: `http://localhost:${RELAY_PORT}`,
+        overlayUrl: `http://localhost:${OVERLAY_PORT}/overlay`,
+        ttsEnabled: true,
+        ttsSpawn: fakeSpawn,
+        // Short timeout so the test completes quickly
+        edgeTtsTimeoutMs: 50,
+        afplayTimeoutMs: 5000
+      })
+      await poller.pollOnce()
+
+      // After pollOnce resolves, edge-tts must have been killed
+      expect(killCalled).toBe(true)
+    })
+  })
+
+  // ── MINOR: inFlight guard must cover the initial eager fire in start() ────
+  //
+  // start() previously called void pollOnce() without setting inFlight=true.
+  // Calling start() twice rapidly could result in two concurrent pollOnce runs
+  // because the inFlight guard was not set for the eager fire.
+  //
+  // Fix: set inFlight=true before the eager pollOnce(), reset in .finally().
+  describe('MINOR: start() sets inFlight before eager pollOnce to prevent double-start race', () => {
+    test('calling start() twice does not launch two concurrent pollOnce cycles', async () => {
+      // Strategy: inject a slow ttsSpawn that holds the first poll open, then
+      // call start() twice. Count how many times the relay is polled.
+      // If inFlight is correctly set before the eager fire, the second start()
+      // returns early (intervalHandle !== null guard) and only one cycle runs.
+      //
+      // Note: the intervalHandle guard already prevents double-start. The specific
+      // bug is that if start() is called once but pollOnce fires without setting
+      // inFlight, an interval tick could fire a second concurrent pollOnce.
+      // We test this by directly verifying the inFlight guard covers eager fire:
+      // inject a pollOnce-counting ttsSpawn and verify relay hits are exactly 1.
+
+      let relayHitCount = 0
+      const SINGLE_START_RELAY_PORT = 18770
+      const singleStartRelay = Bun.serve({
+        port: SINGLE_START_RELAY_PORT,
+        fetch(req) {
+          const url = new URL(req.url)
+          if (url.pathname === '/queue/ceo') {
+            relayHitCount++
+            return Response.json({
+              messages: [
+                {
+                  id: 'start-once-1',
+                  from: 'x',
+                  to: 'ceo',
+                  type: 'message',
+                  body: 'start double test',
+                  ts: '2026-04-16T19:00:00Z'
+                }
+              ]
+            })
+          }
+          return new Response('not found', { status: 404 })
+        }
+      })
+
+      let latchResolve: (() => void) | null = null
+      const latch = new Promise<void>((r) => {
+        latchResolve = r
+      })
+
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args unused in fake spawn
+      const slowSpawn: TtsSpawn = (command, _args) => {
+        const child = new EventEmitter()
+        if (command === 'afplay') {
+          // Won't exit until latch released — keeps pollOnce in-flight
+          latch.then(() => child.emit('exit', 0, null))
+        } else {
+          process.nextTick(() => child.emit('exit', 0, null))
+        }
+        return child
+      }
+
+      const poller = createRelayPoller({
+        relayBaseUrl: `http://localhost:${SINGLE_START_RELAY_PORT}`,
+        overlayUrl: `http://localhost:${OVERLAY_PORT}/overlay`,
+        ttsEnabled: true,
+        ttsSpawn: slowSpawn,
+        edgeTtsTimeoutMs: 100
+      })
+
+      // Call start() twice rapidly — second must be a no-op (intervalHandle guard)
+      poller.start()
+      poller.start()
+
+      // Wait for the eager fire to reach the relay
+      await new Promise<void>((r) => setTimeout(r, 50))
+
+      // Only one relay hit should have occurred — the eager fire from the first start()
+      // The second start() returns immediately because intervalHandle !== null
+      const hitsAfterDoubleStart = relayHitCount
+      expect(hitsAfterDoubleStart).toBe(1)
+
+      // Release latch and stop
+      latchResolve?.()
+      await new Promise<void>((r) => setTimeout(r, 30))
+      poller.stop()
+      singleStartRelay.stop(true)
     })
   })
 
