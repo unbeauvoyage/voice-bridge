@@ -21,11 +21,8 @@
 import type { TranscribeResult } from '../whisper.ts'
 import type { LlmRouteResult } from '../llmRouter.ts'
 import { isCancelCommand } from '../cancelUtils.ts'
-import {
-  DEDUP_WAIT_DEADLINE_MS,
-  WHISPER_HALLUCINATION_PHRASES,
-  WHISPER_HALLUCINATION_RMS_THRESHOLD
-} from '../config.ts'
+import { DEDUP_WAIT_DEADLINE_MS } from '../config.ts'
+import { type DedupEntry, checkDedupEntry, isWhisperHallucination } from './dedup.ts'
 
 // Body size: 10 MiB absolute cap at the HTTP boundary. A 60s voice message
 // at webm/opus ~32kbps is ~240 KiB, so this is ~40× typical; legitimate
@@ -48,21 +45,6 @@ const ALLOWED_AUDIO_MIME = new Set([
 // Reasonable cap for a routing target name. Longer strings are almost
 // certainly hostile or buggy.
 const MAX_TO_LEN = 128
-
-/**
- * Deduplication state: tracks recent audio by hash to prevent WKWebView retries
- * from spamming the relay.
- *
- * Three variants:
- * - inProgress: transcription/delivery is still in flight
- * - resolved: transcript was delivered; duplicates get the cached result
- * - cancelled: transcript was a hallucination; duplicates get cancelled result
- *   without re-running whisper (prevents feedback-loop amplification)
- */
-export type DedupEntry =
-  | { ts: number; transcript: string; to: string; message: string }
-  | { ts: number; inProgress: true }
-  | { ts: number; cancelled: true; transcript: string }
 
 /**
  * Context object passed to the transcribe handler.
@@ -234,87 +216,11 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
   const waitDeadlineMs = ctx.dedupWaitDeadlineMs ?? DEDUP_WAIT_DEADLINE_MS
   if (existing) {
     console.log(`[voice-bridge] duplicate audio detected (hash=${audioHash})`)
-    if ('inProgress' in existing) {
-      // Chunk-5 #4 HIGH: the old waiter returned
-      // `200 {transcript:"", deduplicated:true}` on both deadline
-      // expiry and entry-deletion, which let the client believe a
-      // message was delivered when nothing had been. Now we
-      // distinguish the three outcomes explicitly.
-      const deadline = Date.now() + waitDeadlineMs
-      let outcome: 'resolved' | 'cancelled' | 'deleted' | 'timeout' = 'timeout'
-      let resolved: DedupEntry | undefined
-      while (Date.now() < deadline) {
-        await Bun.sleep(300)
-        const updated = ctx.recentAudioHashes.get(audioHash)
-        if (!updated) {
-          outcome = 'deleted'
-          break
-        }
-        if ('cancelled' in updated) {
-          outcome = 'cancelled'
-          resolved = updated
-          break
-        }
-        if (!('inProgress' in updated)) {
-          outcome = 'resolved'
-          resolved = updated
-          break
-        }
-      }
-      if (outcome === 'cancelled' && resolved && 'cancelled' in resolved) {
-        // Original detected hallucination — return cached cancelled result.
-        // Do NOT re-run whisper; that would just hallucinate again.
-        console.log(`[voice-bridge] duplicate: original was hallucination, returning cached cancelled`)
-        return Response.json(
-          { transcript: resolved.transcript, cancelled: true, reason: 'whisper-hallucination', deduplicated: true },
-          { headers: corsHeaders }
-        )
-      }
-      if (
-        outcome === 'resolved' &&
-        resolved &&
-        !('inProgress' in resolved) &&
-        !('cancelled' in resolved) &&
-        'to' in resolved
-      ) {
-        console.log(`[voice-bridge] duplicate resolved after wait, returning cached transcript`)
-        return Response.json(
-          { transcript: resolved.transcript, to: resolved.to, deduplicated: true },
-          { headers: corsHeaders }
-        )
-      }
-      if (outcome === 'timeout') {
-        // Original still in progress past the wait deadline. Tell the
-        // client to retry — do NOT fabricate a successful empty
-        // transcript. 409 Conflict is the honest shape: "there is a
-        // conflicting in-flight request for this exact audio; try
-        // again shortly."
-        console.log(`[voice-bridge] dedup wait deadline exceeded for hash=${audioHash}`)
-        return Response.json(
-          { error: 'Original transcription still in progress — retry later', retryAfterMs: 2000 },
-          { status: 409, headers: corsHeaders }
-        )
-      }
-      // outcome === 'deleted' — the original request failed and
-      // cleared its cache entry. Fall through and re-run transcription
-      // + delivery for this duplicate so it gets a real attempt rather
-      // than an empty 200.
-      console.log(`[voice-bridge] original failed mid-wait — reprocessing duplicate for hash=${audioHash}`)
-    } else if ('cancelled' in existing) {
-      // Original was a hallucination — return cached cancelled result without re-running whisper.
-      console.log(`[voice-bridge] duplicate: cached hallucination cancellation (hash=${audioHash})`)
-      return Response.json(
-        { transcript: existing.transcript, cancelled: true, reason: 'whisper-hallucination', deduplicated: true },
-        { headers: corsHeaders }
-      )
-    } else if ('to' in existing) {
-      // First request already completed — return cached result, skip relay.
-      return Response.json(
-        { transcript: existing.transcript, to: existing.to, deduplicated: true },
-        { headers: corsHeaders }
-      )
+    const dedupResult = await checkDedupEntry(existing, audioHash, ctx.recentAudioHashes, waitDeadlineMs, corsHeaders)
+    if (dedupResult.kind === 'response') {
+      return dedupResult.response
     }
-    // Else: unknown entry variant — fall through to re-process (defensive)
+    // kind === 'fallthrough': original failed mid-wait — re-process below
   }
   ctx.recentAudioHashes.set(audioHash, { ts: Date.now(), inProgress: true })
 
@@ -358,26 +264,21 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
   // pcm_s16le WAV buffer, scanning for the RIFF 'data' subchunk (not a fixed
   // 44-byte offset). This ensures correct RMS for any input format (webm, ogg,
   // mp4, etc.) — not just canonical WAV uploads.
-  {
-    const normalised = transcript.trim().toLowerCase().replace(/[^\w\s]/g, '').trim()
-    if (WHISPER_HALLUCINATION_PHRASES.has(normalised)) {
-      if (audioRms < WHISPER_HALLUCINATION_RMS_THRESHOLD) {
-        console.log(
-          `[voice-bridge] whisper hallucination suppressed (transcript="${transcript}", rms=${audioRms.toFixed(1)})`
-        )
-        // Fix 2: promote to terminal cancelled entry instead of deleting.
-        // Deleting caused concurrent duplicates in the wait loop to see the
-        // entry vanish → treat it as "original failed" → re-run whisper →
-        // hallucinate again → deliver another "hello" to the agent.
-        // A cancelled entry lets the wait loop return { cancelled: true,
-        // deduplicated: true } without re-running whisper.
-        ctx.recentAudioHashes.set(audioHash, { ts: Date.now(), cancelled: true, transcript })
-        return Response.json(
-          { transcript, cancelled: true, reason: 'whisper-hallucination' },
-          { headers: corsHeaders }
-        )
-      }
-    }
+  if (isWhisperHallucination(transcript, audioRms)) {
+    console.log(
+      `[voice-bridge] whisper hallucination suppressed (transcript="${transcript}", rms=${audioRms.toFixed(1)})`
+    )
+    // Fix 2: promote to terminal cancelled entry instead of deleting.
+    // Deleting caused concurrent duplicates in the wait loop to see the
+    // entry vanish → treat it as "original failed" → re-run whisper →
+    // hallucinate again → deliver another "hello" to the agent.
+    // A cancelled entry lets the wait loop return { cancelled: true,
+    // deduplicated: true } without re-running whisper.
+    ctx.recentAudioHashes.set(audioHash, { ts: Date.now(), cancelled: true, transcript })
+    return Response.json(
+      { transcript, cancelled: true, reason: 'whisper-hallucination' },
+      { headers: corsHeaders }
+    )
   }
 
   // ── Cancel detection ───────────────────────────────────────────────────────
