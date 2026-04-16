@@ -9,6 +9,19 @@ async function readJsonObject(res: Response): Promise<Record<string, unknown>> {
   return out
 }
 
+// Helper: build a MessagesContext whose relay mock returns the given JSON body.
+function mockRelayCtx(body: unknown): MessagesContext {
+  return {
+    relayBaseUrl: 'http://mock-relay',
+    fetchFn: async (_url: string) => {
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+  }
+}
+
 describe('handleMessages', () => {
   // Guaranteed-closed loopback port — any fetch to it triggers ConnectionRefused.
   const DEAD_RELAY = 'http://127.0.0.1:1'
@@ -42,5 +55,44 @@ describe('handleMessages', () => {
     const res = await handleMessages(req, ctx)
     const body = await readJsonObject(res)
     expect(body.agent).toBe('matrix')
+  })
+
+  // Agent name length cap: a very long agent name could be forwarded to the
+  // relay URL, bloating the request and potentially triggering relay bugs.
+  // Cap at 128 chars matching the MAX_TO_LEN convention from /transcribe.
+  test('rejects agent name over 128 chars with 400', async () => {
+    const ctx: MessagesContext = { relayBaseUrl: DEAD_RELAY }
+    const longAgent = 'A'.repeat(200)
+    const req = new Request(`http://localhost/messages?agent=${longAgent}`)
+    const res = await handleMessages(req, ctx)
+    expect(res.status).toBe(400)
+    const body = await readJsonObject(res)
+    expect(typeof body.error).toBe('string')
+  })
+
+  // Shape validation: the relay is internal but could be buggy or compromised.
+  // A response that is not an object/array (e.g. a plain string) must not be
+  // forwarded blindly — return 502 with a clear reason.
+  test('rejects relay response that is not an object/array with 502', async () => {
+    const ctx = mockRelayCtx('hello')
+    const req = new Request('http://localhost/messages?agent=command')
+    const res = await handleMessages(req, ctx)
+    expect(res.status).toBe(502)
+    const body = await readJsonObject(res)
+    expect(typeof body.error).toBe('string')
+    expect(String(body.error).toLowerCase()).toMatch(/shape|unexpected|relay/)
+  })
+
+  // Happy path with mock: valid relay response (object with messages array)
+  // must be forwarded as-is with 200 and CORS header.
+  test('forwards valid relay response with 200 and CORS header', async () => {
+    const relayPayload = { messages: [{ id: 1, text: 'hello' }] }
+    const ctx = mockRelayCtx(relayPayload)
+    const req = new Request('http://localhost/messages?agent=command')
+    const res = await handleMessages(req, ctx)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*')
+    const body = await readJsonObject(res)
+    expect(Array.isArray(body.messages)).toBe(true)
   })
 })
