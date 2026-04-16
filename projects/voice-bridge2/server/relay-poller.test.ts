@@ -778,6 +778,108 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
     })
   })
 
+  // ── Fix: hot-reload TTS settings each poll cycle ──────────────────────────
+  //
+  // Previously, startRelayPoller() read settings.json once at boot and passed
+  // static ttsEnabled/ttsWordLimit to createRelayPoller. Toggling TTS in the
+  // UI had no effect until server restart. The fix: accept a getSettings()
+  // function that is called at the start of each poll cycle so settings changes
+  // take effect without restart (matching the Python daemon's 5s hot-reload).
+  describe('Fix: hot-reload TTS settings each poll cycle', () => {
+    test('reads TTS settings on each poll cycle — ttsEnabled=false on first call, true on second', async () => {
+      // getSettings toggles: first call returns disabled, second returns enabled.
+      // First pollOnce: TTS must NOT be called. Second pollOnce: TTS MUST be called.
+      let callCount = 0
+      const ttsCallCommands: string[] = []
+
+      const recordingSpawn: TtsSpawn = (command, _args) => {
+        ttsCallCommands.push(command)
+        const child = new EventEmitter()
+        setImmediate(() => child.emit('exit', 0, null))
+        return child
+      }
+
+      const msg = {
+        id: 'hot-reload-1',
+        from: 'atlas',
+        to: 'ceo',
+        type: 'message',
+        body: 'hot reload test',
+        ts: '2026-04-16T16:00:00Z'
+      }
+      relayMessages = [msg]
+      overlayPosts.length = 0
+
+      const poller = createRelayPoller({
+        relayBaseUrl: `http://localhost:${RELAY_PORT}`,
+        overlayUrl: `http://localhost:${OVERLAY_PORT}/overlay`,
+        getSettings: () => {
+          callCount++
+          // First cycle: TTS disabled; second cycle: TTS enabled
+          return { ttsEnabled: callCount >= 2, ttsWordLimit: 50 }
+        },
+        ttsSpawn: recordingSpawn
+      })
+
+      // First poll — getSettings returns ttsEnabled=false; TTS must not fire
+      await poller.pollOnce()
+      expect(ttsCallCommands).toHaveLength(0)
+
+      // Re-expose same message as unseen by using a fresh poller instance
+      // with the same getSettings (callCount carries over)
+      const msg2 = {
+        id: 'hot-reload-2',
+        from: 'atlas',
+        to: 'ceo',
+        type: 'message',
+        body: 'hot reload test second',
+        ts: '2026-04-16T16:00:01Z'
+      }
+      relayMessages = [msg2]
+
+      // Second poll — getSettings returns ttsEnabled=true; TTS must fire
+      await poller.pollOnce()
+      expect(ttsCallCommands.length).toBeGreaterThan(0)
+    })
+
+    test('falls back to ttsEnabled=false when getSettings throws', async () => {
+      // If getSettings throws for any reason, TTS must be suppressed (safe default).
+      const ttsCallCommands: string[] = []
+
+      const recordingSpawn: TtsSpawn = (command, _args) => {
+        ttsCallCommands.push(command)
+        const child = new EventEmitter()
+        setImmediate(() => child.emit('exit', 0, null))
+        return child
+      }
+
+      const msg = {
+        id: 'get-settings-throw-1',
+        from: 'atlas',
+        to: 'ceo',
+        type: 'message',
+        body: 'settings throw test',
+        ts: '2026-04-16T16:00:02Z'
+      }
+      relayMessages = [msg]
+      overlayPosts.length = 0
+
+      const poller = createRelayPoller({
+        relayBaseUrl: `http://localhost:${RELAY_PORT}`,
+        overlayUrl: `http://localhost:${OVERLAY_PORT}/overlay`,
+        getSettings: () => {
+          throw new Error('settings file unreadable')
+        },
+        ttsSpawn: recordingSpawn
+      })
+
+      await poller.pollOnce()
+
+      // TTS must not have been called — safe fallback on getSettings error
+      expect(ttsCallCommands).toHaveLength(0)
+    })
+  })
+
   test('only shows done/status/message/waiting-for-input types, filters out voice-sent etc', async () => {
     relayMessages = [
       {

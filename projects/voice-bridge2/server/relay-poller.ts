@@ -111,9 +111,20 @@ function createTtsPauseGuard(): TtsPauseGuard {
 export interface RelayPollerOptions {
   relayBaseUrl: string
   overlayUrl: string
-  /** If true, trigger TTS via edge-tts + afplay for short messages */
-  ttsEnabled: boolean
-  /** Max word count for TTS; messages over this limit skip TTS */
+  /**
+   * Dynamic TTS settings factory. Called at the start of each poll cycle so
+   * settings changes (e.g. toggling TTS in the UI) take effect without restart.
+   * If getSettings throws, TTS is suppressed for that cycle (safe default).
+   *
+   * When provided, takes precedence over the static ttsEnabled/ttsWordLimit fields.
+   */
+  getSettings?: () => { ttsEnabled: boolean; ttsWordLimit: number }
+  /**
+   * Static TTS enable flag. Ignored when getSettings is provided.
+   * Kept for backward compatibility with existing tests.
+   */
+  ttsEnabled?: boolean
+  /** Max word count for TTS; messages over this limit skip TTS. Ignored when getSettings is provided. */
   ttsWordLimit?: number
   /** Injectable spawn for TTS; defaults to argv-only node:child_process spawn */
   ttsSpawn?: TtsSpawn
@@ -147,10 +158,23 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
   const {
     relayBaseUrl,
     overlayUrl,
-    ttsEnabled,
-    ttsWordLimit = 50,
     ttsSpawn = defaultTtsSpawn
   } = options
+
+  // Resolve TTS settings strategy.
+  // getSettings (dynamic) takes precedence; static ttsEnabled/ttsWordLimit are
+  // kept for backward compat with existing tests that don't use getSettings.
+  const resolveSettings = (): { ttsEnabled: boolean; ttsWordLimit: number } => {
+    if (options.getSettings) {
+      try {
+        return options.getSettings()
+      } catch {
+        // getSettings threw — safe default: TTS off
+        return { ttsEnabled: false, ttsWordLimit: 50 }
+      }
+    }
+    return { ttsEnabled: options.ttsEnabled ?? false, ttsWordLimit: options.ttsWordLimit ?? 50 }
+  }
 
   // Resolve the pause guard option into a factory function.
   // If the caller passed a plain TtsPauseGuard object (e.g. test fakes that
@@ -208,6 +232,11 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
   }
 
   async function pollOnce(): Promise<void> {
+    // Read TTS settings at the start of each cycle so UI changes (e.g. toggling
+    // TTS) take effect without a server restart. Matches the Python daemon's
+    // 5-second hot-reload approach (daemon/wake_word.py:192-203).
+    const { ttsEnabled, ttsWordLimit } = resolveSettings()
+
     let messages: QueuedMessage[]
     try {
       const res = await fetch(`${relayBaseUrl}/queue/ceo`, {
@@ -360,39 +389,41 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
 }
 
 /**
- * Reads tts settings from daemon/settings.json (if it exists) and starts
- * a background poller.  Called from server/index.ts on startup.
+ * Reads tts settings from daemon/settings.json on each poll cycle and starts
+ * a background poller. Called from server/index.ts on startup.
+ *
+ * Settings are re-read every poll cycle (no caching, no file watcher). The
+ * file is small and reads are cheap at 3s intervals — this intentionally
+ * matches the Python daemon's hot-reload approach (daemon/wake_word.py:192-203).
+ * Toggling TTS in the UI via POST /settings now takes effect on the next cycle.
  */
 export function startRelayPoller(opts: {
   relayBaseUrl: string
   overlayUrl: string
   settingsPath?: string
 }): RelayPoller {
-  // Read settings lazily — if file absent, default to tts off
-  let ttsEnabled = false
-  let ttsWordLimit = 50
-  if (opts.settingsPath) {
-    try {
-      const raw: string = readFileSync(opts.settingsPath, 'utf8')
-      const parsed: unknown = JSON.parse(raw)
-      if (parsed !== null && typeof parsed === 'object') {
-        if ('tts_enabled' in parsed && parsed.tts_enabled === true) {
-          ttsEnabled = true
-        }
-        if ('tts_word_limit' in parsed && typeof parsed.tts_word_limit === 'number') {
-          ttsWordLimit = parsed.tts_word_limit
-        }
-      }
-    } catch {
-      // settings file absent or unreadable — use defaults
-    }
-  }
-
   const poller = createRelayPoller({
     relayBaseUrl: opts.relayBaseUrl,
     overlayUrl: opts.overlayUrl,
-    ttsEnabled,
-    ttsWordLimit
+    getSettings: () => {
+      if (!opts.settingsPath) return { ttsEnabled: false, ttsWordLimit: 50 }
+      try {
+        const raw: string = readFileSync(opts.settingsPath, 'utf8')
+        const parsed: unknown = JSON.parse(raw)
+        if (parsed !== null && typeof parsed === 'object') {
+          return {
+            ttsEnabled: 'tts_enabled' in parsed && parsed.tts_enabled === true,
+            ttsWordLimit:
+              'tts_word_limit' in parsed && typeof parsed.tts_word_limit === 'number'
+                ? parsed.tts_word_limit
+                : 50
+          }
+        }
+      } catch {
+        // settings file absent or unreadable — use defaults
+      }
+      return { ttsEnabled: false, ttsWordLimit: 50 }
+    }
   })
   poller.start()
   return poller
