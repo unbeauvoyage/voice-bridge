@@ -93,6 +93,10 @@ export function createDaemonController(cfg: DaemonConfig): DaemonController {
       }
     })
     proc.stderr?.on('data', (d: Buffer) => process.stderr.write(`[daemon:err] ${d.toString()}`))
+    proc.on('error', (err: Error) => {
+      console.error('[daemon] spawn failed:', err.message)
+      proc = null
+    })
     proc.on('exit', (code: number | null) => {
       console.log(`[daemon] exited with code ${code}`)
       proc = null

@@ -52,7 +52,10 @@ export function createBackendServerController(cfg: BackendServerConfig): Backend
       cwd: cfg.serverDir,
       stdio: ['ignore', 'pipe', 'pipe']
     })
-    proc.on('error', (err: Error) => console.error('[server] spawn failed:', err.message))
+    proc.on('error', (err: Error) => {
+      console.error('[server] spawn failed:', err.message)
+      proc = null
+    })
     proc.stdout?.on('data', (d: Buffer) => process.stdout.write(`[server] ${d.toString()}`))
     proc.stderr?.on('data', (d: Buffer) => process.stderr.write(`[server:err] ${d.toString()}`))
     proc.on('exit', (code: number | null) => {
