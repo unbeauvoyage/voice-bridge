@@ -72,12 +72,13 @@ const MAX_REQUEST_BODY_BYTES = 11 * 1024 * 1024
 // Bind extracted functions to zero-arg signatures expected by route contexts.
 // The functions in their route files accept optional path args for testability;
 // here we use the production defaults (no args = use defaults from config.ts).
-const isMicOnBound = () => isMicOn()
-const setMicBound = (on: boolean) => setMic(on)
-const loadLastTargetBound = () => loadLastTarget()
-const saveLastTargetBound = (target: string) => saveLastTarget(target)
-const handleMicCommandBound = (transcript: string) => handleMicCommand(transcript)
-const getKnownAgentsBound = () =>
+const isMicOnBound = (): boolean => isMicOn()
+const setMicBound = (on: boolean): void => setMic(on)
+const loadLastTargetBound = (): string => loadLastTarget()
+const saveLastTargetBound = (target: string): void => saveLastTarget(target)
+const handleMicCommandBound = (transcript: string): { handled: true; state: 'on' | 'off' } | null =>
+  handleMicCommand(transcript)
+const getKnownAgentsBound = (): Promise<string[]> =>
   getKnownAgents({ relayBaseUrl: RELAY_BASE_URL, fetchFn: fetch, listWorkspaceNames })
 
 const server = Bun.serve({
@@ -133,26 +134,23 @@ const server = Bun.serve({
         // Compose relay-first-with-cmux-fallback. Returns {ok: false}
         // only when BOTH channels fail; the handler surfaces that as 502.
         deliverMessage: async (message, to) => {
-          try {
-            await deliverToAgent(message, to)
+          const relayResult = await deliverToAgent(message, to)
+          if (relayResult.ok) {
             console.log(`[relay] → ${to}: ${message}`)
             return { ok: true }
-          } catch (relayErr) {
-            const relayMsg =
-              relayErr instanceof Error ? relayErr.message : String(relayErr)
-            console.error('[voice-bridge] relay delivery failed:', relayMsg)
-            try {
-              deliverViaCmux(message, to)
-              console.log(`[cmux] → ${to}: ${message}`)
-              return { ok: true }
-            } catch (cmuxErr) {
-              const cmuxMsg =
-                cmuxErr instanceof Error ? cmuxErr.message : String(cmuxErr)
-              console.warn('[cmux] delivery failed:', cmuxMsg)
-              return {
-                ok: false,
-                error: `relay: ${relayMsg}; cmux: ${cmuxMsg}`
-              }
+          }
+          console.error('[voice-bridge] relay delivery failed:', relayResult.error)
+          try {
+            deliverViaCmux(message, to)
+            console.log(`[cmux] → ${to}: ${message}`)
+            return { ok: true }
+          } catch (cmuxErr) {
+            const cmuxMsg =
+              cmuxErr instanceof Error ? cmuxErr.message : String(cmuxErr)
+            console.warn('[cmux] delivery failed:', cmuxMsg)
+            return {
+              ok: false,
+              error: `relay: ${relayResult.error}; cmux: ${cmuxMsg}`
             }
           }
         }
