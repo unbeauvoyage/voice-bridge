@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test'
 import { handleAgents, type AgentsContext } from './agents.ts'
+import { getKnownAgents } from './agents.ts'
 
 async function readJsonObject(res: Response): Promise<Record<string, unknown>> {
   const raw: unknown = await res.json()
@@ -138,5 +139,80 @@ describe('handleAgents', () => {
     const req = new Request('http://localhost/agents?source=relay')
     const res = await handleAgents(req, ctx)
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*')
+  })
+})
+
+// Tests for the extracted getKnownAgents function.
+// It accepts injectable dependencies to avoid network/cmux calls in tests.
+describe('getKnownAgents (extracted from index.ts)', () => {
+  test('returns agent names from relay /status when relay is reachable', async () => {
+    const mockFetch: typeof fetch = async () =>
+      new Response(
+        JSON.stringify({ agents: { command: {}, matrix: {}, atlas: {} } }),
+        { status: 200 }
+      )
+    const result = await getKnownAgents({
+      relayBaseUrl: 'http://relay.example',
+      fetchFn: mockFetch,
+      listWorkspaceNames: () => []
+    })
+    expect(result).toEqual(expect.arrayContaining(['command', 'matrix', 'atlas']))
+  })
+
+  test('falls back to workspace names when relay is down', async () => {
+    const mockFetch: typeof fetch = async () => { throw new Error('connection refused') }
+    const result = await getKnownAgents({
+      relayBaseUrl: 'http://relay.example',
+      fetchFn: mockFetch,
+      listWorkspaceNames: () => ['alpha', 'beta']
+    })
+    expect(result).toEqual(expect.arrayContaining(['alpha', 'beta']))
+  })
+
+  test('deduplicates names appearing in both relay and workspaces', async () => {
+    const mockFetch: typeof fetch = async () =>
+      new Response(
+        JSON.stringify({ agents: { command: {} } }),
+        { status: 200 }
+      )
+    const result = await getKnownAgents({
+      relayBaseUrl: 'http://relay.example',
+      fetchFn: mockFetch,
+      listWorkspaceNames: () => ['command', 'extra']
+    })
+    const commandCount = result.filter((a) => a === 'command').length
+    expect(commandCount).toBe(1)
+  })
+
+  test('filters out names containing "test" or "probe"', async () => {
+    const mockFetch: typeof fetch = async () =>
+      new Response(
+        JSON.stringify({ agents: { 'test-agent': {}, 'probe-1': {}, matrix: {} } }),
+        { status: 200 }
+      )
+    const result = await getKnownAgents({
+      relayBaseUrl: 'http://relay.example',
+      fetchFn: mockFetch,
+      listWorkspaceNames: () => []
+    })
+    expect(result).not.toContain('test-agent')
+    expect(result).not.toContain('probe-1')
+    expect(result).toContain('matrix')
+  })
+
+  test('normalizes names to lowercase', async () => {
+    const mockFetch: typeof fetch = async () =>
+      new Response(
+        JSON.stringify({ agents: { MATRIX: {}, Command: {} } }),
+        { status: 200 }
+      )
+    const result = await getKnownAgents({
+      relayBaseUrl: 'http://relay.example',
+      fetchFn: mockFetch,
+      listWorkspaceNames: () => []
+    })
+    expect(result).toContain('matrix')
+    expect(result).toContain('command')
+    expect(result).not.toContain('MATRIX')
   })
 })

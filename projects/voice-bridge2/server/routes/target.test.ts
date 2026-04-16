@@ -1,5 +1,8 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
+import { writeFileSync, rmSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { handleTarget, type TargetContext } from './target.ts'
+import { loadLastTarget, saveLastTarget } from './target.ts'
 
 async function readJsonObject(res: Response): Promise<Record<string, unknown>> {
   const raw: unknown = await res.json()
@@ -118,5 +121,67 @@ describe('handleTarget', () => {
     const body = await readJsonObject(res)
     expect(body['error']).toBe('validation_failed')
     expect(saved()).toBeNull()
+  })
+})
+
+// Tests for the extracted business-logic functions loadLastTarget and saveLastTarget.
+// They accept an injectable file path so tests do not touch real data.
+const TEST_TMP_DIR = '/tmp/voice-bridge-test-target'
+const TEST_TARGET_FILE = join(TEST_TMP_DIR, 'last-target.txt')
+
+describe('loadLastTarget (extracted from index.ts)', () => {
+  beforeEach(() => {
+    try { rmSync(TEST_TMP_DIR, { recursive: true }) } catch { /* ok */ }
+    mkdirSync(TEST_TMP_DIR, { recursive: true })
+  })
+  afterEach(() => {
+    try { rmSync(TEST_TMP_DIR, { recursive: true }) } catch { /* ok */ }
+  })
+
+  test('returns "command" when file does not exist', () => {
+    expect(loadLastTarget(TEST_TARGET_FILE)).toBe('command')
+  })
+
+  test('returns trimmed file content when file exists with valid target', () => {
+    writeFileSync(TEST_TARGET_FILE, '  matrix  ')
+    expect(loadLastTarget(TEST_TARGET_FILE)).toBe('matrix')
+  })
+
+  test('returns "command" when file is empty', () => {
+    writeFileSync(TEST_TARGET_FILE, '')
+    expect(loadLastTarget(TEST_TARGET_FILE)).toBe('command')
+  })
+
+  test('returns "command" when file content exceeds 128 chars (Zod validation)', () => {
+    // Content >128 chars is invalid per the Zod validation added during extraction
+    writeFileSync(TEST_TARGET_FILE, 'a'.repeat(129))
+    expect(loadLastTarget(TEST_TARGET_FILE)).toBe('command')
+  })
+
+  test('returns content for a valid 128-char target', () => {
+    const target = 'a'.repeat(128)
+    writeFileSync(TEST_TARGET_FILE, target)
+    expect(loadLastTarget(TEST_TARGET_FILE)).toBe(target)
+  })
+})
+
+describe('saveLastTarget (extracted from index.ts)', () => {
+  beforeEach(() => {
+    try { rmSync(TEST_TMP_DIR, { recursive: true }) } catch { /* ok */ }
+    mkdirSync(TEST_TMP_DIR, { recursive: true })
+  })
+  afterEach(() => {
+    try { rmSync(TEST_TMP_DIR, { recursive: true }) } catch { /* ok */ }
+  })
+
+  test('writes target to file atomically and loadLastTarget reads it back', () => {
+    saveLastTarget('atlas', TEST_TARGET_FILE)
+    expect(loadLastTarget(TEST_TARGET_FILE)).toBe('atlas')
+  })
+
+  test('overwrites an existing file', () => {
+    saveLastTarget('command', TEST_TARGET_FILE)
+    saveLastTarget('matrix', TEST_TARGET_FILE)
+    expect(loadLastTarget(TEST_TARGET_FILE)).toBe('matrix')
   })
 })

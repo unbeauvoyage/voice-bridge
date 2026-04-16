@@ -6,10 +6,54 @@
  * prototype-pollutable via `{"__proto__":{"target":"pwned"}}`): body is
  * validated against a strict Zod schema before any lookup. Unknown keys,
  * non-string target, and malformed JSON all return 400.
+ *
+ * Also exports loadLastTarget and saveLastTarget that were previously defined
+ * in server/index.ts. index.ts is wiring-only per server-standards; business
+ * logic lives here.
  */
 
 import { z } from 'zod'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { atomicWriteFile } from '../atomicWriteFile.ts'
 import { parseJsonBody } from './validation.ts'
+
+// ─── Target persistence business logic ───────────────────────────────────────
+
+const DEFAULT_LAST_TARGET_FILE = join(import.meta.dir, '../../tmp/last-target.txt')
+
+// Zod schema for validating content read from the last-target file.
+// Accepts a non-empty string of ≤128 chars; anything else falls back to 'command'.
+const LastTargetSchema = z.string().min(1).max(128)
+
+/**
+ * Reads the last-used relay target from disk.
+ * Falls back to 'command' when the file is missing, empty, or contains invalid content.
+ * Accepts an optional file path for test injection.
+ */
+export function loadLastTarget(filePath: string = DEFAULT_LAST_TARGET_FILE): string {
+  try {
+    const raw = readFileSync(filePath, 'utf8').trim()
+    const parsed = LastTargetSchema.safeParse(raw)
+    return parsed.success ? parsed.data : 'command'
+  } catch {
+    return 'command'
+  }
+}
+
+/**
+ * Persists the relay target to disk using an atomic write (temp file + rename).
+ * Accepts an optional file path for test injection.
+ */
+export function saveLastTarget(target: string, filePath: string = DEFAULT_LAST_TARGET_FILE): void {
+  try {
+    atomicWriteFile(filePath, target)
+  } catch (err) {
+    console.error('[target] failed to persist last target:', err instanceof Error ? err.message : String(err))
+  }
+}
+
+// ─── Route handler ────────────────────────────────────────────────────────────
 
 export type TargetContext = {
   saveLastTarget: (target: string) => void

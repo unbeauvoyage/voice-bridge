@@ -17,11 +17,61 @@
  *   - Relay response JSON is validated against RelayAgentsSchema before
  *     being returned to the caller. A 200 body like `{foo:1}` or
  *     `{agents:[123]}` is treated the same as relay being down.
+ *
+ * Also exports getKnownAgents that was previously defined in server/index.ts.
+ * index.ts is wiring-only per server-standards; business logic lives here.
  */
 
 import { z } from 'zod'
 import { RELAY_TIMEOUT_MS } from '../config.ts'
 import { validationError } from './validation.ts'
+
+// ─── getKnownAgents business logic ────────────────────────────────────────────
+
+export type GetKnownAgentsDeps = {
+  relayBaseUrl: string
+  fetchFn: typeof fetch
+  listWorkspaceNames: () => string[]
+}
+
+/**
+ * Returns all known agent/workspace names, normalized to lowercase.
+ * Queries relay /status first, then merges cmux workspace names.
+ * Deduplicates and filters out test/probe names.
+ *
+ * Accepts injectable deps for testability (avoids network + cmux in tests).
+ */
+export async function getKnownAgents(deps: GetKnownAgentsDeps): Promise<string[]> {
+  const { relayBaseUrl, fetchFn, listWorkspaceNames } = deps
+  const names: string[] = []
+  // Relay uses /status which returns {agents: {name: {workspace}, ...}}
+  try {
+    const res = await fetchFn(`${relayBaseUrl}/status`, { signal: AbortSignal.timeout(2000) })
+    if (res.ok) {
+      const data: unknown = await res.json()
+      if (typeof data === 'object' && data !== null && 'agents' in data) {
+        const obj: Record<string, unknown> = Object.fromEntries(Object.entries(data))
+        const agents = obj['agents']
+        if (agents && typeof agents === 'object') {
+          names.push(...Object.keys(agents).map((a) => a.toLowerCase()))
+        }
+      }
+    }
+  } catch {
+    /* relay may be offline */
+  }
+  // Add cmux workspace names as fallback
+  try {
+    const ws = listWorkspaceNames()
+    names.push(...ws.map((w: string) => w.toLowerCase()))
+  } catch {
+    /* cmux may be unavailable */
+  }
+  // Deduplicate
+  return [...new Set(names)].filter((a) => !a.includes('test') && !a.includes('probe'))
+}
+
+// ─── Route handler ────────────────────────────────────────────────────────────
 
 export type AgentsContext = {
   relayBaseUrl: string

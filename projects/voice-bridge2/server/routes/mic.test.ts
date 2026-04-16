@@ -1,5 +1,7 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
+import { mkdirSync, existsSync, rmSync, writeFileSync } from 'node:fs'
 import { handleMic, type MicContext } from './mic.ts'
+import { setMic, handleMicCommand, isMicOn } from './mic.ts'
 
 async function readJsonObject(res: Response | null): Promise<Record<string, unknown>> {
   if (!res) throw new Error('expected Response, got null')
@@ -130,5 +132,90 @@ describe('handleMic', () => {
     const req = new Request('http://localhost/mic', { method: 'DELETE' })
     const res = await handleMic(req, ctx)
     expect(res).toBeNull()
+  })
+})
+
+// Tests for the extracted business-logic functions setMic, isMicOn, handleMicCommand.
+// These use a temp pause directory so tests do not mutate /tmp/wake-word-pause.d.
+const TEST_PAUSE_DIR = '/tmp/test-mic-pause.d'
+const TEST_MANUAL_TOKEN = `${TEST_PAUSE_DIR}/manual`
+
+describe('setMic / isMicOn (extracted from index.ts)', () => {
+  beforeEach(() => {
+    // Ensure clean state: no pause directory
+    try { rmSync(TEST_PAUSE_DIR, { recursive: true }) } catch { /* ok */ }
+  })
+  afterEach(() => {
+    try { rmSync(TEST_PAUSE_DIR, { recursive: true }) } catch { /* ok */ }
+  })
+
+  test('isMicOn returns true when manual token does not exist', () => {
+    // Mic is on by default (no token file)
+    expect(isMicOn(TEST_MANUAL_TOKEN)).toBe(true)
+  })
+
+  test('setMic(false) creates the manual token and isMicOn returns false', () => {
+    setMic(false, TEST_PAUSE_DIR, TEST_MANUAL_TOKEN)
+    expect(isMicOn(TEST_MANUAL_TOKEN)).toBe(false)
+    expect(existsSync(TEST_MANUAL_TOKEN)).toBe(true)
+  })
+
+  test('setMic(true) removes the manual token and isMicOn returns true', () => {
+    // First put it in the off state
+    mkdirSync(TEST_PAUSE_DIR, { recursive: true })
+    writeFileSync(TEST_MANUAL_TOKEN, '')
+    setMic(true, TEST_PAUSE_DIR, TEST_MANUAL_TOKEN)
+    expect(isMicOn(TEST_MANUAL_TOKEN)).toBe(true)
+    expect(existsSync(TEST_MANUAL_TOKEN)).toBe(false)
+  })
+
+  test('setMic(true) is idempotent when already on (no token to remove)', () => {
+    // No error thrown when token does not exist
+    expect(() => setMic(true, TEST_PAUSE_DIR, TEST_MANUAL_TOKEN)).not.toThrow()
+    expect(isMicOn(TEST_MANUAL_TOKEN)).toBe(true)
+  })
+
+  test('setMic(false) is idempotent when already off', () => {
+    setMic(false, TEST_PAUSE_DIR, TEST_MANUAL_TOKEN)
+    // Calling again should not throw
+    expect(() => setMic(false, TEST_PAUSE_DIR, TEST_MANUAL_TOKEN)).not.toThrow()
+    expect(isMicOn(TEST_MANUAL_TOKEN)).toBe(false)
+  })
+})
+
+describe('handleMicCommand (extracted from index.ts)', () => {
+  beforeEach(() => {
+    try { rmSync(TEST_PAUSE_DIR, { recursive: true }) } catch { /* ok */ }
+  })
+  afterEach(() => {
+    try { rmSync(TEST_PAUSE_DIR, { recursive: true }) } catch { /* ok */ }
+  })
+
+  test('returns null for unrelated transcripts', () => {
+    const result = handleMicCommand('tell me the weather today', TEST_PAUSE_DIR, TEST_MANUAL_TOKEN)
+    expect(result).toBeNull()
+  })
+
+  test('"turn off mic" command returns { handled: true, state: "off" }', () => {
+    const result = handleMicCommand('turn off mic', TEST_PAUSE_DIR, TEST_MANUAL_TOKEN)
+    expect(result).toEqual({ handled: true, state: 'off' })
+    expect(existsSync(TEST_MANUAL_TOKEN)).toBe(true)
+  })
+
+  test('"turn on mic" command returns { handled: true, state: "on" }', () => {
+    setMic(false, TEST_PAUSE_DIR, TEST_MANUAL_TOKEN)
+    const result = handleMicCommand('turn on mic', TEST_PAUSE_DIR, TEST_MANUAL_TOKEN)
+    expect(result).toEqual({ handled: true, state: 'on' })
+    expect(existsSync(TEST_MANUAL_TOKEN)).toBe(false)
+  })
+
+  test('"disable microphone" triggers off command', () => {
+    const result = handleMicCommand('please disable microphone', TEST_PAUSE_DIR, TEST_MANUAL_TOKEN)
+    expect(result).toEqual({ handled: true, state: 'off' })
+  })
+
+  test('"enable listening" triggers on command', () => {
+    const result = handleMicCommand('enable listening please', TEST_PAUSE_DIR, TEST_MANUAL_TOKEN)
+    expect(result).toEqual({ handled: true, state: 'on' })
   })
 })
