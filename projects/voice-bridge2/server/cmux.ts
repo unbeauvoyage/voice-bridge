@@ -4,6 +4,13 @@
  *
  * Workspace matching is purely by name: whatever the user named their cmux workspace
  * is what they put in the "To" field on the voice-bridge UI.
+ *
+ * Chunk-4 #4 HIGH: every cmux invocation returns a discriminated Result.
+ * The previous silent-empty-string-on-failure pattern let real `cmux send`
+ * failures masquerade as successful delivery, defeating the 502 surfacing
+ * in /transcribe. deliverViaCmux now throws on the first failing step so
+ * the composed deliverMessage in server/index.ts correctly reports
+ * ok:false and the handler returns 502.
  */
 
 import { execSync } from 'child_process'
@@ -23,11 +30,21 @@ interface CmuxSurface {
   name: string
 }
 
-function runCmux(args: string): string {
+export type CmuxResult = { ok: true; stdout: string } | { ok: false; error: string }
+
+/**
+ * An injectable cmux executor. Tests pass a fake implementation that
+ * scripts success/failure per-command; production uses defaultRunCmux
+ * which shells out to the real `cmux` CLI.
+ */
+export type CmuxExec = (args: string) => CmuxResult
+
+const defaultRunCmux: CmuxExec = (args) => {
   try {
-    return execSync(`cmux ${args}`, { encoding: 'utf8', timeout: 5000 })
-  } catch {
-    return ''
+    return { ok: true, stdout: execSync(`cmux ${args}`, { encoding: 'utf8', timeout: 5000 }) }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: msg }
   }
 }
 
@@ -57,39 +74,61 @@ function normalizeName(name: string): string {
   return name.replace(/^meta:/, '').toLowerCase()
 }
 
-function sendToPane(loc: AgentLocation, text: string): void {
+function sendToPane(exec: CmuxExec, loc: AgentLocation, text: string): void {
   const sanitized = text
     .replace(/\r?\n/g, ' ')
     .replace(/<<\s*'?\w+'?/g, '')
     .replace(/`/g, "'")
     .replace(/\$/g, '＄')
     .replace(/"/g, '\\"')
-  runCmux(`send --workspace ${loc.workspace} --surface ${loc.surface} "${sanitized}"`)
+  const r = exec(`send --workspace ${loc.workspace} --surface ${loc.surface} "${sanitized}"`)
+  if (!r.ok) throw new Error(`cmux send failed: ${r.error}`)
 }
 
-function sendEnter(loc: AgentLocation): void {
-  runCmux(`send-key --workspace ${loc.workspace} --surface ${loc.surface} Enter`)
+function sendEnter(exec: CmuxExec, loc: AgentLocation): void {
+  const r = exec(`send-key --workspace ${loc.workspace} --surface ${loc.surface} Enter`)
+  if (!r.ok) throw new Error(`cmux send-key Enter failed: ${r.error}`)
 }
 
-export function listWorkspaceNames(): string[] {
-  const wsOut = runCmux('list-workspaces')
-  return parseWorkspaces(wsOut).map((w) => w.name)
+/**
+ * Returns cmux workspace names, or [] if cmux is unavailable. Used by
+ * /agents to build a dropdown — a cmux-offline environment is legitimate
+ * (the UX shows "no cmux-backed agents"), so we translate list failure
+ * into an empty list rather than throwing.
+ */
+export function listWorkspaceNames(exec: CmuxExec = defaultRunCmux): string[] {
+  const r = exec('list-workspaces')
+  if (!r.ok) return []
+  return parseWorkspaces(r.stdout).map((w) => w.name)
 }
 
-export function deliverViaCmux(transcript: string, agentName: string): void {
-  const wsOut = runCmux('list-workspaces')
-  const workspaces = parseWorkspaces(wsOut)
+/**
+ * Deliver a transcript to a cmux workspace by name. Throws on any
+ * failure — list-workspaces, workspace-not-found, list-pane-surfaces,
+ * send, or send-key. The caller (server/index.ts composed
+ * deliverMessage) uses the thrown error to report ok:false, which the
+ * handler surfaces as 502 in /transcribe.
+ */
+export function deliverViaCmux(
+  transcript: string,
+  agentName: string,
+  exec: CmuxExec = defaultRunCmux
+): void {
+  const wsRes = exec('list-workspaces')
+  if (!wsRes.ok) throw new Error(`cmux list-workspaces failed: ${wsRes.error}`)
+  const workspaces = parseWorkspaces(wsRes.stdout)
   const normalized = normalizeName(agentName)
   const ws = workspaces.find((w) => normalizeName(w.name) === normalized)
   if (!ws) throw new Error(`No cmux workspace named "${agentName}"`)
 
-  const surfOut = runCmux(`list-pane-surfaces --workspace ${ws.id}`)
-  const surfaces = parseSurfaces(surfOut)
+  const surfRes = exec(`list-pane-surfaces --workspace ${ws.id}`)
+  if (!surfRes.ok) throw new Error(`cmux list-pane-surfaces failed: ${surfRes.error}`)
+  const surfaces = parseSurfaces(surfRes.stdout)
   if (!surfaces.length) throw new Error(`No surfaces in workspace "${agentName}"`)
 
   const firstSurface = surfaces[0]
   if (!firstSurface) throw new Error(`No surfaces in workspace "${agentName}"`)
   const loc = { workspace: ws.id, surface: firstSurface.id }
-  sendToPane(loc, transcript)
-  sendEnter(loc)
+  sendToPane(exec, loc, transcript)
+  sendEnter(exec, loc)
 }

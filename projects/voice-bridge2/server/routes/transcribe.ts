@@ -348,25 +348,30 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
     console.log(`[route] → ${to} (no-please, direct): "${message}"`)
   }
 
-  // ── Update dedup cache ─────────────────────────────────────────────────────
-  // Upgrade hash entry from in-progress → resolved so retries get cached transcript
-  ctx.recentAudioHashes.set(audioHash, { ts: Date.now(), transcript, to, message })
-
   // ── transcribe_only mode ───────────────────────────────────────────────────
-  // App will send the message itself after user confirms
+  // App will send the message itself after user confirms. There is no
+  // delivery phase to race against, so it is safe to promote the cache
+  // entry to a resolved result here — duplicates within the window get
+  // the cached transcript back.
   if (transcribeOnly) {
     console.log(`[voice-bridge] transcribe_only — skipping relay delivery, target="${to}"`)
+    ctx.recentAudioHashes.set(audioHash, { ts: Date.now(), transcript, to, message })
     return Response.json({ transcript, to }, { headers: corsHeaders })
   }
 
   // ── Deliver to agent ───────────────────────────────────────────────────────
-  // Chunk-4 HIGH (transcribe.ts:347-365): previously, if both the relay
-  // and the cmux fallback failed, the handler swallowed the error and
-  // returned 200 — CEO saw "message sent" for a message that never
-  // landed. All delivery now routes through ctx.deliverMessage (composed
-  // relay-then-cmux in the wiring layer). A failing result surfaces as
-  // 502 with the transcript preserved in the body so the UI can still
-  // display what was heard.
+  // Chunk-4 #4 MED: the cache entry stays as {inProgress:true} across
+  // the delivery await so that a duplicate arriving mid-delivery blocks
+  // on the in-progress branch instead of reading a premature resolved
+  // entry. Only on a successful delivery do we promote it; on failure
+  // we delete, so a retry gets a fresh attempt at delivery.
+  //
+  // Chunk-4 #2 HIGH: previously, if both the relay and the cmux fallback
+  // failed, the handler swallowed the error and returned 200 — CEO saw
+  // "message sent" for a message that never landed. All delivery now
+  // routes through ctx.deliverMessage (composed relay-then-cmux in the
+  // wiring layer). A failing result surfaces as 502 with the transcript
+  // preserved in the body so the UI can still display what was heard.
   const delivery = await ctx.deliverMessage(message, to)
   if (!delivery.ok) {
     console.error(`[voice-bridge] delivery failed: ${delivery.error}`)
@@ -376,6 +381,8 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
       { status: 502, headers: corsHeaders }
     )
   }
+  // Only promote to a resolved cache entry AFTER delivery succeeds.
+  ctx.recentAudioHashes.set(audioHash, { ts: Date.now(), transcript, to, message })
   console.log(`[delivery] → ${to}: ${message}`)
   return Response.json(
     { transcript, to, message, delivered: true },

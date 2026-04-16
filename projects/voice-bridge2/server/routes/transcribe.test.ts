@@ -9,7 +9,12 @@
  */
 
 import { describe, test, expect, beforeEach, mock } from 'bun:test'
-import { handleTranscribe, type TranscribeContext, type DedupEntry } from './transcribe.ts'
+import {
+  handleTranscribe,
+  type TranscribeContext,
+  type DedupEntry,
+  type DeliveryResult
+} from './transcribe.ts'
 
 // Default whisper mock: returns a stable transcript that won't trip
 // mic-command or cancel-detection heuristics. Individual tests may
@@ -240,6 +245,52 @@ describe('transcribe route handler', () => {
     const res = await handleTranscribe(req, ctx)
     expect(res.status).toBe(502)
     // Retries must re-attempt delivery, not hang on the stale inProgress entry.
+    expect(ctx.recentAudioHashes.size).toBe(0)
+  })
+
+  // Chunk-4 #4 MED (transcribe.ts:353): the dedup entry was promoted
+  // from {inProgress:true} to a resolved {transcript,to,message} BEFORE
+  // delivery completed. A duplicate arriving mid-delivery read the
+  // resolved entry and returned deduplicated:true, skipping delivery; if
+  // the original then failed delivery, the retry's chance at delivery
+  // was already consumed. Fix: keep the entry as {inProgress:true} until
+  // AFTER delivery succeeds, so a failing delivery path clears it and
+  // retries get a real delivery attempt.
+  test('duplicate arriving mid-delivery does NOT short-circuit when original delivery fails', async () => {
+    // Simulate: original request is in-flight with a slow (and eventually
+    // failing) deliverMessage. Mid-flight, a duplicate arrives — it must
+    // see inProgress (not a resolved cache entry) and, once the original
+    // fails, the cache entry must be gone so a subsequent retry runs
+    // delivery again rather than returning deduplicated:true.
+    let resolveDelivery: (v: DeliveryResult) => void = () => {}
+    const deliveryPromise = new Promise<DeliveryResult>((r) => {
+      resolveDelivery = r
+    })
+    const ctx = createMockContext({
+      deliverMessage: () => deliveryPromise
+    })
+
+    const form1 = new FormData()
+    form1.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+    const req1 = createMockRequest(form1)
+
+    // Start original request but don't await — it blocks on deliveryPromise.
+    const originalPromise = handleTranscribe(req1, ctx)
+
+    // Give the handler a tick to reach the pre-delivery cache promotion point.
+    await Bun.sleep(10)
+
+    // At this moment the cache entry MUST still be {inProgress:true} — a
+    // duplicate arriving now must NOT receive a resolved cached
+    // {transcript,to,message} response.
+    const entry = Array.from(ctx.recentAudioHashes.values())[0]
+    expect(entry).toBeDefined()
+    expect(entry && 'inProgress' in entry).toBe(true)
+
+    // Now fail delivery. Original should clear the cache on its way out.
+    resolveDelivery({ ok: false, error: 'relay+cmux both down' })
+    const originalRes = await originalPromise
+    expect(originalRes.status).toBe(502)
     expect(ctx.recentAudioHashes.size).toBe(0)
   })
 
