@@ -16,7 +16,7 @@ Meta-manager for projects under `~/environment/`. User is CEO.
 - `.claude/modules/testing-discipline.md` — never report done without real test output.
 - `.claude/CLAUDE-common-to-all-projects.md` — team composition, spawning.
 
-## Blocking rule
+## NEVER BLOCK
 Any command >2s: `Bash(run_in_background: true)`. Blocking = CEO can't reach you.
 
 ## TDD — ABSOLUTE
