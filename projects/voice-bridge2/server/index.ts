@@ -7,22 +7,27 @@
  *   GET  /health     — liveness check
  *   GET  /mic        — { state: "on"|"off" }
  *   POST /mic        — { state: "on"|"off" } → set mic state
+ *
+ * This file is wiring-only: construct ctx, mount routes, start Bun.serve.
+ * No business logic lives here — see the route files for extracted functions.
  */
 
 import { readFile } from 'node:fs/promises'
-import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { atomicWriteFile } from './atomicWriteFile.ts'
 import { join } from 'node:path'
 import { spawnSync, spawn } from 'node:child_process'
 import { listWorkspaceNames, deliverViaCmux } from './cmux.ts'
 import { deliverToAgent } from './relay.ts'
+import { transcribeAudio } from './whisper.ts'
+import { llmRoute } from './llmRouter.ts'
 import { startRelayPoller } from './relay-poller.ts'
 import { handleTranscribe, type TranscribeContext, type DedupEntry } from './routes/transcribe.ts'
 import { handleMessages, type MessagesContext } from './routes/messages.ts'
-import { handleMic, type MicContext } from './routes/mic.ts'
+import { handleMic, isMicOn, setMic, handleMicCommand, type MicContext } from './routes/mic.ts'
 import { handleStatus, type StatusContext } from './routes/status.ts'
-import { handleTarget, type TargetContext } from './routes/target.ts'
-import { handleAgents, type AgentsContext } from './routes/agents.ts'
+import { handleTarget, loadLastTarget, saveLastTarget, type TargetContext } from './routes/target.ts'
+import { handleAgents, getKnownAgents, type AgentsContext } from './routes/agents.ts'
 import { handleSettings, type SettingsContext } from './routes/settings.ts'
 import { handleWakeWord, type WakeWordContext } from './routes/wakeWord.ts'
 import { handleHealth, handleIndexHtml, type IndexHtmlContext } from './routes/meta.ts'
@@ -31,14 +36,12 @@ import {
   SERVER_PORT,
   RELAY_BASE_URL_DEFAULT,
   OVERLAY_URL_DEFAULT,
-  DEDUP_WINDOW_MS,
-  MIC_PAUSE_DIR
+  DEDUP_WINDOW_MS
 } from './config.ts'
 
 const PORT = Number(process.env.PORT ?? SERVER_PORT)
 const PUBLIC_DIR = join(import.meta.dir, '../public')
 const RELAY_BASE_URL = process.env.RELAY_BASE_URL ?? RELAY_BASE_URL_DEFAULT
-const LAST_TARGET_FILE = join(import.meta.dir, '../tmp/last-target.txt')
 
 // Audio dedup — WKWebView retries fetches when Whisper is slow, causing duplicate relay delivery.
 // We hash audio bytes on arrival and reject same hash within 30s.
@@ -57,99 +60,6 @@ function evictStaleHashes(): void {
   }
 }
 
-// Mic control — writes/removes the "manual" token in MIC_PAUSE_DIR.
-// Daemon pauses if the directory exists AND contains any file.
-// Using a per-owner token (manual) means TTS cycles (tts-{uuid} tokens) cannot
-// clear the user's explicit mic-off — their tokens are independent.
-
-const MANUAL_TOKEN = `${MIC_PAUSE_DIR}/manual`
-
-function isMicOn(): boolean {
-  // Mic is on if the directory has no entries (or doesn't exist).
-  // We check only the manual token for the purpose of the UI "state" indicator —
-  // TTS tokens are transient and shouldn't make the UI show "mic off" during playback.
-  return !existsSync(MANUAL_TOKEN)
-}
-function setMic(on: boolean): void {
-  if (on) {
-    try {
-      unlinkSync(MANUAL_TOKEN)
-    } catch {
-      /* file may not exist */
-    }
-    // If no other tokens remain, optionally remove the directory too.
-    // We leave the directory in place — it's cheap and avoids a TOCTOU race.
-  } else {
-    try {
-      mkdirSync(MIC_PAUSE_DIR, { recursive: true })
-      writeFileSync(MANUAL_TOKEN, '')
-    } catch (err) {
-      console.error('[mic] failed to write pause token:', err instanceof Error ? err.message : String(err))
-    }
-  }
-}
-
-// Returns true if transcript is a mic control command, and handles it.
-// "turn off (the) (mac/max) mic(rophone)" → pause
-// "turn on (the) (mac/max) mic(rophone)"  → resume
-function handleMicCommand(transcript: string): { handled: true; state: 'on' | 'off' } | null {
-  const t = transcript.toLowerCase().trim()
-  if (/\b(turn\s+off|disable|mute|pause)\b.{0,20}\b(mic(rophone)?|listening)\b/.test(t)) {
-    setMic(false)
-    return { handled: true, state: 'off' }
-  }
-  if (/\b(turn\s+on|enable|unmute|resume)\b.{0,20}\b(mic(rophone)?|listening)\b/.test(t)) {
-    setMic(true)
-    return { handled: true, state: 'on' }
-  }
-  return null
-}
-
-function loadLastTarget(): string {
-  try {
-    return readFileSync(LAST_TARGET_FILE, 'utf8').trim() || 'command'
-  } catch {
-    return 'command'
-  }
-}
-function saveLastTarget(target: string): void {
-  try {
-    writeFileSync(LAST_TARGET_FILE, target)
-  } catch (err) {
-    console.error('[target] failed to persist last target:', err instanceof Error ? err.message : String(err))
-  }
-}
-
-// Returns all known agent/workspace names, normalized to lowercase with hyphens.
-async function getKnownAgents(): Promise<string[]> {
-  const names: string[] = []
-  // Relay uses /status which returns {agents: {name: {workspace}, ...}}
-  try {
-    const res = await fetch(`${RELAY_BASE_URL}/status`, { signal: AbortSignal.timeout(2000) })
-    if (res.ok) {
-      const data: unknown = await res.json()
-      if (typeof data === 'object' && data !== null && 'agents' in data) {
-        const obj: Record<string, unknown> = Object.fromEntries(Object.entries(data))
-        const agents = obj['agents']
-        if (agents && typeof agents === 'object') {
-          names.push(...Object.keys(agents).map((a) => a.toLowerCase()))
-        }
-      }
-    }
-  } catch {
-    /* relay may be offline */
-  }
-  // Add cmux workspace names as fallback
-  try {
-    const ws = listWorkspaceNames()
-    names.push(...ws.map((w: string) => w.toLowerCase()))
-  } catch {
-    /* cmux may be unavailable */
-  }
-  // Deduplicate
-  return [...new Set(names)].filter((a) => !a.includes('test') && !a.includes('probe'))
-}
-
 // Chunk2-review HIGH2: Content-Length header is client-trusted. Bun.serve
 // maxRequestBodySize enforces at the parser level — Bun counts bytes as
 // they arrive and rejects over-size with 413 before any handler runs, so
@@ -158,6 +68,17 @@ async function getKnownAgents(): Promise<string[]> {
 // gets a chance to produce the standard error shape for normal oversize;
 // this cap is the hard backstop against the streaming-attack case.
 const MAX_REQUEST_BODY_BYTES = 11 * 1024 * 1024
+
+// Bind extracted functions to zero-arg signatures expected by route contexts.
+// The functions in their route files accept optional path args for testability;
+// here we use the production defaults (no args = use defaults from config.ts).
+const isMicOnBound = () => isMicOn()
+const setMicBound = (on: boolean) => setMic(on)
+const loadLastTargetBound = () => loadLastTarget()
+const saveLastTargetBound = (target: string) => saveLastTarget(target)
+const handleMicCommandBound = (transcript: string) => handleMicCommand(transcript)
+const getKnownAgentsBound = () =>
+  getKnownAgents({ relayBaseUrl: RELAY_BASE_URL, fetchFn: fetch, listWorkspaceNames })
 
 const server = Bun.serve({
   port: PORT,
@@ -203,10 +124,12 @@ const server = Bun.serve({
         recentAudioHashes,
         evictStaleHashes,
         hashAudioBuffer,
-        loadLastTarget,
-        saveLastTarget,
-        handleMicCommand,
-        getKnownAgents,
+        loadLastTarget: loadLastTargetBound,
+        saveLastTarget: saveLastTargetBound,
+        handleMicCommand: handleMicCommandBound,
+        getKnownAgents: getKnownAgentsBound,
+        transcribeAudio,
+        llmRoute,
         // Compose relay-first-with-cmux-fallback. Returns {ok: false}
         // only when BOTH channels fail; the handler surfaces that as 502.
         deliverMessage: async (message, to) => {
@@ -247,7 +170,7 @@ const server = Bun.serve({
     // GET  /mic         — { state: "on"|"off" }
     // POST /mic         — { state: "on"|"off" } → toggle
     if (url.pathname === '/mic') {
-      const micCtx: MicContext = { isMicOn, setMic }
+      const micCtx: MicContext = { isMicOn: isMicOnBound, setMic: setMicBound }
       const res = await handleMic(req, micCtx)
       if (res) return res
     }
@@ -264,13 +187,13 @@ const server = Bun.serve({
 
     // ── Status ───────────────────────────────────────────────────────────────
     if (req.method === 'GET' && url.pathname === '/status') {
-      const ctx: StatusContext = { loadLastTarget, isMicOn }
+      const ctx: StatusContext = { loadLastTarget: loadLastTargetBound, isMicOn: isMicOnBound }
       return handleStatus(ctx)
     }
 
     // ── Target control ────────────────────────────────────────────────────────
     if (req.method === 'POST' && url.pathname === '/target') {
-      const ctx: TargetContext = { saveLastTarget }
+      const ctx: TargetContext = { saveLastTarget: saveLastTargetBound }
       return handleTarget(req, ctx)
     }
 
@@ -326,7 +249,7 @@ const server = Bun.serve({
           child.unref()
           console.log(`[wake-word] spawned (PID ${child.pid})`)
         },
-        loadLastTarget
+        loadLastTarget: loadLastTargetBound
       }
       const res = handleWakeWord(req, wakeCtx)
       if (res) return res

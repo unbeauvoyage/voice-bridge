@@ -8,28 +8,20 @@
  * Integration tests use the real server to verify end-to-end behavior.
  */
 
-import { describe, test, expect, beforeEach, mock } from 'bun:test'
+import { describe, test, expect } from 'bun:test'
 import {
   handleTranscribe,
   type TranscribeContext,
   type DedupEntry,
   type DeliveryResult
 } from './transcribe.ts'
+import type { LlmRouteResult } from '../llmRouter.ts'
 
-// Default whisper mock: returns a stable transcript that won't trip
-// mic-command or cancel-detection heuristics. Individual tests may
-// re-mock to simulate throws / empty transcripts; beforeEach restores.
-// Returns { transcript, audioRms } per the updated transcribeAudio signature.
-const DEFAULT_WHISPER = (): { transcribeAudio: () => Promise<{ transcript: string; audioRms: number }> } => ({
-  transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
-    transcript: 'hello world',
-    audioRms: 10000 // well above hallucination threshold — not a hallucination
-  })
-})
-mock.module('../whisper.ts', DEFAULT_WHISPER)
-beforeEach(() => {
-  mock.module('../whisper.ts', DEFAULT_WHISPER)
-})
+// Default transcribeAudio is now injected via createMockContext().transcribeAudio
+// rather than mock.module('../whisper.ts'). This decouples tests from the module graph:
+// no module mocking needed — each test overrides ctx.transcribeAudio directly.
+// The default returns { transcript: 'hello world', audioRms: 10000 } — a stable
+// transcript that won't trip mic-command or cancel-detection heuristics.
 
 // Build a real Request whose formData() returns the given FormData. We stub
 // only `formData` on the instance because Bun/undici's native Request.formData
@@ -63,6 +55,16 @@ function createMockContext(
     handleMicCommand: () => null,
     getKnownAgents: async () => ['command', 'test'],
     deliverMessage: async () => ({ ok: true }),
+    // DI-injected transcription — avoids mock.module() coupling to the module graph.
+    // Tests that need a custom transcription result override this field directly.
+    transcribeAudio: async () => ({ transcript: 'hello world', audioRms: 10000 }),
+    // DI-injected LLM router — returns no-match by default; tests that exercise
+    // the "please"-gate routing override this to simulate agent detection.
+    llmRoute: async (_transcript: string, _knownAgents: string[], fallbackAgent: string): Promise<LlmRouteResult> => ({
+      agent: fallbackAgent,
+      message: _transcript,
+      agentChanged: false
+    }),
     ...overrides
   }
 }
@@ -194,15 +196,12 @@ describe('transcribe route handler', () => {
   // "transcribing" state. The fix: delete the entry on every error/early
   // return so retries get a fresh attempt.
   test('cache entry is cleaned up when transcription fails (retries do not hang)', async () => {
-    mock.module('../whisper.ts', () => ({
-      transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => {
-        throw new Error('whisper exploded')
-      }
-    }))
     const formData = new FormData()
     formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
     const req = createMockRequest(formData)
-    const ctx = createMockContext()
+    const ctx = createMockContext({
+      transcribeAudio: async () => { throw new Error('whisper exploded') }
+    })
     const res = await handleTranscribe(req, ctx)
     expect(res.status).toBe(500)
     // Retries must not hang on a stale inProgress entry.
@@ -210,32 +209,24 @@ describe('transcribe route handler', () => {
   })
 
   test('cache entry is cleaned up when transcript is empty', async () => {
-    mock.module('../whisper.ts', () => ({
-      transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
-        transcript: '',
-        audioRms: 0
-      })
-    }))
     const formData = new FormData()
     formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
     const req = createMockRequest(formData)
-    const ctx = createMockContext()
+    const ctx = createMockContext({
+      transcribeAudio: async () => ({ transcript: '', audioRms: 0 })
+    })
     const res = await handleTranscribe(req, ctx)
     expect(res.status).toBe(422)
     expect(ctx.recentAudioHashes.size).toBe(0)
   })
 
   test('cache entry is cleaned up when transcript is a cancel command', async () => {
-    mock.module('../whisper.ts', () => ({
-      transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
-        transcript: 'cancel cancel cancel',
-        audioRms: 10000
-      })
-    }))
     const formData = new FormData()
     formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
     const req = createMockRequest(formData)
-    const ctx = createMockContext()
+    const ctx = createMockContext({
+      transcribeAudio: async () => ({ transcript: 'cancel cancel cancel', audioRms: 10000 })
+    })
     const res = await handleTranscribe(req, ctx)
     expect(res.status).toBe(200)
     const body: unknown = await res.json()
@@ -457,13 +448,9 @@ describe('transcribe route handler', () => {
     test('returns cancelled when transcript is "hello" and audio RMS is below threshold', async () => {
       // Silent WAV + Whisper hallucinating "hello" → must be cancelled, not delivered
       // audioRms: 0 simulates near-silence from the converted PCM (below threshold 500)
-      mock.module('../whisper.ts', () => ({
-        transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
-          transcript: 'hello',
-          audioRms: 0
-        })
-      }))
-      const ctx = createMockContext()
+      const ctx = createMockContext({
+        transcribeAudio: async () => ({ transcript: 'hello', audioRms: 0 })
+      })
       const deliverCalls: unknown[] = []
       ctx.deliverMessage = async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
 
@@ -482,13 +469,9 @@ describe('transcribe route handler', () => {
     test('delivers normally when transcript is "hello" but audio RMS is above threshold', async () => {
       // Real signal + "hello" → could be genuine greeting — must deliver
       // audioRms: 10000 simulates real voice signal from the converted PCM (above threshold 500)
-      mock.module('../whisper.ts', () => ({
-        transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
-          transcript: 'hello',
-          audioRms: 10000
-        })
-      }))
-      const ctx = createMockContext()
+      const ctx = createMockContext({
+        transcribeAudio: async () => ({ transcript: 'hello', audioRms: 10000 })
+      })
       const deliverCalls: unknown[] = []
       ctx.deliverMessage = async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
 
@@ -506,13 +489,9 @@ describe('transcribe route handler', () => {
     test('delivers normally when transcript is longer than a single hallucination phrase at low RMS', async () => {
       // Low RMS but multi-word sentence — user genuinely said something
       // Even with low audioRms, a multi-word transcript does not match the hallucination phrase set
-      mock.module('../whisper.ts', () => ({
-        transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
-          transcript: 'hello can you open the door',
-          audioRms: 0
-        })
-      }))
-      const ctx = createMockContext()
+      const ctx = createMockContext({
+        transcribeAudio: async () => ({ transcript: 'hello can you open the door', audioRms: 0 })
+      })
       const deliverCalls: unknown[] = []
       ctx.deliverMessage = async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
 
@@ -533,13 +512,12 @@ describe('transcribe route handler', () => {
       ['You'],
       ['Bye'],
     ])('hallucination filter is case-insensitive and strips trailing punctuation: %s', async (phrase) => {
-      mock.module('../whisper.ts', () => ({
-        transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
+      const ctx = createMockContext({
+        transcribeAudio: async () => ({
           transcript: phrase,
           audioRms: 0 // below threshold — hallucination condition applies
         })
-      }))
-      const ctx = createMockContext()
+      })
       const deliverCalls: unknown[] = []
       ctx.deliverMessage = async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
 
@@ -592,24 +570,18 @@ describe('transcribe route handler', () => {
   // still computed over the random upload bytes (which would be non-zero noise).
   describe('Fix 1: hallucination filter uses converted PCM RMS, not raw upload RMS', () => {
     test('hallucination filter uses converted PCM RMS, not raw upload RMS', async () => {
-      // Mock whisper to return a hallucination phrase with zero RMS
+      // Inject whisper to return a hallucination phrase with zero RMS
       // (simulating the converted PCM being silence after ffmpeg)
-      mock.module('../whisper.ts', () => ({
-        transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
-          transcript: 'hello',
-          audioRms: 0 // near-silent converted PCM
-        })
-      }))
-
       // Upload random non-WAV bytes — these would produce non-zero RMS if the
       // old code still ran RMS over the upload buffer. With the fix, RMS comes
-      // from whisper's returned audioRms (0) → hallucination fires.
+      // from ctx.transcribeAudio's returned audioRms (0) → hallucination fires.
       const randomBytes = new Uint8Array(1000)
       for (let i = 0; i < randomBytes.length; i++) {
         randomBytes[i] = Math.floor(Math.random() * 256)
       }
       const deliverCalls: unknown[] = []
       const ctx = createMockContext({
+        transcribeAudio: async () => ({ transcript: 'hello', audioRms: 0 }),
         deliverMessage: async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
       })
 
@@ -630,16 +602,13 @@ describe('transcribe route handler', () => {
     })
 
     test('hallucination filter does NOT fire when converted PCM RMS is above threshold', async () => {
-      // High audioRms returned by whisper — real audio, not hallucination
-      mock.module('../whisper.ts', () => ({
-        transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
-          transcript: 'hello',
-          audioRms: 10000 // well above WHISPER_HALLUCINATION_RMS_THRESHOLD (500)
-        })
-      }))
-
+      // High audioRms injected via ctx — real audio, not hallucination
       const deliverCalls: unknown[] = []
       const ctx = createMockContext({
+        transcribeAudio: async () => ({
+          transcript: 'hello',
+          audioRms: 10000 // well above WHISPER_HALLUCINATION_RMS_THRESHOLD (500)
+        }),
         deliverMessage: async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
       })
 
@@ -672,24 +641,17 @@ describe('transcribe route handler', () => {
   // without re-running whisper.
   describe('Fix 2: dedup entry preserved as cancelled result on hallucination path', () => {
     test('concurrent duplicate of hallucinated audio gets cached cancelled result instead of re-running whisper', async () => {
-      // Mock whisper returns a hallucination with zero RMS
-      mock.module('../whisper.ts', () => ({
-        transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
-          transcript: 'hello',
-          audioRms: 0
-        })
-      }))
-
+      // Inject transcribeAudio via ctx — returns hallucination with zero RMS.
+      // whisperCallCount tracks how many times it was called; the duplicate
+      // should read from the cancelled cache entry and NOT call transcribeAudio again.
       let whisperCallCount = 0
-      const originalMock = {
-        transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => {
+      const ctx = createMockContext({
+        dedupWaitDeadlineMs: 2000,
+        transcribeAudio: async () => {
           whisperCallCount++
           return { transcript: 'hello', audioRms: 0 }
         }
-      }
-      mock.module('../whisper.ts', () => originalMock)
-
-      const ctx = createMockContext({ dedupWaitDeadlineMs: 2000 })
+      })
 
       // Simulate: a hash is already inProgress (original is running)
       const hash = 'hash-100' // matches hashAudioBuffer(buf of 100 bytes)

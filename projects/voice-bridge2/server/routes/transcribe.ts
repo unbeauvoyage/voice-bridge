@@ -18,8 +18,8 @@
  * 3. Else → deliver to "command"
  */
 
-import { transcribeAudio } from '../whisper.ts'
-import { llmRoute } from '../llmRouter.ts'
+import type { TranscribeResult } from '../whisper.ts'
+import type { LlmRouteResult } from '../llmRouter.ts'
 import { isCancelCommand } from '../cancelUtils.ts'
 import {
   DEDUP_WAIT_DEADLINE_MS,
@@ -85,6 +85,12 @@ export type TranscribeContext = {
 
   // Agent discovery (for "please" routing)
   getKnownAgents: () => Promise<string[]>
+
+  // Audio transcription — injected so tests can stub without mock.module()
+  transcribeAudio: (buffer: Buffer, mimeType: string) => Promise<TranscribeResult>
+
+  // LLM-based agent routing — injected so tests can stub without mock.module()
+  llmRoute: (transcript: string, knownAgents: string[], fallbackAgent: string) => Promise<LlmRouteResult>
 
   // Message delivery. The wiring layer composes relay-first-cmux-fallback
   // and returns {ok: false} only when BOTH channels have failed. The
@@ -321,7 +327,7 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
   let transcript: string
   let audioRms: number
   try {
-    const result = await transcribeAudio(audioBuffer, audioMime)
+    const result = await ctx.transcribeAudio(audioBuffer, audioMime)
     transcript = result.transcript
     audioRms = result.audioRms
   } catch (err) {
@@ -436,7 +442,7 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
     console.log(
       `[route] please-gate (word ${pleaseIndex + 1}): routingPart="${routingPart}", messagePart="${messagePart}"`
     )
-    const llmResult = await llmRoute(routingPart, await ctx.getKnownAgents(), '')
+    const llmResult = await ctx.llmRoute(routingPart, await ctx.getKnownAgents(), '')
     const fallback = explicitTo || 'command'
     to = llmResult.agent || fallback
     message = messagePart || transcript // fallback to full transcript if nothing after "please"
