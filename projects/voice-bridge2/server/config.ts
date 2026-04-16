@@ -80,6 +80,42 @@ export const WHISPER_TIMEOUT_MS = 120_000
 /** How often the relay-poller checks for new agent messages (ms). */
 export const POLL_INTERVAL_MS = 3_000
 
+// ─── Whisper hallucination filter ─────────────────────────────────────────────
+
+/**
+ * Known single-phrase Whisper hallucinations on low-signal audio.
+ * When audio RMS is below WHISPER_HALLUCINATION_RMS_THRESHOLD and the
+ * trimmed/lowercased/punctuation-stripped transcript matches one of these,
+ * the transcription is treated as cancelled rather than delivered.
+ *
+ * These are artifacts Whisper emits when the input is near-silent
+ * (wake-word mic bleed, ambient noise, TTS feedback).
+ */
+export const WHISPER_HALLUCINATION_PHRASES = new Set([
+  'hello',
+  'thank you',
+  'thanks for watching',
+  'you',
+  'bye'
+])
+
+/**
+ * Audio RMS threshold (on 16-bit int16 scale, 0–32767) below which a
+ * single-phrase transcript is considered a hallucination.
+ * At 500 a genuine voice input is loud enough to exceed this by ~100×;
+ * near-silent bleed/ambient noise sits near 0–50.
+ */
+export const WHISPER_HALLUCINATION_RMS_THRESHOLD = 500
+
+// ─── Mic pause file ───────────────────────────────────────────────────────────
+
+/**
+ * File whose presence tells daemon/wake_word.py to suppress wake-word detection.
+ * Shared between server/index.ts (mic commands) and relay-poller.ts (TTS guard).
+ * daemon/wake_word.py checks PAUSE_FILE.exists() on every audio chunk.
+ */
+export const MIC_PAUSE_FILE = '/tmp/wake-word-pause'
+
 // ─── Deduplication ───────────────────────────────────────────────────────────
 
 /**

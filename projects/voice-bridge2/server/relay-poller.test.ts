@@ -8,7 +8,7 @@
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
 import { existsSync, unlinkSync } from 'node:fs'
-import { createRelayPoller, type TtsSpawn } from './relay-poller'
+import { createRelayPoller, type TtsSpawn, type TtsPauseGuard } from './relay-poller'
 
 // ─── Mock servers ─────────────────────────────────────────────────────────────
 
@@ -266,6 +266,125 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
 
       // And the shell never ran to create the canary.
       expect(existsSync('/tmp/vb-rce-canary-test')).toBe(false)
+    })
+  })
+
+  // ── Pause-guard: mic suppression during TTS ───────────────────────────────
+  //
+  // Chunk-5 #1 split edge-tts+afplay into two argv-only spawns (no shell),
+  // which fixed the RCE. But the old `speak` wrapper touched
+  // /tmp/wake-word-pause BEFORE TTS and removed it AFTER afplay, keeping the
+  // mic suppressed across the full playback. The argv-only path dropped that
+  // guard entirely. Result: TTS audio fed back into the open mic → wake-word
+  // triggered on ambient noise → Whisper hallucinated "hello" → loop.
+  // CEO saw 23 identical "hello" in 2 min.
+  //
+  // Fix: inject a TtsPauseGuard boundary (acquire/release). The poller calls
+  // acquire() before the first spawn and release() after afplay exits.
+  describe('TTS mic pause guard', () => {
+    test('creates pause file before TTS spawn and removes it after afplay exits', async () => {
+      // Track ordering of events to verify acquire → spawn(edge-tts) →
+      // spawn(afplay) → afplay-exit → release sequence.
+      const events: string[] = []
+
+      // Fake TtsSpawn returns a fake ChildProcess-like EventEmitter so the
+      // poller can await the afplay exit event.
+      const fakeSpawn: TtsSpawn = (command, _args) => {
+        events.push(`spawn:${command}`)
+        // Return a fake EventEmitter so caller can do once(child, 'exit')
+        const { EventEmitter } = require('node:events') as typeof import('node:events')
+        const child = new EventEmitter()
+        // Emit 'exit' after a microtask so the awaiting code runs first
+        setImmediate(() => {
+          events.push(`exit:${command}`)
+          child.emit('exit', 0, null)
+        })
+        return child
+      }
+
+      const fakeGuard: TtsPauseGuard = {
+        acquire: () => { events.push('acquire') },
+        release: () => { events.push('release') }
+      }
+
+      relayMessages = [
+        {
+          id: 'pause-guard-1',
+          from: 'atlas',
+          to: 'ceo',
+          type: 'message',
+          body: 'Pause guard test.',
+          ts: '2026-04-16T12:00:00Z'
+        }
+      ]
+      overlayPosts.length = 0
+
+      const poller = createRelayPoller({
+        relayBaseUrl: `http://localhost:${RELAY_PORT}`,
+        overlayUrl: `http://localhost:${OVERLAY_PORT}/overlay`,
+        ttsEnabled: true,
+        ttsSpawn: fakeSpawn,
+        ttsPauseGuard: fakeGuard
+      })
+      await poller.pollOnce()
+
+      // acquire must happen BEFORE any spawn; release AFTER afplay exit
+      const acquireIdx = events.indexOf('acquire')
+      const spawnEdgeIdx = events.indexOf('spawn:edge-tts')
+      const spawnAfplayIdx = events.indexOf('spawn:afplay')
+      const exitAfplayIdx = events.indexOf('exit:afplay')
+      const releaseIdx = events.indexOf('release')
+
+      expect(acquireIdx).toBeGreaterThanOrEqual(0)
+      expect(spawnEdgeIdx).toBeGreaterThan(acquireIdx)
+      expect(spawnAfplayIdx).toBeGreaterThan(spawnEdgeIdx)
+      expect(exitAfplayIdx).toBeGreaterThan(spawnAfplayIdx)
+      expect(releaseIdx).toBeGreaterThan(exitAfplayIdx)
+    })
+
+    test('release is called even if afplay spawn throws (try/finally guarantee)', async () => {
+      // If the afplay spawn itself throws (binary not found etc.), release()
+      // must still fire — otherwise the mic stays hot forever.
+      const events: string[] = []
+
+      const throwingSpawn: TtsSpawn = (command, _args) => {
+        if (command === 'afplay') {
+          throw new Error('afplay not found')
+        }
+        const { EventEmitter } = require('node:events') as typeof import('node:events')
+        const child = new EventEmitter()
+        setImmediate(() => child.emit('exit', 0, null))
+        return child
+      }
+
+      const fakeGuard: TtsPauseGuard = {
+        acquire: () => { events.push('acquire') },
+        release: () => { events.push('release') }
+      }
+
+      relayMessages = [
+        {
+          id: 'pause-guard-throw',
+          from: 'atlas',
+          to: 'ceo',
+          type: 'message',
+          body: 'Throw guard test.',
+          ts: '2026-04-16T12:00:01Z'
+        }
+      ]
+      overlayPosts.length = 0
+
+      const poller = createRelayPoller({
+        relayBaseUrl: `http://localhost:${RELAY_PORT}`,
+        overlayUrl: `http://localhost:${OVERLAY_PORT}/overlay`,
+        ttsEnabled: true,
+        ttsSpawn: throwingSpawn,
+        ttsPauseGuard: fakeGuard
+      })
+      await poller.pollOnce()
+
+      expect(events).toContain('acquire')
+      expect(events).toContain('release')
     })
   })
 

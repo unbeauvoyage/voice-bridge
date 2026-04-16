@@ -31,7 +31,8 @@ import {
   SERVER_PORT,
   RELAY_BASE_URL_DEFAULT,
   OVERLAY_URL_DEFAULT,
-  DEDUP_WINDOW_MS
+  DEDUP_WINDOW_MS,
+  MIC_PAUSE_FILE
 } from './config.ts'
 
 const PORT = Number(process.env.PORT ?? SERVER_PORT)
@@ -57,7 +58,7 @@ function evictStaleHashes(): void {
 }
 
 // Mic control — server owns the pause file; daemon reads it every loop iteration
-const MIC_PAUSE_FILE = '/tmp/wake-word-pause'
+// MIC_PAUSE_FILE is imported from config.ts (shared with relay-poller.ts)
 
 function isMicOn(): boolean {
   return !existsSync(MIC_PAUSE_FILE)
