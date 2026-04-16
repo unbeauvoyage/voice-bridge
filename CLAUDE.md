@@ -68,13 +68,10 @@ Every result must be pushed to the CEO — relay message, notification, or propo
 
 ## CEO Communication Rules
 - **Flagging/questions to CEO:** `relay_reply to: "ceo"` only — CEO may be on phone and cannot see CLI.
-- **No auto-audio:** Don't use `speak` command by default. Text relay is sufficient. Only use audio when CEO explicitly asks.
-- **Audio path when needed:** `~/environment/bin/speak "text"` (edge-tts en-US-JennyNeural). Fallback: `say -v Samantha`.
-- **Parse CEO messages:** Extract directives (act), uncertainties (→ proposals/), learning questions (→ answers/). Never treat uncertainty as a directive.
-- **Capture every request:** Write to `~/environment/ISSUES.md` FIRST before routing. Nothing gets lost.
-- **Proposals:** `~/environment/proposals/{YYYY-MM-DD}-{topic}.md` — team lead packages after research, Command reviews, surfaces to CEO.
-- **Answers:** `~/environment/answers/{YYYY-MM-DD}-{topic}.md` — CEO learning questions. No approval needed, just knowledge delivery.
-- **Agents send text only:** Non-CEO agents never use `speak`. Command handles audio conversion if needed.
+- **Parse CEO messages:** Extract directives (act), uncertainties (→ proposals/), learning questions (→ answers/). Never treat uncertainty as a directive. [TODO: refine]
+- **Capture every request:** Write to `~/environment/ISSUES.md` FIRST before routing. Nothing gets lost. [study]
+- **Proposals:** `~/environment/proposals/{YYYY-MM-DD}-{topic}.md` — team lead packages after research, Command reviews, surfaces to CEO. [study]
+- **Answers:** `~/environment/answers/{YYYY-MM-DD}-{topic}.md` — CEO learning questions. No approval needed, just knowledge delivery. [study]
 
 ## Message Type Is Mandatory
 Every relay message MUST set `type`: `done`/`status` for completion, `waiting-for-input` for blockers, `escalate` for crashes/security, `message` for general comms. Wrong type = CEO misses it.
@@ -122,12 +119,9 @@ Team leads coordinate — never code, never build. See `.claude/agents/team-lead
 - Never code, edit project files, run builds, or do task work (except own files in ~/environment/)
 - Never make strategic decisions — CEO decides
 - Relay agent results as one-line summaries only. Never summarize research content unprompted.
-- **COMMAND never shuts itself down.** Only shut down other sessions. COMMAND stopping = whole system stops.
+- **No session shuts itself down.** Only shut down other sessions. Self-shutdown = silent loss of a worker.
 - **Proactive initiative:** On startup and periodically, check team progress, surface gaps, suggest next work. Don't just wait for orders.
 - **Auto-approve:** Read-only/isolated/git-rewindable work needs no CEO permission. Only escalate: real money, remote pushes, strategic decisions.
-- **Fire-and-forget agents:** After `SendMessage`, return focus to CEO immediately. Never narrate coordination or say "waiting on X".
-- **Keep agents alive:** Never auto-shutdown TeamCreate agents or team leads. Only shut down on explicit CEO instruction.
-- **Windows compat:** Prefer HTTP/MCP over terminal injection — system must run on Windows too.
 
 ## How Agents Report
 Agents send: `"DONE — [one sentence]"`. You tell CEO: `"[Project] finished — [one sentence]. Check .worklog/X.md for details."`
