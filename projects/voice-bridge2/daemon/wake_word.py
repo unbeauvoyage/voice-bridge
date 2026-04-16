@@ -339,6 +339,19 @@ def main():
 
     import threading as _threading
     _is_recording = _threading.Event()  # set when recording, clear when idle
+    _whisper_in_flight = _threading.Event()  # set while send_to_server thread is running
+
+    def _send_with_guard(wav_bytes, server_url, target):
+        """
+        Thin wrapper around send_to_server that holds _whisper_in_flight for the
+        duration of the call (including Whisper inference, which takes 60-90s on CPU).
+        The finally block guarantees the flag is cleared even if send_to_server raises,
+        preventing the daemon from locking up permanently.
+        """
+        try:
+            send_to_server(wav_bytes, server_url, target)
+        finally:
+            _whisper_in_flight.clear()
 
     watcher_thread = threading.Thread(
         target=relay_message_watcher,
@@ -404,6 +417,14 @@ def main():
                         continue
                     last_activation = now
 
+                    # Guard: reject activation if a Whisper transcription is already running.
+                    # Without this, the user can stack 2-4 concurrent Whisper jobs during the
+                    # 60-90s CPU transcription window, flooding the relay when they all complete.
+                    if _whisper_in_flight.is_set():
+                        print("[wake-word] Whisper still in flight — ignoring activation")
+                        play_sound("Purr")  # subtle "busy" feedback so CEO knows activation was skipped
+                        continue
+
                     print(f"[wake-word] '{start_key}' detected (score={start_score:.2f}) — RECORDING")
                     play_sound("Tink")
                     start_recording_overlay()
@@ -438,8 +459,9 @@ def main():
                     print(f"  [record] {duration:.1f}s captured (trimmed {args.trim}s)")
 
                     wav_bytes = frames_to_wav(recorded_frames, pa)
+                    _whisper_in_flight.set()
                     threading.Thread(
-                        target=send_to_server,
+                        target=_send_with_guard,
                         args=(wav_bytes, args.server, args.target),
                         daemon=True,
                     ).start()
@@ -461,8 +483,9 @@ def main():
                     print(f"  [record] {duration:.1f}s captured")
 
                     wav_bytes = frames_to_wav(recorded_frames, pa)
+                    _whisper_in_flight.set()
                     threading.Thread(
-                        target=send_to_server,
+                        target=_send_with_guard,
                         args=(wav_bytes, args.server, args.target),
                         daemon=True,
                     ).start()
