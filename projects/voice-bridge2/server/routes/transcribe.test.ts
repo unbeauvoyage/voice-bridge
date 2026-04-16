@@ -368,6 +368,167 @@ describe('transcribe route handler', () => {
     })
   })
 
+  // ── Whisper hallucination filter ──────────────────────────────────────────
+  //
+  // When the wake word fires on low-signal audio (TTS bleed, ambient noise),
+  // Whisper's known artifact is to hallucinate single-phrase transcripts like
+  // "hello", "thank you", "thanks for watching", "you", "bye". If the audio
+  // RMS is also below a low threshold, these are almost certainly hallucinated.
+  // Treat them as cancelled/no-op rather than delivering them to an agent.
+  //
+  // CEO saw 23 identical "hello" in 2 min caused by TTS bleed back into the mic
+  // (relay-poller pause-guard bug). This filter is defense-in-depth — it
+  // prevents feedback loops even if the pause-guard fix is somehow bypassed.
+  describe('whisper hallucination filter', () => {
+    // Build a minimal WAV buffer with near-zero int16 samples.
+    // WAV header: 44 bytes, then int16 PCM samples (little-endian).
+    function makeSilentWav(durationMs = 100): Buffer {
+      const sampleRate = 16000
+      const numSamples = Math.floor((sampleRate * durationMs) / 1000)
+      const dataBytes = numSamples * 2 // int16 = 2 bytes per sample
+      const buf = Buffer.alloc(44 + dataBytes, 0)
+      // RIFF header
+      buf.write('RIFF', 0)
+      buf.writeUInt32LE(36 + dataBytes, 4)
+      buf.write('WAVE', 8)
+      buf.write('fmt ', 12)
+      buf.writeUInt32LE(16, 16) // PCM chunk size
+      buf.writeUInt16LE(1, 20)  // PCM format
+      buf.writeUInt16LE(1, 22)  // mono
+      buf.writeUInt32LE(sampleRate, 24)
+      buf.writeUInt32LE(sampleRate * 2, 28) // byte rate
+      buf.writeUInt16LE(2, 32)  // block align
+      buf.writeUInt16LE(16, 34) // bits per sample
+      buf.write('data', 36)
+      buf.writeUInt32LE(dataBytes, 40)
+      // All samples are 0 (already zeroed by Buffer.alloc)
+      return buf
+    }
+
+    // Build a WAV with high-amplitude int16 samples (RMS well above threshold).
+    function makeLoudWav(durationMs = 100): Buffer {
+      const sampleRate = 16000
+      const numSamples = Math.floor((sampleRate * durationMs) / 1000)
+      const dataBytes = numSamples * 2
+      const buf = Buffer.alloc(44 + dataBytes, 0)
+      buf.write('RIFF', 0)
+      buf.writeUInt32LE(36 + dataBytes, 4)
+      buf.write('WAVE', 8)
+      buf.write('fmt ', 12)
+      buf.writeUInt32LE(16, 16)
+      buf.writeUInt16LE(1, 20)
+      buf.writeUInt16LE(1, 22)
+      buf.writeUInt32LE(sampleRate, 24)
+      buf.writeUInt32LE(sampleRate * 2, 28)
+      buf.writeUInt16LE(2, 32)
+      buf.writeUInt16LE(16, 34)
+      buf.write('data', 36)
+      buf.writeUInt32LE(dataBytes, 40)
+      // Fill with max int16 value (32767) for all samples — guaranteed high RMS
+      for (let i = 0; i < numSamples; i++) {
+        buf.writeInt16LE(32767, 44 + i * 2)
+      }
+      return buf
+    }
+
+    function wavToFile(buf: Buffer, name = 'audio.wav'): File {
+      return new File([buf], name, { type: 'audio/wav' })
+    }
+
+    function makeRequest(audioFile: File, to?: string): Request {
+      const formData = new FormData()
+      formData.append('audio', audioFile)
+      if (to) formData.append('to', to)
+      const req = new Request('http://localhost:3030/transcribe', { method: 'POST', headers: {} })
+      Object.defineProperty(req, 'formData', { value: async () => formData })
+      return req
+    }
+
+    test('returns cancelled when transcript is "hello" and audio RMS is below threshold', async () => {
+      // Silent WAV + Whisper hallucinating "hello" → must be cancelled, not delivered
+      mock.module('../whisper.ts', () => ({
+        transcribeAudio: async (): Promise<string> => 'hello'
+      }))
+      const ctx = createMockContext()
+      const deliverCalls: unknown[] = []
+      ctx.deliverMessage = async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
+
+      const res = await handleTranscribe(makeRequest(wavToFile(makeSilentWav())), ctx)
+      expect(res.status).toBe(200)
+      const body: unknown = await res.json()
+      const obj: Record<string, unknown> = {}
+      if (typeof body === 'object' && body !== null) Object.assign(obj, body)
+      expect(obj['cancelled']).toBe(true)
+      expect(obj['reason']).toBe('whisper-hallucination')
+      expect(obj['transcript']).toBe('hello')
+      // Must NOT deliver — this was a hallucination
+      expect(deliverCalls).toHaveLength(0)
+    })
+
+    test('delivers normally when transcript is "hello" but audio RMS is above threshold', async () => {
+      // Real signal + "hello" → could be genuine greeting — must deliver
+      mock.module('../whisper.ts', () => ({
+        transcribeAudio: async (): Promise<string> => 'hello'
+      }))
+      const ctx = createMockContext()
+      const deliverCalls: unknown[] = []
+      ctx.deliverMessage = async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
+
+      const res = await handleTranscribe(makeRequest(wavToFile(makeLoudWav())), ctx)
+      expect(res.status).toBe(200)
+      const body: unknown = await res.json()
+      const obj: Record<string, unknown> = {}
+      if (typeof body === 'object' && body !== null) Object.assign(obj, body)
+      // Not cancelled — real audio
+      expect(obj['cancelled']).toBeUndefined()
+      expect(obj['delivered']).toBe(true)
+      expect(deliverCalls).toHaveLength(1)
+    })
+
+    test('delivers normally when transcript is longer than a single hallucination phrase at low RMS', async () => {
+      // Low RMS but multi-word sentence — user genuinely said something
+      mock.module('../whisper.ts', () => ({
+        transcribeAudio: async (): Promise<string> => 'hello can you open the door'
+      }))
+      const ctx = createMockContext()
+      const deliverCalls: unknown[] = []
+      ctx.deliverMessage = async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
+
+      const res = await handleTranscribe(makeRequest(wavToFile(makeSilentWav())), ctx)
+      expect(res.status).toBe(200)
+      const body: unknown = await res.json()
+      const obj: Record<string, unknown> = {}
+      if (typeof body === 'object' && body !== null) Object.assign(obj, body)
+      expect(obj['cancelled']).toBeUndefined()
+      expect(obj['delivered']).toBe(true)
+      expect(deliverCalls).toHaveLength(1)
+    })
+
+    test.each([
+      ['Hello.'],
+      ['Thank you!'],
+      ['Thanks for watching.'],
+      ['You'],
+      ['Bye'],
+    ])('hallucination filter is case-insensitive and strips trailing punctuation: %s', async (phrase) => {
+      mock.module('../whisper.ts', () => ({
+        transcribeAudio: async (): Promise<string> => phrase
+      }))
+      const ctx = createMockContext()
+      const deliverCalls: unknown[] = []
+      ctx.deliverMessage = async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
+
+      const res = await handleTranscribe(makeRequest(wavToFile(makeSilentWav())), ctx)
+      expect(res.status).toBe(200)
+      const body: unknown = await res.json()
+      const obj: Record<string, unknown> = {}
+      if (typeof body === 'object' && body !== null) Object.assign(obj, body)
+      expect(obj['cancelled']).toBe(true)
+      expect(obj['reason']).toBe('whisper-hallucination')
+      expect(deliverCalls).toHaveLength(0)
+    })
+  })
+
   test('POST /transcribe returns 400 when form data is invalid', async () => {
     // Simulate invalid form data parsing
     const req = new Request('http://localhost:3030/transcribe', { method: 'POST' })

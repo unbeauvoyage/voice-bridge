@@ -21,7 +21,11 @@
 import { transcribeAudio } from '../whisper.ts'
 import { llmRoute } from '../llmRouter.ts'
 import { isCancelCommand } from '../cancelUtils.ts'
-import { DEDUP_WAIT_DEADLINE_MS } from '../config.ts'
+import {
+  DEDUP_WAIT_DEADLINE_MS,
+  WHISPER_HALLUCINATION_PHRASES,
+  WHISPER_HALLUCINATION_RMS_THRESHOLD
+} from '../config.ts'
 
 // Body size: 10 MiB absolute cap at the HTTP boundary. A 60s voice message
 // at webm/opus ~32kbps is ~240 KiB, so this is ~40× typical; legitimate
@@ -297,6 +301,44 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
       { error: 'Empty transcription — no speech detected' },
       { status: 422, headers: corsHeaders }
     )
+  }
+
+  // ── Whisper hallucination filter ───────────────────────────────────────────
+  // Defense-in-depth against the feedback loop that caused 23 identical
+  // "hello" responses in 2 min: when TTS audio bleeds back into the mic,
+  // Whisper's artifact is a known single-phrase hallucination ("hello",
+  // "thank you", etc.). If the audio RMS is also below the low threshold,
+  // treat it as cancelled rather than delivering to an agent.
+  //
+  // RMS is computed over the int16 PCM samples in the WAV buffer after
+  // the 44-byte header. Non-WAV audio will have RMS computed over its raw
+  // bytes (moot: hallucinations from ffmpeg-converted paths land as WAV,
+  // and non-WAV with sufficient energy will exceed the threshold anyway).
+  {
+    const normalised = transcript.trim().toLowerCase().replace(/[^\w\s]/g, '').trim()
+    if (WHISPER_HALLUCINATION_PHRASES.has(normalised)) {
+      // Compute RMS over int16 samples skipping 44-byte WAV header
+      const sampleOffset = 44
+      const numSamples = Math.floor((audioBuffer.length - sampleOffset) / 2)
+      let sumSq = 0
+      if (numSamples > 0) {
+        for (let i = 0; i < numSamples; i++) {
+          const s = audioBuffer.readInt16LE(sampleOffset + i * 2)
+          sumSq += s * s
+        }
+      }
+      const rms = numSamples > 0 ? Math.sqrt(sumSq / numSamples) : 0
+      if (rms < WHISPER_HALLUCINATION_RMS_THRESHOLD) {
+        console.log(
+          `[voice-bridge] whisper hallucination suppressed (transcript="${transcript}", rms=${rms.toFixed(1)})`
+        )
+        ctx.recentAudioHashes.delete(audioHash)
+        return Response.json(
+          { transcript, cancelled: true, reason: 'whisper-hallucination' },
+          { headers: corsHeaders }
+        )
+      }
+    }
   }
 
   // ── Cancel detection ───────────────────────────────────────────────────────
