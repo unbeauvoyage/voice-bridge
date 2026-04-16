@@ -34,10 +34,15 @@ import pyaudio
 import requests
 from openwakeword.model import Model
 
+_ALLOWED_SOUNDS = frozenset({"Purr", "Tink", "Pop", "Ping", "Glass", "Blow", "Bottle", "Frog", "Funk", "Hero", "Morse", "Sosumi", "Submarine"})
+
 def play_sound(name: str):
     """Play a macOS system sound non-blocking via osascript (works from background processes)."""
-    script = f'set volume alert volume 100\ndo shell script "afplay -v 3 /System/Library/Sounds/{name}.aiff"'
-    subprocess.Popen(["osascript", "-e", script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if name not in _ALLOWED_SOUNDS:
+        print(f"[wake-word] play_sound: rejected unknown sound {name!r}")
+        return
+    subprocess.Popen(["afplay", "-v", "3", f"/System/Library/Sounds/{name}.aiff"],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 # Pause directory — detection is suppressed when this directory exists AND contains
