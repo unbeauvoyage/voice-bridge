@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { writeFileSync, readFileSync, unlinkSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { WHISPER_BASE_URL_DEFAULT, WHISPER_TIMEOUT_MS } from './config.ts'
@@ -23,9 +23,10 @@ function convertToWav(audioBuffer: Buffer, ext: string): Buffer {
   try {
     writeFileSync(inputPath, audioBuffer)
     console.log(`[whisper] input: ${audioBuffer.length} bytes (${ext})`)
-    const ffOut = execSync(
-      `ffmpeg -i "${inputPath}" -ar 16000 -ac 1 -c:a pcm_s16le "${wavPath}" -y 2>&1`,
-      { timeout: 60000 }
+    const ffOut = execFileSync(
+      'ffmpeg',
+      ['-i', inputPath, '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', wavPath, '-y'],
+      { timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'] }
     )
     console.log(
       `[whisper] ffmpeg: ${ffOut
