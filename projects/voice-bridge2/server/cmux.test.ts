@@ -21,12 +21,46 @@ import { deliverViaCmux, listWorkspaceNames, type CmuxExec, type CmuxResult } fr
 // A fake exec that maps a cmux arg-prefix → CmuxResult. Lets tests script
 // which specific cmux command fails (list vs send vs send-key).
 function makeExec(script: Array<{ match: RegExp; result: CmuxResult }>): CmuxExec {
-  return (args: string): CmuxResult => {
-    const hit = script.find((s) => s.match.test(args))
-    if (!hit) return { ok: false, error: `no script match for: ${args}` }
+  return (args: string[]): CmuxResult => {
+    const joined = args.join(' ')
+    const hit = script.find((s) => s.match.test(joined))
+    if (!hit) return { ok: false, error: `no script match for: ${joined}` }
     return hit.result
   }
 }
+
+// Chunk-5 #1b — sibling of the TTS RCE. runCmux used to shell-interpolate
+// `cmux ${args}` through execSync, exposing a template-string injection
+// path. The fix: the exec boundary takes an argv array; no shell ever
+// parses caller input. These tests pin that contract.
+describe('cmux exec — argv-only boundary (no shell interpolation)', () => {
+  test('deliverViaCmux passes the transcript as a SINGLE argv element, not a shell string', () => {
+    const calls: string[][] = []
+    const recorder: CmuxExec = (args) => {
+      calls.push(args)
+      const joined = args.join(' ')
+      if (args[0] === 'list-workspaces') {
+        return { ok: true, stdout: 'workspace:1 alpha\n' }
+      }
+      if (args[0] === 'list-pane-surfaces') {
+        return { ok: true, stdout: 'surface:1 main\n' }
+      }
+      if (args[0] === 'send' || args[0] === 'send-key') {
+        return { ok: true, stdout: '' }
+      }
+      return { ok: false, error: `unexpected: ${joined}` }
+    }
+
+    const rcePayload = '$(touch /tmp/vb-cmux-canary-test); hello'
+    deliverViaCmux(rcePayload, 'alpha', recorder)
+
+    const sendCall = calls.find((c) => c[0] === 'send')
+    expect(sendCall).toBeDefined()
+    // The payload must appear verbatim as a single argv element —
+    // nothing upstream may attempt to shell-quote or escape it.
+    expect(sendCall).toContain(rcePayload)
+  })
+})
 
 const WS_OK_OUTPUT = 'workspace:1 alpha\nworkspace:2 beta\n'
 const SURF_OK_OUTPUT = 'surface:1 main\n'
