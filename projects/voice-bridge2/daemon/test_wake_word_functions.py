@@ -309,3 +309,77 @@ class TestFramesToWav:
         pa = self._make_pa()
         wake_word.frames_to_wav(self._make_frames(), pa)
         pa.get_sample_size.assert_called_once_with(wake_word.FORMAT)
+
+
+# ---------------------------------------------------------------------------
+# evict_stale_seen_ids
+# ---------------------------------------------------------------------------
+
+class TestEvictStaleSeenIds:
+    """evict_stale_seen_ids(seen_ids, max_age_seconds) removes old entries in-place.
+
+    This helper was extracted from relay_message_watcher to make the eviction
+    logic testable. Without it, seen_ids grows forever — each message ID is added
+    but never removed, causing unbounded memory growth over long daemon runs.
+    """
+
+    def test_entry_older_than_max_age_is_evicted(self):
+        """An entry whose timestamp is older than max_age_seconds must be removed.
+
+        This is the core regression test: without eviction, seen_ids grows forever.
+        """
+        import time
+        seen_ids: dict[str, float] = {"old-msg": time.time() - 120}  # 2 minutes old
+        wake_word.evict_stale_seen_ids(seen_ids, max_age_seconds=60.0)
+        assert "old-msg" not in seen_ids, "Stale entry must be evicted after max_age_seconds"
+
+    def test_fresh_entry_survives_eviction(self):
+        """An entry added just now must NOT be evicted — only old entries are removed."""
+        import time
+        seen_ids: dict[str, float] = {"fresh-msg": time.time()}
+        wake_word.evict_stale_seen_ids(seen_ids, max_age_seconds=60.0)
+        assert "fresh-msg" in seen_ids, "Fresh entry must survive eviction"
+
+    def test_mixed_entries_evicts_only_stale(self):
+        """With a mix of old and fresh entries, only stale ones are removed."""
+        import time
+        now = time.time()
+        seen_ids: dict[str, float] = {
+            "stale": now - 90,   # 90 seconds old — evict
+            "fresh": now - 10,   # 10 seconds old — keep
+        }
+        wake_word.evict_stale_seen_ids(seen_ids, max_age_seconds=60.0)
+        assert "stale" not in seen_ids
+        assert "fresh" in seen_ids
+
+    def test_empty_dict_does_not_raise(self):
+        """Calling eviction on an empty dict must be a no-op — no KeyError or similar."""
+        seen_ids: dict[str, float] = {}
+        # Should not raise
+        wake_word.evict_stale_seen_ids(seen_ids, max_age_seconds=60.0)
+        assert seen_ids == {}
+
+    def test_eviction_is_in_place(self):
+        """The function must modify the dict in-place, not return a new one.
+
+        relay_message_watcher holds a local reference to seen_ids; if eviction
+        returned a new dict, the caller's reference would still point to the old
+        unbounded one.
+        """
+        import time
+        seen_ids: dict[str, float] = {"stale": time.time() - 120}
+        original_id = id(seen_ids)
+        wake_word.evict_stale_seen_ids(seen_ids, max_age_seconds=60.0)
+        assert id(seen_ids) == original_id, "evict_stale_seen_ids must modify in-place"
+
+    def test_custom_max_age_is_respected(self):
+        """The max_age_seconds parameter must be honoured — not a hardcoded constant."""
+        import time
+        # Entry is 5 seconds old; a 10s max-age keeps it, a 3s max-age evicts it
+        seen_ids_keep: dict[str, float] = {"msg": time.time() - 5}
+        wake_word.evict_stale_seen_ids(seen_ids_keep, max_age_seconds=10.0)
+        assert "msg" in seen_ids_keep
+
+        seen_ids_evict: dict[str, float] = {"msg": time.time() - 5}
+        wake_word.evict_stale_seen_ids(seen_ids_evict, max_age_seconds=3.0)
+        assert "msg" not in seen_ids_evict

@@ -116,6 +116,19 @@ def send_to_server(wav_bytes: bytes, server_url: str, target: str) -> None:
     show_overlay(mode, f"{delivered_to}: {''}" if success else "Send failed")
 
 
+def evict_stale_seen_ids(seen_ids: dict[str, float], max_age_seconds: float = 60.0) -> None:
+    """Remove entries older than max_age_seconds from seen_ids dict.
+
+    Called at the top of each relay_message_watcher poll loop to prevent
+    unbounded memory growth — without eviction, seen_ids accumulates every
+    message ID forever.
+    """
+    cutoff = time.time() - max_age_seconds
+    stale = [k for k, ts in seen_ids.items() if ts < cutoff]
+    for k in stale:
+        del seen_ids[k]
+
+
 def frames_to_wav(frames: list[bytes], pa: Any) -> bytes:
     """Convert list of audio frames to WAV bytes."""
     buf = io.BytesIO()
@@ -233,10 +246,10 @@ def main() -> None:
 
     # TODO(CEO-DECISION): relay_message_watcher may be superseded by relay-poller.ts
     # (Bun server already polls relay + does TTS via edge-tts). Confirm and delete.
-    def relay_message_watcher(server_url: str) -> None:
+    def relay_message_watcher() -> None:
         """Poll relay for new messages to 'command' and show overlay toasts."""
         relay_base = "http://localhost:8767"
-        seen_ids: set[str] = set()
+        seen_ids: dict[str, float] = {}
 
         _speech_queue: queue.Queue[str | None] = queue.Queue()
 
@@ -293,6 +306,7 @@ def main() -> None:
             _speech_queue.put(text)
 
         while True:
+            evict_stale_seen_ids(seen_ids)
             try:
                 res = requests.get(f"{relay_base}/history/ceo", timeout=3)
                 if res.ok:
@@ -306,7 +320,7 @@ def main() -> None:
                             continue
                         msg_id = msg.get("id") or msg.get("_id")
                         if msg_id and msg_id not in seen_ids:
-                            seen_ids.add(msg_id)
+                            seen_ids[msg_id] = time.time()
                             # Parse timestamp and log age before filtering
                             ts_str = msg.get("ts", "")
                             try:
@@ -360,7 +374,6 @@ def main() -> None:
 
     watcher_thread = threading.Thread(
         target=relay_message_watcher,
-        args=(args.server,),
         daemon=True,
     )
     watcher_thread.start()
