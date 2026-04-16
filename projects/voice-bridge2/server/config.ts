@@ -107,14 +107,33 @@ export const WHISPER_HALLUCINATION_PHRASES = new Set([
  */
 export const WHISPER_HALLUCINATION_RMS_THRESHOLD = 500
 
-// ─── Mic pause file ───────────────────────────────────────────────────────────
+// ─── Mic pause directory (refcount owner-token design) ────────────────────────
+//
+// The original single-file /tmp/wake-word-pause was shared between:
+//   • manual mic-off (server/index.ts) — writes the file when user says "turn off mic"
+//   • TTS pause guard (relay-poller.ts) — writes the file before TTS playback
+// This caused two collision bugs:
+//   1. TTS release() unlinked the file mid-manual-silence → mic went hot against user intent.
+//   2. Overlapping TTS cycles raced: second release() unlinked first's token mid-playback.
+//
+// Fix: per-owner token directory. Each owner writes its own file:
+//   • manual mic-off writes {MIC_PAUSE_DIR}/manual
+//   • each TTS cycle writes {MIC_PAUSE_DIR}/tts-{uuid}
+// Daemon pauses if MIC_PAUSE_DIR exists AND contains any file.
+// release() only unlinks its own token; manual token survives TTS cycles.
+//
+// MIC_PAUSE_FILE kept for backward-compatibility with any external tooling that
+// checks the old path. The daemon now checks MIC_PAUSE_DIR instead.
+
+/** @deprecated Use MIC_PAUSE_DIR with per-owner token files instead. */
+export const MIC_PAUSE_FILE = '/tmp/wake-word-pause'
 
 /**
- * File whose presence tells daemon/wake_word.py to suppress wake-word detection.
- * Shared between server/index.ts (mic commands) and relay-poller.ts (TTS guard).
- * daemon/wake_word.py checks PAUSE_FILE.exists() on every audio chunk.
+ * Directory whose non-empty presence tells daemon/wake_word.py to suppress
+ * wake-word detection. Each owner writes its own token file inside this dir.
+ * Daemon checks: dir exists AND has at least one entry.
  */
-export const MIC_PAUSE_FILE = '/tmp/wake-word-pause'
+export const MIC_PAUSE_DIR = '/tmp/wake-word-pause.d'
 
 // ─── Deduplication ───────────────────────────────────────────────────────────
 

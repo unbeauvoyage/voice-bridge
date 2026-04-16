@@ -10,7 +10,7 @@
  */
 
 import { readFile } from 'node:fs/promises'
-import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync } from 'node:fs'
 import { atomicWriteFile } from './atomicWriteFile.ts'
 import { join } from 'node:path'
 import { spawnSync, spawn } from 'node:child_process'
@@ -32,7 +32,7 @@ import {
   RELAY_BASE_URL_DEFAULT,
   OVERLAY_URL_DEFAULT,
   DEDUP_WINDOW_MS,
-  MIC_PAUSE_FILE
+  MIC_PAUSE_DIR
 } from './config.ts'
 
 const PORT = Number(process.env.PORT ?? SERVER_PORT)
@@ -57,22 +57,32 @@ function evictStaleHashes(): void {
   }
 }
 
-// Mic control — server owns the pause file; daemon reads it every loop iteration
-// MIC_PAUSE_FILE is imported from config.ts (shared with relay-poller.ts)
+// Mic control — writes/removes the "manual" token in MIC_PAUSE_DIR.
+// Daemon pauses if the directory exists AND contains any file.
+// Using a per-owner token (manual) means TTS cycles (tts-{uuid} tokens) cannot
+// clear the user's explicit mic-off — their tokens are independent.
+
+const MANUAL_TOKEN = `${MIC_PAUSE_DIR}/manual`
 
 function isMicOn(): boolean {
-  return !existsSync(MIC_PAUSE_FILE)
+  // Mic is on if the directory has no entries (or doesn't exist).
+  // We check only the manual token for the purpose of the UI "state" indicator —
+  // TTS tokens are transient and shouldn't make the UI show "mic off" during playback.
+  return !existsSync(MANUAL_TOKEN)
 }
 function setMic(on: boolean): void {
   if (on) {
     try {
-      unlinkSync(MIC_PAUSE_FILE)
+      unlinkSync(MANUAL_TOKEN)
     } catch {
       /* file may not exist */
     }
+    // If no other tokens remain, optionally remove the directory too.
+    // We leave the directory in place — it's cheap and avoids a TOCTOU race.
   } else {
     try {
-      writeFileSync(MIC_PAUSE_FILE, '')
+      mkdirSync(MIC_PAUSE_DIR, { recursive: true })
+      writeFileSync(MANUAL_TOKEN, '')
     } catch {
       /* ignore write errors */
     }

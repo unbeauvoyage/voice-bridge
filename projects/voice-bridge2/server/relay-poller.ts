@@ -9,9 +9,15 @@
  */
 
 import { spawn } from 'node:child_process'
-import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs'
 import { once } from 'node:events'
-import { POLL_INTERVAL_MS, RELAY_POLL_TIMEOUT_MS, OVERLAY_TIMEOUT_MS, MIC_PAUSE_FILE } from './config.ts'
+import { randomUUID } from 'node:crypto'
+import {
+  POLL_INTERVAL_MS,
+  RELAY_POLL_TIMEOUT_MS,
+  OVERLAY_TIMEOUT_MS,
+  MIC_PAUSE_DIR
+} from './config.ts'
 
 // Types replicated inline so this module has no path-alias dependencies.
 type SendRequest = { from: string; to: string; type: string; body: string }
@@ -72,19 +78,32 @@ export interface TtsPauseGuard {
   release(): void
 }
 
-const defaultTtsPauseGuard: TtsPauseGuard = {
-  acquire() {
-    try {
-      writeFileSync(MIC_PAUSE_FILE, '')
-    } catch {
-      /* ignore write errors */
-    }
-  },
-  release() {
-    try {
-      unlinkSync(MIC_PAUSE_FILE)
-    } catch {
-      /* file may not exist */
+/**
+ * Creates a per-call TtsPauseGuard backed by a token file in MIC_PAUSE_DIR.
+ *
+ * Each TTS cycle gets a unique token name (tts-{uuid}) so concurrent cycles
+ * and manual mic-off (which writes {MIC_PAUSE_DIR}/manual) cannot stomp each other.
+ * acquire() writes the token; release() unlinks only that token.
+ * The directory is created with mkdir -p on acquire so the guard is self-contained.
+ */
+function createTtsPauseGuard(): TtsPauseGuard {
+  const token = `tts-${randomUUID()}`
+  const tokenPath = `${MIC_PAUSE_DIR}/${token}`
+  return {
+    acquire() {
+      try {
+        mkdirSync(MIC_PAUSE_DIR, { recursive: true })
+        writeFileSync(tokenPath, '')
+      } catch {
+        /* ignore write errors */
+      }
+    },
+    release() {
+      try {
+        unlinkSync(tokenPath)
+      } catch {
+        /* token may not exist if acquire failed */
+      }
     }
   }
 }
@@ -98,8 +117,17 @@ export interface RelayPollerOptions {
   ttsWordLimit?: number
   /** Injectable spawn for TTS; defaults to argv-only node:child_process spawn */
   ttsSpawn?: TtsSpawn
-  /** Injectable pause guard; defaults to touching/unlinking /tmp/wake-word-pause */
-  ttsPauseGuard?: TtsPauseGuard
+  /**
+   * Injectable pause guard factory. Called once per TTS message so each TTS
+   * cycle gets a unique token — prevents concurrent cycles from stomping each
+   * other's tokens and avoids clearing the user's manual mic-off token.
+   *
+   * If you pass a fixed TtsPauseGuard object (for tests that verify acquire/release
+   * ordering), it is wrapped to behave like a factory returning that same guard.
+   *
+   * Defaults to createTtsPauseGuard() which writes tts-{uuid} token in MIC_PAUSE_DIR.
+   */
+  ttsPauseGuard?: TtsPauseGuard | (() => TtsPauseGuard)
 }
 
 export interface RelayPoller {
@@ -121,11 +149,32 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
     overlayUrl,
     ttsEnabled,
     ttsWordLimit = 50,
-    ttsSpawn = defaultTtsSpawn,
-    ttsPauseGuard = defaultTtsPauseGuard
+    ttsSpawn = defaultTtsSpawn
   } = options
+
+  // Resolve the pause guard option into a factory function.
+  // If the caller passed a plain TtsPauseGuard object (e.g. test fakes that
+  // record acquire/release ordering), wrap it as a factory returning that same
+  // object. If the caller passed a factory function, use it as-is.
+  // Default: createTtsPauseGuard() — one unique token per TTS call.
+  let guardFactory: () => TtsPauseGuard
+  if (options.ttsPauseGuard === undefined) {
+    guardFactory = createTtsPauseGuard
+  } else if (typeof options.ttsPauseGuard === 'function') {
+    guardFactory = options.ttsPauseGuard
+  } else {
+    // Plain TtsPauseGuard object — wrap in a factory that always returns the same guard.
+    // TypeScript narrows to TtsPauseGuard here (the function branch is handled above).
+    const fixedGuard: TtsPauseGuard = options.ttsPauseGuard
+    guardFactory = () => fixedGuard
+  }
+
   const seenIds = new Set<string>()
   let intervalHandle: Timer | null = null
+  // In-flight guard: prevents two concurrent poll cycles from running simultaneously.
+  // Without this, the 3s interval can fire a second pollOnce() while the first is
+  // still awaiting TTS afplay, causing two concurrent TTS playbacks to race.
+  let inFlight = false
 
   function isQueuedMessage(value: unknown): value is QueuedMessage {
     if (value === null || typeof value !== 'object') return false
@@ -201,22 +250,19 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
       // `$(...)` still expands under `sh -c`, so any queued message
       // body could execute arbitrary commands on the host.
       //
-      // We run the two steps independently (fire-and-forget), mirroring
-      // the prior fire-and-forget semantics. afplay races with edge-tts
-      // writing the file, but that matches the prior `&&` chain's
-      // best-effort intent; full sequencing would require awaiting the
-      // first child and is not part of the security fix.
+      // Chunk-5 HIGH fix #2: per-owner pause token.
+      // Each TTS call creates a unique tts-{uuid} token in MIC_PAUSE_DIR.
+      // release() only unlinks that specific token, so:
+      //   • the user's manual mic-off token ({MIC_PAUSE_DIR}/manual) survives TTS
+      //   • overlapping TTS cycles cannot clear each other's tokens
       if (ttsEnabled) {
         const wordCount = msg.body.trim().split(/\s+/).length
         if (wordCount <= ttsWordLimit) {
-          // Suppress wake-word detection across the full TTS playback window.
-          // acquire() writes /tmp/wake-word-pause (daemon reads it every chunk).
-          // release() removes it after afplay exits — guaranteed by try/finally.
-          //
-          // Before Chunk-5 #1 the old `speak` wrapper script handled this
-          // implicitly. The argv-only split dropped the wrapper and the guard
-          // with it, leaving the mic hot during TTS playback → feedback loop.
-          ttsPauseGuard.acquire()
+          // Each message gets its own unique guard instance (unique UUID token).
+          // This prevents concurrent TTS cycles from stomping each other and
+          // prevents TTS from clearing the user's manual mic-off token.
+          const guard = guardFactory()
+          guard.acquire()
           try {
             ttsSpawn('edge-tts', [
               '--voice',
@@ -246,7 +292,7 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
               err instanceof Error ? err.message : String(err)
             )
           } finally {
-            ttsPauseGuard.release()
+            guard.release()
           }
         }
       }
@@ -255,9 +301,19 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
 
   function start(): void {
     if (intervalHandle !== null) return
-    // Fire immediately, then on interval
+    // Fire immediately, then on interval.
+    // The inFlight guard is applied only on interval ticks (not the initial
+    // eager fire) so the first poll always runs. Interval ticks skip if the
+    // previous cycle is still awaiting TTS afplay, preventing two concurrent
+    // TTS playbacks from racing when the poll interval is shorter than TTS time.
     void pollOnce()
-    intervalHandle = setInterval(() => void pollOnce(), POLL_INTERVAL_MS)
+    intervalHandle = setInterval(() => {
+      if (inFlight) return
+      inFlight = true
+      pollOnce().finally(() => {
+        inFlight = false
+      })
+    }, POLL_INTERVAL_MS)
   }
 
   function stop(): void {

@@ -40,8 +40,13 @@ def play_sound(name: str):
     subprocess.Popen(["osascript", "-e", script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-# Pause file — when this exists, detection is suppressed.
-PAUSE_FILE = Path("/tmp/wake-word-pause")
+# Pause directory — detection is suppressed when this directory exists AND contains
+# at least one file (per-owner token). Each owner writes its own token:
+#   manual mic-off → /tmp/wake-word-pause.d/manual
+#   each TTS cycle → /tmp/wake-word-pause.d/tts-{uuid}
+# This replaces the old single-file /tmp/wake-word-pause which caused stomping bugs:
+# TTS release() deleted the file even if the user had manually silenced the mic.
+PAUSE_DIR = Path("/tmp/wake-word-pause.d")
 
 # Audio settings (OpenWakeWord expects 16kHz mono)
 RATE = 16000
@@ -365,8 +370,10 @@ def main():
             audio_data = stream.read(capture_chunk, exception_on_overflow=False)
             audio_array = np.frombuffer(audio_data, dtype=np.int16)
 
-            # Skip detection when paused (mic off command or system audio playing)
-            if PAUSE_FILE.exists():
+            # Skip detection when paused (mic off command or TTS playback in progress).
+            # Pause is indicated by PAUSE_DIR existing AND containing at least one token file.
+            # Using a directory prevents stomping: manual-off token and TTS tokens coexist.
+            if PAUSE_DIR.exists() and any(PAUSE_DIR.iterdir()):
                 if state == STATE_RECORDING:
                     # Mic was turned off mid-recording — abort and hide overlay
                     print("[wake-word] mic paused mid-recording — discarding")
