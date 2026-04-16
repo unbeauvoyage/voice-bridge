@@ -1,23 +1,13 @@
 # Agency: Bicycle Market Scanner — Nara / Kyoto / Osaka
 
-**See `~/.claude/CLAUDE-common-to-all-agency-projects.md`** for common agency rules: research methodology, communication patterns, role definitions. This file contains market-specific content only.
-
----
+See `~/.claude/CLAUDE-common-to-all-agency-projects.md` for common rules.
 
 ## Mission
-Find bicycles that can be bought cheaply and resold at a higher price. Build deep knowledge of the bicycle market in the Kansai region.
+Find bicycles to buy cheaply and resell at higher prices. Build deep knowledge of Kansai bicycle market. Priority: Nara → Kyoto → Osaka.
 
-## Priority
-1. **Nara** (primary)
-2. **Kyoto** (secondary)
-3. **Osaka** (tertiary)
-
-## What to Research
-- Used bicycle shops, online listings (Mercari, Yahoo Auctions, Jim's, local shops)
-- Price ranges by type: mamachari, road bikes, mountain bikes, e-bikes, vintage/collectible
-- Resale channels: where do bikes sell for more? Tourist areas? Online? Export?
-- Seasonal patterns: when are bikes cheapest? When do they sell best?
-- Specific opportunities: underpriced listings, shops that undervalue certain types
-- Condition assessment: what repairs add the most value?
-- Legal/registration: bicycle registration requirements in Japan for resale
-
+## Key Research Areas
+- Sources: used bicycle shops, Mercari, Yahoo Auctions, local shops
+- Types: mamachari, road, mountain, e-bikes, vintage/collectible
+- Resale channels: tourist areas vs online vs export; seasonal patterns
+- Condition assessment: which repairs add most value
+- Legal: bicycle registration requirements for resale in Japan
