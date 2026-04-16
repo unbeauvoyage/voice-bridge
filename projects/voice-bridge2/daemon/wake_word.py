@@ -21,7 +21,9 @@ import datetime
 import time
 import wave
 import threading
+import queue
 from pathlib import Path
+from typing import Any
 
 # Ensure venv packages are available regardless of how this script is launched (e.g. pm2)
 _VENV = Path(__file__).parent / ".venv" / "lib" / "python3.14" / "site-packages"
@@ -29,13 +31,13 @@ if _VENV.exists() and str(_VENV) not in sys.path:
     sys.path.insert(0, str(_VENV))
 
 import numpy as np
-import pyaudio
+import pyaudio  # type: ignore[import-untyped]
 import requests
-from openwakeword.model import Model
+from openwakeword.model import Model  # type: ignore[import-untyped]
 
 _ALLOWED_SOUNDS = frozenset({"Purr", "Tink", "Pop", "Ping", "Glass", "Blow", "Bottle", "Frog", "Funk", "Hero", "Morse", "Sosumi", "Submarine"})
 
-def play_sound(name: str):
+def play_sound(name: str) -> None:
     """Play a macOS system sound non-blocking via osascript (works from background processes)."""
     if name not in _ALLOWED_SOUNDS:
         print(f"[wake-word] play_sound: rejected unknown sound {name!r}")
@@ -70,7 +72,7 @@ MIN_RECORD_BEFORE_STOP = 4.0  # seconds to ignore stop word after recording star
 ELECTRON_OVERLAY_URL = "http://localhost:47890/overlay"
 
 
-def show_overlay(mode, text=""):
+def show_overlay(mode: str, text: str = "") -> None:
     """Send overlay command to Electron overlay server. Never raises."""
     try:
         payload = json.dumps({"mode": mode, "text": text}).encode()
@@ -85,7 +87,7 @@ def show_overlay(mode, text=""):
         pass  # never crash wake_word on overlay failure
 
 
-def send_to_server(wav_bytes, server_url, target):
+def send_to_server(wav_bytes: bytes, server_url: str, target: str) -> None:
     """POST recorded audio to voice-bridge /transcribe endpoint."""
     delivered_to = target
     success = False
@@ -114,7 +116,7 @@ def send_to_server(wav_bytes, server_url, target):
     show_overlay(mode, f"{delivered_to}: {''}" if success else "Send failed")
 
 
-def frames_to_wav(frames, pa):
+def frames_to_wav(frames: list[bytes], pa: Any) -> bytes:
     """Convert list of audio frames to WAV bytes."""
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
@@ -125,7 +127,7 @@ def frames_to_wav(frames, pa):
     return buf.getvalue()
 
 
-def main():
+def main() -> None:
     # --- Single-instance lockfile guard ---
     import fcntl
     _LOCK_FILE = "/tmp/wake-word.lock"
@@ -189,7 +191,7 @@ def main():
 
     # Live settings — reloaded every 5 seconds from settings.json
     _SETTINGS_PATH = str(Path(__file__).parent / "settings.json")
-    _settings = {
+    _settings: dict[str, Any] = {
         "toast_duration": 15,
         "tts_enabled": True,
         "tts_word_limit": 8,
@@ -197,7 +199,7 @@ def main():
         "start_threshold": args.start_threshold,
     }
 
-    def _reload_settings():
+    def _reload_settings() -> None:
         """Reload settings from file every 5 seconds."""
         while True:
             try:
@@ -216,7 +218,7 @@ def main():
     print(f"[wake-word] Live settings: {_SETTINGS_PATH}")
     print()
 
-    def start_recording_overlay():
+    def start_recording_overlay() -> None:
         # Read current sticky target for display
         last_target_file = str(Path(__file__).parent.parent / "tmp" / "last-target.txt")
         try:
@@ -226,20 +228,19 @@ def main():
             current_target = args.target
         show_overlay("recording", current_target)
 
-    def hide_recording_overlay():
+    def hide_recording_overlay() -> None:
         show_overlay("hidden")
 
     # TODO(CEO-DECISION): relay_message_watcher may be superseded by relay-poller.ts
     # (Bun server already polls relay + does TTS via edge-tts). Confirm and delete.
-    def relay_message_watcher(server_url):
+    def relay_message_watcher(server_url: str) -> None:
         """Poll relay for new messages to 'command' and show overlay toasts."""
         relay_base = "http://localhost:8767"
-        seen_ids = set()
+        seen_ids: set[str] = set()
 
-        import queue as _queue
-        _speech_queue = _queue.Queue()
+        _speech_queue: queue.Queue[str | None] = queue.Queue()
 
-        def _speech_worker():
+        def _speech_worker() -> None:
             while True:
                 text = _speech_queue.get()
                 if text is None:
@@ -257,7 +258,7 @@ def main():
         _speech_thread = threading.Thread(target=_speech_worker, daemon=True)
         _speech_thread.start()
 
-        def summarize_for_audio(from_agent, body, word_limit=8):
+        def summarize_for_audio(from_agent: str, body: str, word_limit: int = 8) -> str:
             """Use Ollama llama3.2 to summarize message to one short spoken sentence."""
             try:
                 prompt = (
@@ -287,7 +288,7 @@ def main():
                 first = re.split(r'[.!?\n]', body)[0].strip()
                 return first[:120]
 
-        def speak_summary(text):
+        def speak_summary(text: str) -> None:
             print(f"  [tts] queuing: {text[:60]}")
             _speech_queue.put(text)
 
@@ -345,7 +346,7 @@ def main():
     _is_recording = threading.Event()  # set when recording, clear when idle
     _whisper_in_flight = threading.Event()  # set while send_to_server thread is running
 
-    def _send_with_guard(wav_bytes, server_url, target):
+    def _send_with_guard(wav_bytes: bytes, server_url: str, target: str) -> None:
         """
         Thin wrapper around send_to_server that holds _whisper_in_flight for the
         duration of the call (including Whisper inference, which takes 60-90s on CPU).
@@ -368,9 +369,11 @@ def main():
     STATE_IDLE = "idle"
     STATE_RECORDING = "recording"
     state = STATE_IDLE
-    recorded_frames = []
-    record_start_time = 0
-    last_activation = 0
+    recorded_frames: list[bytes] = []
+    # BUG FIX: these were typed as int (= 0) but time.time() returns float,
+    # causing a mypy --strict assignment error. Initialized as float.
+    record_start_time: float = 0.0
+    last_activation: float = 0.0
 
     try:
         while True:
