@@ -31,8 +31,18 @@ export function handleWakeWord(req: Request, ctx: WakeWordContext): Response | n
   if (req.method === 'POST' && url.pathname === '/wake-word/stop') {
     const pid = ctx.findPid()
     if (pid) {
-      ctx.stop(pid)
-      console.log(`[wake-word] stopped (PID ${pid})`)
+      try {
+        ctx.stop(pid)
+        console.log(`[wake-word] stopped (PID ${pid})`)
+      } catch (err) {
+        // kill failed (e.g. permission denied) — process is still running
+        const message = err instanceof Error ? err.message : String(err)
+        console.error(`[wake-word] stop failed for PID ${pid}: ${message}`)
+        return Response.json(
+          { running: true, error: message },
+          { status: 500, headers: CORS_HEADERS }
+        )
+      }
     }
     return Response.json({ running: false }, { headers: CORS_HEADERS })
   }
@@ -41,8 +51,30 @@ export function handleWakeWord(req: Request, ctx: WakeWordContext): Response | n
     const existing = ctx.findPid()
     if (!existing) {
       const target = ctx.loadLastTarget()
-      ctx.start(target)
-      console.log(`[wake-word] started with target "${target}"`)
+      try {
+        ctx.start(target)
+        console.log(`[wake-word] started with target "${target}"`)
+      } catch (err) {
+        // spawn failed (Python not found, path error, etc.)
+        const message = err instanceof Error ? err.message : String(err)
+        console.error(`[wake-word] start failed: ${message}`)
+        return Response.json(
+          { running: false, error: message },
+          { status: 500, headers: CORS_HEADERS }
+        )
+      }
+      // Best-effort liveness check: even if spawn didn't throw, the process may
+      // have exited immediately (bad Python path, missing venv, script crash).
+      // pgrep is fast enough that an immediately-crashing process won't be found.
+      const alive = ctx.findPid()
+      if (!alive) {
+        const message = 'Process exited immediately after spawn'
+        console.error(`[wake-word] ${message}`)
+        return Response.json(
+          { running: false, error: message },
+          { status: 500, headers: CORS_HEADERS }
+        )
+      }
     }
     return Response.json({ running: true }, { headers: CORS_HEADERS })
   }
