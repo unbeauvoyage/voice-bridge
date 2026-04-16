@@ -25,7 +25,8 @@ import {
   type TtsPauseGuard,
   defaultTtsSpawn,
   createTtsPauseGuard,
-  playTts
+  playTts,
+  summarizeForTts
 } from './tts.ts'
 
 // Re-export so existing consumers (relay-poller.test.ts) continue to import from here.
@@ -270,15 +271,17 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
       // TTS via edge-tts (Microsoft Jenny neural voice).
       // Full playback logic (argv-only spawn, sequential edge-tts→afplay, timeout+kill,
       // per-owner pause guard) lives in ./tts.ts — see playTts() for the security rationale.
+      //
+      // All messages are spoken: summarizeForTts() shortens long ones via Ollama
+      // (falls back to first-sentence truncation when Ollama is offline). Short messages
+      // (≤ ttsWordLimit + 3 words) pass through unchanged.
       if (ttsEnabled) {
-        const wordCount = msg.body.trim().split(/\s+/).length
-        if (wordCount <= ttsWordLimit) {
-          // Each message gets its own unique guard instance (unique UUID token).
-          // Unique mp3 path per call so concurrent cycles cannot overwrite each other's files.
-          const mp3Path = `/tmp/vb2-tts-${randomUUID()}.mp3`
-          const guard = guardFactory()
-          await playTts(msg.body, mp3Path, guard, ttsSpawn, edgeTtsTimeoutMs, afplayTimeoutMs)
-        }
+        const ttsText = await summarizeForTts(msg.body, ttsWordLimit)
+        // Each message gets its own unique guard instance (unique UUID token).
+        // Unique mp3 path per call so concurrent cycles cannot overwrite each other's files.
+        const mp3Path = `/tmp/vb2-tts-${randomUUID()}.mp3`
+        const guard = guardFactory()
+        await playTts(ttsText, mp3Path, guard, ttsSpawn, edgeTtsTimeoutMs, afplayTimeoutMs)
       }
     }
   }

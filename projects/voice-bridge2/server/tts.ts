@@ -14,7 +14,62 @@ import { spawn } from 'node:child_process'
 import { writeFileSync, mkdirSync, unlinkSync } from 'node:fs'
 import { once } from 'node:events'
 import { randomUUID } from 'node:crypto'
-import { MIC_PAUSE_DIR } from './config.ts'
+import { MIC_PAUSE_DIR, OLLAMA_BASE_URL_DEFAULT, OLLAMA_TIMEOUT_MS } from './config.ts'
+
+/**
+ * Summarizes a message body using Ollama before TTS playback.
+ *
+ * Short messages (≤ wordLimit + 3 words) pass through unchanged — no Ollama call.
+ * For longer messages, sends a prompt to the local Ollama instance (llama3.2:latest).
+ * Strips a leading "Summary:" prefix that the model sometimes echoes.
+ *
+ * Fallback (Ollama offline, timeout, or empty response): returns the first sentence
+ * of the input, truncated to 120 characters — matching the old Python daemon behavior.
+ *
+ * @param text      Raw message body to summarize.
+ * @param wordLimit Target word count for the summary (also used as skip threshold).
+ *                  Defaults to 8.
+ */
+export async function summarizeForTts(
+  text: string,
+  wordLimit: number = 8
+): Promise<string> {
+  // Short messages need no summarization — pass through unchanged.
+  const words = text.trim().split(/\s+/)
+  if (words.length <= wordLimit + 3) return text.trim()
+
+  try {
+    const prompt = `Summarize the following message in ${wordLimit} to ${wordLimit + 3} words. No agent name. Just the key fact.\n\nMessage: ${text}\n\nSummary:`
+    const res = await fetch(OLLAMA_BASE_URL_DEFAULT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'llama3.2:latest',
+        prompt,
+        stream: false,
+        options: { num_predict: wordLimit * 3, temperature: 0.3 }
+      }),
+      signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS)
+    })
+    if (!res.ok) throw new Error(`Ollama ${res.status}`)
+    const data = (await res.json()) as { response?: string }
+    let summary = (data.response ?? '').trim()
+    if (summary.toLowerCase().startsWith('summary:')) {
+      summary = summary.slice(8).trim()
+    }
+    if (summary) return summary
+  } catch (err) {
+    console.error(
+      '[tts] ollama summarization failed:',
+      err instanceof Error ? err.message : String(err)
+    )
+  }
+
+  // Fallback: first sentence of the input text, max 120 chars.
+  // Matches the old Python daemon speak() fallback behavior.
+  const first = text.split(/[.!?\n]/)[0]?.trim() ?? text.trim()
+  return first.slice(0, 120)
+}
 
 /**
  * Shape of the TTS spawn boundary. Takes a command + argv array — NEVER
