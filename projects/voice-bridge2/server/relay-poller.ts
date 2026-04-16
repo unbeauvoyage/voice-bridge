@@ -374,13 +374,17 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
             // Step 2: Spawn afplay now that edge-tts has finished (or timed out).
             // 60-second cap prevents hanging if afplay never exits.
             const afplayChild = ttsSpawn('afplay', [mp3Path])
-            await Promise.race([
-              once(afplayChild, 'exit'),
-              new Promise<void>((resolve) => setTimeout(resolve, afplayTimeoutMs))
-            ]).catch(() => {
-              // afplay may exit non-zero — that's acceptable;
-              // we still need to release the guard.
-            })
+            const afplayResult = await Promise.race([
+              once(afplayChild, 'exit').then(() => 'exited' as const),
+              new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), afplayTimeoutMs))
+            ]).catch(() => 'exited' as const)
+            if (
+              afplayResult === 'timeout' &&
+              'kill' in afplayChild &&
+              typeof afplayChild.kill === 'function'
+            ) {
+              afplayChild.kill()
+            }
           } catch (err) {
             console.error(
               '[relay-poller] TTS spawn failed:',
