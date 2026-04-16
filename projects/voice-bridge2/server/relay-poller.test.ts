@@ -880,6 +880,183 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
     })
   })
 
+  // ── TTS race fix: await edge-tts exit before spawning afplay ─────────────
+  //
+  // Bug: edge-tts was fire-and-forget; afplay was spawned immediately after
+  // so it raced edge-tts for the mp3 file. The CEO heard silence or truncated
+  // speech because afplay opened /tmp/vb2-tts.mp3 before edge-tts finished writing it.
+  //
+  // Fix: await edge-tts exit (with a 30s cap) BEFORE spawning afplay.
+  // Also: unique mp3 path per call to prevent concurrent cycles from overwriting
+  // each other's files; mp3 cleaned up after afplay finishes (best-effort).
+  describe('TTS race fix: edge-tts sequential before afplay', () => {
+    test('edge-tts completes before afplay starts', async () => {
+      // Inject a ttsSpawn that records call order and edge-tts exit time relative to afplay spawn time.
+      // We emit edge-tts 'exit' after a short delay and assert afplay was NOT spawned until after that.
+      const events: string[] = []
+
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args intentionally unused in fake spawn; command is the focus
+      const fakeSpawn: TtsSpawn = (command, _args) => {
+        const child = new EventEmitter()
+        if (command === 'edge-tts') {
+          // Record spawn, then emit exit after a microtask
+          events.push('spawn:edge-tts')
+          setImmediate(() => {
+            events.push('exit:edge-tts')
+            child.emit('exit', 0, null)
+          })
+        } else if (command === 'afplay') {
+          events.push('spawn:afplay')
+          setImmediate(() => {
+            events.push('exit:afplay')
+            child.emit('exit', 0, null)
+          })
+        }
+        return child
+      }
+
+      relayMessages = [
+        {
+          id: 'tts-seq-1',
+          from: 'atlas',
+          to: 'ceo',
+          type: 'message',
+          body: 'Sequential TTS test.',
+          ts: '2026-04-16T17:00:00Z'
+        }
+      ]
+      overlayPosts.length = 0
+
+      const poller = createRelayPoller({
+        relayBaseUrl: `http://localhost:${RELAY_PORT}`,
+        overlayUrl: `http://localhost:${OVERLAY_PORT}/overlay`,
+        ttsEnabled: true,
+        ttsSpawn: fakeSpawn
+      })
+      await poller.pollOnce()
+
+      // edge-tts must exit BEFORE afplay is even spawned
+      const exitEdgeIdx = events.indexOf('exit:edge-tts')
+      const spawnAfplayIdx = events.indexOf('spawn:afplay')
+
+      expect(exitEdgeIdx).toBeGreaterThanOrEqual(0)
+      expect(spawnAfplayIdx).toBeGreaterThanOrEqual(0)
+      // The critical assertion: afplay spawn must come AFTER edge-tts exit
+      expect(spawnAfplayIdx).toBeGreaterThan(exitEdgeIdx)
+    })
+
+    test('edge-tts timeout does not prevent afplay attempt', async () => {
+      // edge-tts never emits 'exit'; after the edgeTtsTimeoutMs cap, afplay should still be spawned.
+      // We use a short injected edgeTtsTimeoutMs (e.g. 50ms) to avoid real 30s waits.
+      const events: string[] = []
+
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- _args intentionally unused in fake spawn; command is the focus
+      const fakeSpawn: TtsSpawn = (command, _args) => {
+        const child = new EventEmitter()
+        if (command === 'edge-tts') {
+          events.push('spawn:edge-tts')
+          // Never emits 'exit' — simulates a hung download
+        } else if (command === 'afplay') {
+          events.push('spawn:afplay')
+          setImmediate(() => {
+            events.push('exit:afplay')
+            child.emit('exit', 0, null)
+          })
+        }
+        return child
+      }
+
+      relayMessages = [
+        {
+          id: 'tts-timeout-1',
+          from: 'atlas',
+          to: 'ceo',
+          type: 'message',
+          body: 'Timeout TTS test.',
+          ts: '2026-04-16T17:00:01Z'
+        }
+      ]
+      overlayPosts.length = 0
+
+      const poller = createRelayPoller({
+        relayBaseUrl: `http://localhost:${RELAY_PORT}`,
+        overlayUrl: `http://localhost:${OVERLAY_PORT}/overlay`,
+        ttsEnabled: true,
+        ttsSpawn: fakeSpawn,
+        // Short cap so the test doesn't wait 30 real seconds
+        edgeTtsTimeoutMs: 80
+      })
+      await poller.pollOnce()
+
+      // Even though edge-tts never exited, afplay should still have been spawned
+      expect(events).toContain('spawn:edge-tts')
+      expect(events).toContain('spawn:afplay')
+    })
+
+    test('unique mp3 path per TTS call — no shared /tmp/vb2-tts.mp3', async () => {
+      // Each TTS call must use a unique --write-media path so concurrent cycles
+      // cannot overwrite each other's files.
+      const writtenPaths: string[] = []
+
+      const fakeSpawn: TtsSpawn = (command, args) => {
+        const child = new EventEmitter()
+        if (command === 'edge-tts') {
+          // Capture the --write-media argument
+          const writeMediaIdx = args.indexOf('--write-media')
+          const mp3Arg = args[writeMediaIdx + 1]
+          if (writeMediaIdx >= 0 && mp3Arg) {
+            writtenPaths.push(mp3Arg)
+          }
+          setImmediate(() => child.emit('exit', 0, null))
+        } else if (command === 'afplay') {
+          setImmediate(() => child.emit('exit', 0, null))
+        }
+        return child
+      }
+
+      // Two separate TTS-eligible messages via separate poller calls to force two TTS cycles
+      const poller = createRelayPoller({
+        relayBaseUrl: `http://localhost:${RELAY_PORT}`,
+        overlayUrl: `http://localhost:${OVERLAY_PORT}/overlay`,
+        ttsEnabled: true,
+        ttsSpawn: fakeSpawn
+      })
+
+      relayMessages = [
+        {
+          id: 'unique-mp3-1',
+          from: 'atlas',
+          to: 'ceo',
+          type: 'message',
+          body: 'First message.',
+          ts: '2026-04-16T17:00:02Z'
+        },
+        {
+          id: 'unique-mp3-2',
+          from: 'sentinel',
+          to: 'ceo',
+          type: 'message',
+          body: 'Second message.',
+          ts: '2026-04-16T17:00:03Z'
+        }
+      ]
+      overlayPosts.length = 0
+
+      await poller.pollOnce()
+
+      // Both edge-tts calls must have been made (two messages)
+      expect(writtenPaths).toHaveLength(2)
+
+      // Each path must be unique — no shared /tmp/vb2-tts.mp3
+      const [path1, path2] = writtenPaths
+      expect(path1).not.toBe(path2)
+
+      // Neither path should be the old fixed /tmp/vb2-tts.mp3
+      expect(path1).not.toBe('/tmp/vb2-tts.mp3')
+      expect(path2).not.toBe('/tmp/vb2-tts.mp3')
+    })
+  })
+
   test('only shows done/status/message/waiting-for-input types, filters out voice-sent etc', async () => {
     relayMessages = [
       {

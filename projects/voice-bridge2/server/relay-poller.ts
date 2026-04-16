@@ -139,6 +139,18 @@ export interface RelayPollerOptions {
    * Defaults to createTtsPauseGuard() which writes tts-{uuid} token in MIC_PAUSE_DIR.
    */
   ttsPauseGuard?: TtsPauseGuard | (() => TtsPauseGuard)
+  /**
+   * Maximum ms to wait for edge-tts to finish writing the mp3 before proceeding
+   * to afplay anyway. Production default: 30000ms (30s).
+   * Injectable in tests with a short value (e.g. 80ms) to avoid real waits.
+   */
+  edgeTtsTimeoutMs?: number
+  /**
+   * Maximum ms to wait for afplay to finish before releasing the pause guard.
+   * Production default: 60000ms (60s).
+   * Injectable in tests.
+   */
+  afplayTimeoutMs?: number
 }
 
 export interface RelayPoller {
@@ -158,7 +170,9 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
   const {
     relayBaseUrl,
     overlayUrl,
-    ttsSpawn = defaultTtsSpawn
+    ttsSpawn = defaultTtsSpawn,
+    edgeTtsTimeoutMs = 30_000,
+    afplayTimeoutMs = 60_000
   } = options
 
   // Resolve TTS settings strategy.
@@ -323,29 +337,40 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
           // Each message gets its own unique guard instance (unique UUID token).
           // This prevents concurrent TTS cycles from stomping each other and
           // prevents TTS from clearing the user's manual mic-off token.
+          // Unique mp3 path per call so concurrent cycles cannot overwrite
+          // each other's files. Cleaned up after afplay exits (best-effort).
+          const mp3Path = `/tmp/vb2-tts-${randomUUID()}.mp3`
           const guard = guardFactory()
           guard.acquire()
           try {
-            ttsSpawn('edge-tts', [
+            // Step 1: Spawn edge-tts and AWAIT its exit before spawning afplay.
+            // The old code was fire-and-forget: afplay raced edge-tts for the
+            // mp3 file and played silence or a truncated file. Now we wait for
+            // edge-tts to finish writing (up to edgeTtsTimeoutMs) before starting
+            // playback. The cap prevents a stuck download from blocking forever.
+            const edgeTtsChild = ttsSpawn('edge-tts', [
               '--voice',
               'en-US-JennyNeural',
               '--text',
               msg.body,
               '--write-media',
-              '/tmp/vb2-tts.mp3'
+              mp3Path
             ])
-            // Await afplay exit so release() fires after audio finishes.
-            // edge-tts runs fire-and-forget; afplay races with it writing
-            // the file — matching the prior &&-chain's best-effort intent.
-            //
-            // 60-second cap prevents the poll loop from hanging forever if
-            // afplay somehow never exits (e.g. SIGSTOP, zombie process).
-            const afplayChild = ttsSpawn('afplay', ['/tmp/vb2-tts.mp3'])
+            await Promise.race([
+              once(edgeTtsChild, 'exit'),
+              new Promise<void>((resolve) => setTimeout(resolve, edgeTtsTimeoutMs))
+            ]).catch(() => {
+              /* edge-tts may exit non-zero — proceed to afplay anyway */
+            })
+
+            // Step 2: Spawn afplay now that edge-tts has finished (or timed out).
+            // 60-second cap prevents hanging if afplay never exits.
+            const afplayChild = ttsSpawn('afplay', [mp3Path])
             await Promise.race([
               once(afplayChild, 'exit'),
-              new Promise<void>((resolve) => setTimeout(resolve, 60_000))
+              new Promise<void>((resolve) => setTimeout(resolve, afplayTimeoutMs))
             ]).catch(() => {
-              // afplay may exit non-zero (file not ready yet) — that's acceptable;
+              // afplay may exit non-zero — that's acceptable;
               // we still need to release the guard.
             })
           } catch (err) {
@@ -355,6 +380,12 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
             )
           } finally {
             guard.release()
+            // Best-effort cleanup of the temp mp3
+            try {
+              unlinkSync(mp3Path)
+            } catch {
+              /* file may not exist if edge-tts failed */
+            }
           }
         }
       }
