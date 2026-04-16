@@ -1,3 +1,6 @@
+// Single-handler file — TTS playback extracted (tts.ts).
+// Remaining logic is one cohesive polling state machine; further splitting creates artificial seams.
+
 /**
  * Relay response poller.
  *
@@ -312,6 +315,24 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
 }
 
 /**
+ * Validates a tts_word_limit value from the settings file.
+ *
+ * Accepts only positive finite integers in the range 1–500. Any value outside
+ * this range (negative, zero, NaN, Infinity, float, or above the cap) falls
+ * back to the default of 50.
+ *
+ * The upper cap (500) prevents a pathologically large value from letting an
+ * arbitrarily long message trigger TTS. The lower bound (1) ensures the limit
+ * is always a usable positive count.
+ */
+export function validateTtsWordLimit(v: number, defaultValue = 50): number {
+  if (Number.isFinite(v) && Number.isInteger(v) && v >= 1 && v <= 500) {
+    return v
+  }
+  return defaultValue
+}
+
+/**
  * Reads tts settings from daemon/settings.json on each poll cycle and starts
  * a background poller. Called from server/index.ts on startup.
  *
@@ -338,7 +359,7 @@ export function startRelayPoller(opts: {
             ttsEnabled: 'tts_enabled' in parsed && parsed.tts_enabled === true,
             ttsWordLimit:
               'tts_word_limit' in parsed && typeof parsed.tts_word_limit === 'number'
-                ? parsed.tts_word_limit
+                ? validateTtsWordLimit(parsed.tts_word_limit)
                 : 50
           }
         }

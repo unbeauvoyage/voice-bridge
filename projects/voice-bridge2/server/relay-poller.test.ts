@@ -9,7 +9,7 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
 import { existsSync, mkdirSync, writeFileSync, unlinkSync } from 'node:fs'
 import { EventEmitter } from 'node:events'
-import { createRelayPoller, type TtsSpawn, type TtsPauseGuard } from './relay-poller'
+import { createRelayPoller, startRelayPoller, type TtsSpawn, type TtsPauseGuard } from './relay-poller'
 import { MIC_PAUSE_DIR } from './config'
 
 // ─── Mock servers ─────────────────────────────────────────────────────────────
@@ -1273,5 +1273,60 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
       'agent-a: Done message.',
       'agent-c: Status update.'
     ])
+  })
+})
+
+// ─── startRelayPoller — tts_word_limit validation ────────────────────────────
+//
+// Security review finding: tts_word_limit was accepted without range validation.
+// Negative numbers, NaN, Infinity, and zero would pass `typeof x === 'number'`
+// checks and be used as-is, making TTS fire (or never fire) unexpectedly.
+//
+// Fix: extract validateTtsWordLimit() pure function; clamp to 1–500 range.
+// Out-of-range or non-finite values fall back to the default (50).
+import { validateTtsWordLimit } from './relay-poller'
+
+describe('validateTtsWordLimit: tts_word_limit settings validation', () => {
+  // The default of 50 is used whenever the value is invalid.
+  const DEFAULT = 50
+
+  test('returns value unchanged when within valid range 1–500', () => {
+    expect(validateTtsWordLimit(1)).toBe(1)
+    expect(validateTtsWordLimit(50)).toBe(50)
+    expect(validateTtsWordLimit(500)).toBe(500)
+    expect(validateTtsWordLimit(100)).toBe(100)
+  })
+
+  test('returns default when value is 0 (below minimum)', () => {
+    // 0 would mean "no messages ever read aloud" — nonsensical; treat as invalid.
+    expect(validateTtsWordLimit(0)).toBe(DEFAULT)
+  })
+
+  test('returns default when value is negative', () => {
+    expect(validateTtsWordLimit(-1)).toBe(DEFAULT)
+    expect(validateTtsWordLimit(-100)).toBe(DEFAULT)
+  })
+
+  test('returns default when value is above cap (501+)', () => {
+    // Cap prevents pathologically large word limits that would always trigger TTS.
+    expect(validateTtsWordLimit(501)).toBe(DEFAULT)
+    expect(validateTtsWordLimit(10000)).toBe(DEFAULT)
+  })
+
+  test('returns default for Infinity (not finite)', () => {
+    // Infinity passes typeof === "number" but is not a usable integer.
+    expect(validateTtsWordLimit(Infinity)).toBe(DEFAULT)
+    expect(validateTtsWordLimit(-Infinity)).toBe(DEFAULT)
+  })
+
+  test('returns default for NaN', () => {
+    // NaN passes typeof === "number" in JS but is not a valid count.
+    expect(validateTtsWordLimit(NaN)).toBe(DEFAULT)
+  })
+
+  test('returns default for non-integer (float)', () => {
+    // Word counts must be integers; 3.5 is not a valid limit.
+    expect(validateTtsWordLimit(3.5)).toBe(DEFAULT)
+    expect(validateTtsWordLimit(0.1)).toBe(DEFAULT)
   })
 })
