@@ -8,13 +8,27 @@ import { RELAY_BASE_URL_DEFAULT, RELAY_SEND_TIMEOUT_MS } from './config.ts'
 
 type SendRequest = { from: string; to: string; type: string; body: string }
 
-function isRelayResponse(value: unknown): value is { status: string } {
-  return typeof value === 'object' && value !== null && 'status' in value
+// Chunk-5 #2 HIGH: the prior `'status' in value` check was satisfied by
+// any object carrying a `status` key, regardless of value type or enum
+// membership. A relay returning `{status: 123}` or `{status: "bogus"}`
+// would pass that check, fail the 'queued' comparison, and resolve as
+// if delivered — silent non-delivery. The real relay contract is a
+// string enum of exactly 'delivered' | 'queued'; anything else is an
+// invalid response and MUST throw.
+type RelayStatus = 'delivered' | 'queued'
+function isRelayResponse(value: unknown): value is { status: RelayStatus } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  if (!('status' in value)) return false
+  const s: unknown = value.status
+  return s === 'delivered' || s === 'queued'
 }
 
-const RELAY_BASE_URL = process.env.RELAY_BASE_URL ?? RELAY_BASE_URL_DEFAULT
-const RELAY_URL = `${RELAY_BASE_URL}/send`
 const RELAY_TIMEOUT_MS = RELAY_SEND_TIMEOUT_MS
+
+function relayUrl(): string {
+  const base = process.env.RELAY_BASE_URL ?? RELAY_BASE_URL_DEFAULT
+  return `${base}/send`
+}
 
 export async function deliverToAgent(transcript: string, to: string): Promise<void> {
   const body: SendRequest = {
@@ -24,7 +38,8 @@ export async function deliverToAgent(transcript: string, to: string): Promise<vo
     body: transcript
   }
 
-  const res = await fetch(RELAY_URL, {
+  const url = relayUrl()
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -46,7 +61,7 @@ export async function deliverToAgent(transcript: string, to: string): Promise<vo
 
   // Echo into CEO's feed so outgoing messages appear alongside agent responses.
   // Fire-and-forget — don't block delivery on this.
-  fetch(RELAY_URL, {
+  fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
