@@ -281,8 +281,14 @@ const server = Bun.serve({
         readSettings: () => {
           try {
             return readFileSync(settingsPath, 'utf8')
-          } catch {
-            return null
+          } catch (err) {
+            // ENOENT = file missing (legitimate first-time use) → return null so
+            // the handler gives a 404 on GET or merges onto {} on POST.
+            // Any other error (EACCES, EISDIR, EIO) is a real problem → re-throw
+            // so the handler surfaces it as 500 instead of silently treating it
+            // as "no settings file" and potentially overwriting with fresh {}.
+            if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') return null
+            throw err
           }
         },
         writeSettings: (content: string) => {

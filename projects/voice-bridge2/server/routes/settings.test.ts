@@ -250,4 +250,50 @@ describe('handleSettings', () => {
     const res = await handleSettings(req, ctx)
     expect(res).toBeNull()
   })
+
+  // ENOENT vs real errors: readSettings returning null means "file missing" —
+  // a legitimate first-time state. But EACCES, EISDIR, EIO etc. are real
+  // problems that must surface as 500, not silently look like "no file".
+  // Without this, a permission error on GET looks like 404 ("not found"),
+  // and on POST results in writing fresh {} settings (also failing with a
+  // confusing "Failed to write" error masking the real root cause).
+  test('GET /settings returns 500 when readSettings throws EACCES', async () => {
+    const eaccesErr = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
+    const ctx: SettingsContext = {
+      readSettings: () => { throw eaccesErr },
+      writeSettings: () => { /* should not be called */ }
+    }
+    const req = new Request('http://localhost/settings')
+    const res = await handleSettings(req, ctx)
+    expect(res?.status).toBe(500)
+    const body = await readJsonObject(res)
+    expect(typeof body['error']).toBe('string')
+    // Must not be a 404 — distinguishing ENOENT from real errors is the whole point.
+    expect(res?.status).not.toBe(404)
+  })
+
+  test('POST /settings returns 500 when readSettings throws EACCES', async () => {
+    const eaccesErr = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
+    const ctx: SettingsContext = {
+      readSettings: () => { throw eaccesErr },
+      writeSettings: () => { /* should not be called */ }
+    }
+    const req = new Request('http://localhost/settings', {
+      method: 'POST',
+      body: JSON.stringify({ toast_duration: 5 })
+    })
+    const res = await handleSettings(req, ctx)
+    expect(res?.status).toBe(500)
+    const body = await readJsonObject(res)
+    expect(typeof body['error']).toBe('string')
+  })
+
+  // Regression: ENOENT (null from readSettings) is still a valid first-time-use
+  // case — must return 404 on GET, not 500.
+  test('GET /settings returns 404 when file missing (ENOENT — null return)', async () => {
+    const { ctx } = makeCtx({ existing: null })
+    const req = new Request('http://localhost/settings')
+    const res = await handleSettings(req, ctx)
+    expect(res?.status).toBe(404)
+  })
 })

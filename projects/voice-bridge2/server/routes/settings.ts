@@ -71,7 +71,18 @@ function parseCurrentSettings(
 
 export async function handleSettings(req: Request, ctx: SettingsContext): Promise<Response | null> {
   if (req.method === 'GET') {
-    const raw = ctx.readSettings()
+    let raw: string | null
+    try {
+      raw = ctx.readSettings()
+    } catch (err) {
+      // ENOENT is handled by returning null (see server/index.ts wiring).
+      // Any other error (EACCES, EISDIR, EIO) must surface as 500 — returning
+      // 404 would silently mask a real filesystem problem.
+      return Response.json(
+        { error: `Cannot read settings: ${String(err)}` },
+        { status: 500, headers: CORS_HEADERS }
+      )
+    }
     if (raw === null) {
       return Response.json(
         { error: 'settings.json not found' },
@@ -84,7 +95,19 @@ export async function handleSettings(req: Request, ctx: SettingsContext): Promis
   if (req.method === 'POST') {
     const parsed = parseJsonBody(await req.text(), SettingsPatchSchema)
     if (!parsed.ok) return parsed.response
-    const currentResult = parseCurrentSettings(ctx.readSettings())
+    let rawForMerge: string | null
+    try {
+      rawForMerge = ctx.readSettings()
+    } catch (err) {
+      // Same as GET path: non-ENOENT errors must propagate as 500, not silently
+      // be treated as "no file" (which would cause a fresh {} to be written,
+      // masking the original error with a confusing "Failed to write" message).
+      return Response.json(
+        { error: `Cannot read settings: ${String(err)}` },
+        { status: 500, headers: CORS_HEADERS }
+      )
+    }
+    const currentResult = parseCurrentSettings(rawForMerge)
     if (!currentResult.ok) {
       console.error(`[settings] refusing to overwrite: ${currentResult.error}`)
       return Response.json(
