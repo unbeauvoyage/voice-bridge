@@ -423,6 +423,7 @@ def main():
                     if _whisper_in_flight.is_set():
                         print("[wake-word] Whisper still in flight — ignoring activation")
                         play_sound("Purr")  # subtle "busy" feedback so CEO knows activation was skipped
+                        model.reset()
                         continue
 
                     print(f"[wake-word] '{start_key}' detected (score={start_score:.2f}) — RECORDING")
