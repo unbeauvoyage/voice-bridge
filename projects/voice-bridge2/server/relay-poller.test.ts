@@ -7,7 +7,8 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
-import { createRelayPoller } from './relay-poller'
+import { existsSync, unlinkSync } from 'node:fs'
+import { createRelayPoller, type TtsSpawn } from './relay-poller'
 
 // ─── Mock servers ─────────────────────────────────────────────────────────────
 
@@ -171,6 +172,101 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
     // Second poll — same message returned by relay, must NOT be re-posted
     await poller.pollOnce()
     expect(overlayPosts).toHaveLength(1)
+  })
+
+  // Chunk-5 #1 HIGH — shell-injection RCE via agent-controlled TTS body.
+  //
+  // The old TTS path used `spawn('sh', ['-c', `edge-tts ... --text ${JSON.stringify(body)} ...`])`.
+  // JSON.stringify wraps the body in double quotes, but inside `sh -c`
+  // double quotes STILL expand `$(...)` and backticks — so any agent
+  // that could queue a message body could execute arbitrary shell on
+  // the host the moment TTS fired.
+  //
+  // The fix: drop the shell entirely and use argv-only spawn. The body
+  // becomes a single argv element; no shell parses it. These tests pin
+  // that contract by injecting a recorder that captures (command, args)
+  // and asserting (a) the command is the TTS binary directly, not `sh`,
+  // and (b) the body argument is passed unmodified — no expansion.
+  describe('TTS shell-injection hardening', () => {
+    test('TTS spawn uses argv only — command is not `sh` and no `-c` flag', async () => {
+      const calls: Array<{ command: string; args: string[] }> = []
+      const recorder: TtsSpawn = (command, args) => {
+        calls.push({ command, args })
+      }
+      relayMessages = [
+        {
+          id: 'tts-argv-1',
+          from: 'agent-x',
+          to: 'ceo',
+          type: 'message',
+          body: 'Short harmless body.',
+          ts: '2026-04-16T10:00:00Z'
+        }
+      ]
+      overlayPosts.length = 0
+
+      const poller = createRelayPoller({
+        relayBaseUrl: `http://localhost:${RELAY_PORT}`,
+        overlayUrl: `http://localhost:${OVERLAY_PORT}/overlay`,
+        ttsEnabled: true,
+        ttsSpawn: recorder
+      })
+      await poller.pollOnce()
+
+      expect(calls.length).toBeGreaterThan(0)
+      for (const c of calls) {
+        expect(c.command).not.toBe('sh')
+        expect(c.command).not.toBe('bash')
+        expect(c.command).not.toBe('zsh')
+        expect(c.args).not.toContain('-c')
+      }
+    })
+
+    test('agent-controlled body with $(...) reaches spawn as a SINGLE argv element (no shell expansion)', async () => {
+      // Canary payload — if the shell ever parses this, it creates a
+      // marker file. The assertions below do NOT depend on edge-tts
+      // being installed; they inspect how the spawn boundary is called.
+      const payload = '$(touch /tmp/vb-rce-canary-test)`touch /tmp/vb-rce-canary-test`'
+      // Pre-clean the canary so a stale file from a previous run cannot
+      // give a false pass.
+      try {
+        unlinkSync('/tmp/vb-rce-canary-test')
+      } catch {
+        /* file may not exist */
+      }
+
+      const calls: Array<{ command: string; args: string[] }> = []
+      const recorder: TtsSpawn = (command, args) => {
+        calls.push({ command, args })
+      }
+      relayMessages = [
+        {
+          id: 'tts-rce-1',
+          from: 'malicious-agent',
+          to: 'ceo',
+          type: 'message',
+          body: payload,
+          ts: '2026-04-16T10:00:01Z'
+        }
+      ]
+      overlayPosts.length = 0
+
+      const poller = createRelayPoller({
+        relayBaseUrl: `http://localhost:${RELAY_PORT}`,
+        overlayUrl: `http://localhost:${OVERLAY_PORT}/overlay`,
+        ttsEnabled: true,
+        ttsSpawn: recorder
+      })
+      await poller.pollOnce()
+
+      // Contract: body is passed as a single argv element exactly as
+      // received — no quoting, no expansion.
+      const matchingCall = calls.find((c) => c.args.includes(payload))
+      expect(matchingCall).toBeDefined()
+
+      // And the shell never ran to create the canary.
+      expect(existsSync('/tmp/vb-rce-canary-test')).toBe(false)
+    })
   })
 
   test('only shows done/status/message/waiting-for-input types, filters out voice-sent etc', async () => {

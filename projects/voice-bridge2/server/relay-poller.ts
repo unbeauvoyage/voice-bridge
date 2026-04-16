@@ -33,13 +33,32 @@ const TOAST_TYPES = new Set(['done', 'status', 'message', 'waiting-for-input'])
 
 const MAX_BODY_CHARS = 120
 
+/**
+ * Shape of the TTS spawn boundary. Takes a command + argv array — NEVER
+ * a shell string. The production default uses argv-only `spawn` so the
+ * agent-controlled body can never reach a shell. Injected in tests so
+ * the contract is enforceable (see relay-poller.test.ts).
+ *
+ * Chunk-5 #1 HIGH fix: the previous implementation piped the body
+ * through `sh -c` with a JSON-quoted substitution; shell `$(...)`
+ * expansion inside double quotes made every queued message a latent
+ * RCE on the host when TTS was enabled.
+ */
+export type TtsSpawn = (command: string, args: string[]) => void
+
+const defaultTtsSpawn: TtsSpawn = (command, args) => {
+  spawn(command, args, { stdio: 'ignore' })
+}
+
 export interface RelayPollerOptions {
   relayBaseUrl: string
   overlayUrl: string
-  /** If true, trigger TTS via `say -v Samantha` for short messages */
+  /** If true, trigger TTS via edge-tts + afplay for short messages */
   ttsEnabled: boolean
   /** Max word count for TTS; messages over this limit skip TTS */
   ttsWordLimit?: number
+  /** Injectable spawn for TTS; defaults to argv-only node:child_process spawn */
+  ttsSpawn?: TtsSpawn
 }
 
 export interface RelayPoller {
@@ -56,7 +75,13 @@ export interface RelayPoller {
  * or `.pollOnce()` directly in tests.
  */
 export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
-  const { relayBaseUrl, overlayUrl, ttsEnabled, ttsWordLimit = 50 } = options
+  const {
+    relayBaseUrl,
+    overlayUrl,
+    ttsEnabled,
+    ttsWordLimit = 50,
+    ttsSpawn = defaultTtsSpawn
+  } = options
   const seenIds = new Set<string>()
   let intervalHandle: Timer | null = null
 
@@ -124,20 +149,34 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
         )
       }
 
-      // TTS via edge-tts (Microsoft Jenny neural voice)
+      // TTS via edge-tts (Microsoft Jenny neural voice).
+      //
+      // Chunk-5 #1 HIGH fix: no shell. The body is passed as a single
+      // argv element; shell metacharacters (`$(...)`, backticks, `;`,
+      // `&&`, pipes) cannot be interpreted because no shell is spawned.
+      // The previous `sh -c "edge-tts ... --text ${JSON.stringify(body)}
+      // ... && afplay /tmp/vb2-tts.mp3"` path was an RCE: double-quoted
+      // `$(...)` still expands under `sh -c`, so any queued message
+      // body could execute arbitrary commands on the host.
+      //
+      // We run the two steps independently (fire-and-forget), mirroring
+      // the prior fire-and-forget semantics. afplay races with edge-tts
+      // writing the file, but that matches the prior `&&` chain's
+      // best-effort intent; full sequencing would require awaiting the
+      // first child and is not part of the security fix.
       if (ttsEnabled) {
         const wordCount = msg.body.trim().split(/\s+/).length
         if (wordCount <= ttsWordLimit) {
           try {
-            // edge-tts --voice en-US-JennyNeural --text "..." --write-media /tmp/tts.mp3 && afplay /tmp/tts.mp3
-            spawn(
-              'sh',
-              [
-                '-c',
-                `edge-tts --voice en-US-JennyNeural --text ${JSON.stringify(msg.body)} --write-media /tmp/vb2-tts.mp3 && afplay /tmp/vb2-tts.mp3`
-              ],
-              { stdio: 'ignore' }
-            )
+            ttsSpawn('edge-tts', [
+              '--voice',
+              'en-US-JennyNeural',
+              '--text',
+              msg.body,
+              '--write-media',
+              '/tmp/vb2-tts.mp3'
+            ])
+            ttsSpawn('afplay', ['/tmp/vb2-tts.mp3'])
           } catch (err) {
             console.error(
               '[relay-poller] TTS spawn failed:',
