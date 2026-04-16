@@ -54,11 +54,68 @@ function convertToWav(audioBuffer: Buffer, ext: string): Buffer {
   }
 }
 
-export async function transcribeAudio(audioBuffer: Buffer, mimeType: string): Promise<string> {
+/**
+ * Compute RMS from a pcm_s16le WAV buffer.
+ *
+ * Scans for the RIFF 'data' subchunk by searching for the ASCII bytes 'd','a','t','a'
+ * starting after the fmt chunk (byte 12). This handles WAV files with extra chunks
+ * (LIST, INFO, etc.) between fmt and data — rather than assuming a fixed 44-byte offset.
+ *
+ * Returns 0 if no data chunk is found or the buffer is too small.
+ */
+function computeWavRms(wav: Buffer): number {
+  // Minimum valid WAV: 'RIFF' + 4-byte size + 'WAVE' + 'fmt ' chunk (minimum 24 bytes) = at least 44 bytes
+  if (wav.length < 44) return 0
+
+  // Search for 'data' subchunk starting after RIFF header (byte 12)
+  // Each chunk has: 4-byte ID + 4-byte size + data
+  let offset = 12
+  let dataOffset = -1
+  let dataSize = 0
+
+  while (offset + 8 <= wav.length) {
+    const id = wav.toString('ascii', offset, offset + 4)
+    const chunkSize = wav.readUInt32LE(offset + 4)
+    if (id === 'data') {
+      dataOffset = offset + 8
+      dataSize = chunkSize
+      break
+    }
+    // Advance past this chunk (header + data, padded to even byte boundary)
+    const advance = 8 + chunkSize + (chunkSize % 2)
+    if (advance <= 0) break // guard against malformed chunk sizes
+    offset += advance
+  }
+
+  if (dataOffset < 0 || dataSize === 0) return 0
+
+  const numSamples = Math.floor(Math.min(dataSize, wav.length - dataOffset) / 2)
+  if (numSamples === 0) return 0
+
+  let sumSq = 0
+  for (let i = 0; i < numSamples; i++) {
+    const s = wav.readInt16LE(dataOffset + i * 2)
+    sumSq += s * s
+  }
+  return Math.sqrt(sumSq / numSamples)
+}
+
+export interface TranscribeResult {
+  transcript: string
+  /** RMS of the ffmpeg-converted pcm_s16le buffer, on the 0–32767 int16 scale. */
+  audioRms: number
+}
+
+export async function transcribeAudio(audioBuffer: Buffer, mimeType: string): Promise<TranscribeResult> {
   const ext = mimeTypeToExt(mimeType)
-  // WHISPER_SKIP_CONVERT=1 bypasses ffmpeg — for test environments with fake audio bytes
+  // WHISPER_SKIP_CONVERT=1 bypasses ffmpeg — for test environments with fake audio bytes.
+  // In this mode, treat the buffer as-is and compute RMS over it (assumed WAV in tests).
   const wavBuffer =
     process.env.WHISPER_SKIP_CONVERT === '1' ? audioBuffer : convertToWav(audioBuffer, ext)
+
+  // Compute RMS from the converted pcm_s16le WAV — this is the ground truth signal
+  // level, regardless of the original upload format (webm, ogg, mp4, etc.).
+  const audioRms = computeWavRms(wavBuffer)
 
   const boundary = `----FormBoundary${randomUUID().replace(/-/g, '')}`
   const CRLF = '\r\n'
@@ -96,7 +153,7 @@ export async function transcribeAudio(audioBuffer: Buffer, mimeType: string): Pr
   }
 
   const text = await response.text()
-  return text.trim()
+  return { transcript: text.trim(), audioRms }
 }
 
 function mimeTypeToExt(mimeType: string): string {

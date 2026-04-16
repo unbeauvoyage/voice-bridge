@@ -19,8 +19,12 @@ import {
 // Default whisper mock: returns a stable transcript that won't trip
 // mic-command or cancel-detection heuristics. Individual tests may
 // re-mock to simulate throws / empty transcripts; beforeEach restores.
-const DEFAULT_WHISPER = (): { transcribeAudio: () => Promise<string> } => ({
-  transcribeAudio: async (): Promise<string> => 'hello world'
+// Returns { transcript, audioRms } per the updated transcribeAudio signature.
+const DEFAULT_WHISPER = (): { transcribeAudio: () => Promise<{ transcript: string; audioRms: number }> } => ({
+  transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
+    transcript: 'hello world',
+    audioRms: 10000 // well above hallucination threshold — not a hallucination
+  })
 })
 mock.module('../whisper.ts', DEFAULT_WHISPER)
 beforeEach(() => {
@@ -191,7 +195,7 @@ describe('transcribe route handler', () => {
   // return so retries get a fresh attempt.
   test('cache entry is cleaned up when transcription fails (retries do not hang)', async () => {
     mock.module('../whisper.ts', () => ({
-      transcribeAudio: async (): Promise<string> => {
+      transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => {
         throw new Error('whisper exploded')
       }
     }))
@@ -207,7 +211,10 @@ describe('transcribe route handler', () => {
 
   test('cache entry is cleaned up when transcript is empty', async () => {
     mock.module('../whisper.ts', () => ({
-      transcribeAudio: async (): Promise<string> => ''
+      transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
+        transcript: '',
+        audioRms: 0
+      })
     }))
     const formData = new FormData()
     formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
@@ -220,7 +227,10 @@ describe('transcribe route handler', () => {
 
   test('cache entry is cleaned up when transcript is a cancel command', async () => {
     mock.module('../whisper.ts', () => ({
-      transcribeAudio: async (): Promise<string> => 'cancel cancel cancel'
+      transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
+        transcript: 'cancel cancel cancel',
+        audioRms: 10000
+      })
     }))
     const formData = new FormData()
     formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
@@ -446,8 +456,12 @@ describe('transcribe route handler', () => {
 
     test('returns cancelled when transcript is "hello" and audio RMS is below threshold', async () => {
       // Silent WAV + Whisper hallucinating "hello" → must be cancelled, not delivered
+      // audioRms: 0 simulates near-silence from the converted PCM (below threshold 500)
       mock.module('../whisper.ts', () => ({
-        transcribeAudio: async (): Promise<string> => 'hello'
+        transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
+          transcript: 'hello',
+          audioRms: 0
+        })
       }))
       const ctx = createMockContext()
       const deliverCalls: unknown[] = []
@@ -467,8 +481,12 @@ describe('transcribe route handler', () => {
 
     test('delivers normally when transcript is "hello" but audio RMS is above threshold', async () => {
       // Real signal + "hello" → could be genuine greeting — must deliver
+      // audioRms: 10000 simulates real voice signal from the converted PCM (above threshold 500)
       mock.module('../whisper.ts', () => ({
-        transcribeAudio: async (): Promise<string> => 'hello'
+        transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
+          transcript: 'hello',
+          audioRms: 10000
+        })
       }))
       const ctx = createMockContext()
       const deliverCalls: unknown[] = []
@@ -487,8 +505,12 @@ describe('transcribe route handler', () => {
 
     test('delivers normally when transcript is longer than a single hallucination phrase at low RMS', async () => {
       // Low RMS but multi-word sentence — user genuinely said something
+      // Even with low audioRms, a multi-word transcript does not match the hallucination phrase set
       mock.module('../whisper.ts', () => ({
-        transcribeAudio: async (): Promise<string> => 'hello can you open the door'
+        transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
+          transcript: 'hello can you open the door',
+          audioRms: 0
+        })
       }))
       const ctx = createMockContext()
       const deliverCalls: unknown[] = []
@@ -512,7 +534,10 @@ describe('transcribe route handler', () => {
       ['Bye'],
     ])('hallucination filter is case-insensitive and strips trailing punctuation: %s', async (phrase) => {
       mock.module('../whisper.ts', () => ({
-        transcribeAudio: async (): Promise<string> => phrase
+        transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
+          transcript: phrase,
+          audioRms: 0 // below threshold — hallucination condition applies
+        })
       }))
       const ctx = createMockContext()
       const deliverCalls: unknown[] = []
@@ -547,5 +572,181 @@ describe('transcribe route handler', () => {
       Object.assign(obj, body)
     }
     expect(obj['error']).toMatch(/Invalid form data/)
+  })
+
+  // ── Fix 1: RMS computed from converted PCM, not raw upload buffer ─────────
+  //
+  // The old hallucination filter computed RMS over the raw upload buffer with a
+  // hard-coded 44-byte header offset, assuming the upload is WAV. But uploads
+  // are audio/webm, audio/ogg, audio/mp4, etc. — not WAV. The 44-byte offset
+  // reads container metadata bytes, yielding meaningless RMS values.
+  //
+  // Fix: transcribeAudio() now returns { transcript, audioRms } where audioRms
+  // is computed from the ffmpeg-converted pcm_s16le WAV buffer (scanning for
+  // the RIFF 'data' subchunk instead of assuming 44-byte offset). The handler
+  // uses that value instead of re-computing from the raw upload.
+  //
+  // This test sends a non-WAV upload (random bytes at audio/webm) with a mock
+  // whisper that returns "hello" and a very low audioRms (simulating silent
+  // audio). The hallucination filter must fire — it would not fire if RMS were
+  // still computed over the random upload bytes (which would be non-zero noise).
+  describe('Fix 1: hallucination filter uses converted PCM RMS, not raw upload RMS', () => {
+    test('hallucination filter uses converted PCM RMS, not raw upload RMS', async () => {
+      // Mock whisper to return a hallucination phrase with zero RMS
+      // (simulating the converted PCM being silence after ffmpeg)
+      mock.module('../whisper.ts', () => ({
+        transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
+          transcript: 'hello',
+          audioRms: 0 // near-silent converted PCM
+        })
+      }))
+
+      // Upload random non-WAV bytes — these would produce non-zero RMS if the
+      // old code still ran RMS over the upload buffer. With the fix, RMS comes
+      // from whisper's returned audioRms (0) → hallucination fires.
+      const randomBytes = new Uint8Array(1000)
+      for (let i = 0; i < randomBytes.length; i++) {
+        randomBytes[i] = Math.floor(Math.random() * 256)
+      }
+      const deliverCalls: unknown[] = []
+      const ctx = createMockContext({
+        deliverMessage: async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
+      })
+
+      const formData = new FormData()
+      formData.append('audio', new File([randomBytes], 'audio.webm', { type: 'audio/webm' }))
+      const req = new Request('http://localhost:3030/transcribe', { method: 'POST' })
+      Object.defineProperty(req, 'formData', { value: async () => formData })
+
+      const res = await handleTranscribe(req, ctx)
+      expect(res.status).toBe(200)
+      const body: unknown = await res.json()
+      const obj: Record<string, unknown> = {}
+      if (typeof body === 'object' && body !== null) Object.assign(obj, body)
+      // Must be cancelled as hallucination — NOT delivered
+      expect(obj['cancelled']).toBe(true)
+      expect(obj['reason']).toBe('whisper-hallucination')
+      expect(deliverCalls).toHaveLength(0)
+    })
+
+    test('hallucination filter does NOT fire when converted PCM RMS is above threshold', async () => {
+      // High audioRms returned by whisper — real audio, not hallucination
+      mock.module('../whisper.ts', () => ({
+        transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
+          transcript: 'hello',
+          audioRms: 10000 // well above WHISPER_HALLUCINATION_RMS_THRESHOLD (500)
+        })
+      }))
+
+      const deliverCalls: unknown[] = []
+      const ctx = createMockContext({
+        deliverMessage: async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
+      })
+
+      const formData = new FormData()
+      formData.append('audio', new File([new Uint8Array(100)], 'audio.webm', { type: 'audio/webm' }))
+      const req = new Request('http://localhost:3030/transcribe', { method: 'POST' })
+      Object.defineProperty(req, 'formData', { value: async () => formData })
+
+      const res = await handleTranscribe(req, ctx)
+      expect(res.status).toBe(200)
+      const body: unknown = await res.json()
+      const obj: Record<string, unknown> = {}
+      if (typeof body === 'object' && body !== null) Object.assign(obj, body)
+      expect(obj['cancelled']).toBeUndefined()
+      expect(obj['delivered']).toBe(true)
+      expect(deliverCalls).toHaveLength(1)
+    })
+  })
+
+  // ── Fix 2: dedup entry preserved as cancelled on hallucination path ────────
+  //
+  // The old code called ctx.recentAudioHashes.delete(audioHash) before returning
+  // the cancelled hallucination response. A concurrent duplicate in the wait loop
+  // would see the entry vanish → treat it as "original failed" → fall through and
+  // re-run whisper → hallucinate again → deliver another "hello" to the agent.
+  //
+  // Fix: instead of deleting, promote the entry to a terminal cancelled variant:
+  //   { ts, cancelled: true, transcript }
+  // The wait loop detects this and returns { cancelled: true, deduplicated: true }
+  // without re-running whisper.
+  describe('Fix 2: dedup entry preserved as cancelled result on hallucination path', () => {
+    test('concurrent duplicate of hallucinated audio gets cached cancelled result instead of re-running whisper', async () => {
+      // Mock whisper returns a hallucination with zero RMS
+      mock.module('../whisper.ts', () => ({
+        transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => ({
+          transcript: 'hello',
+          audioRms: 0
+        })
+      }))
+
+      let whisperCallCount = 0
+      const originalMock = {
+        transcribeAudio: async (): Promise<{ transcript: string; audioRms: number }> => {
+          whisperCallCount++
+          return { transcript: 'hello', audioRms: 0 }
+        }
+      }
+      mock.module('../whisper.ts', () => originalMock)
+
+      const ctx = createMockContext({ dedupWaitDeadlineMs: 2000 })
+
+      // Simulate: a hash is already inProgress (original is running)
+      const hash = 'hash-100' // matches hashAudioBuffer(buf of 100 bytes)
+      ctx.recentAudioHashes.set(hash, { ts: Date.now(), inProgress: true })
+
+      // The original finishes: it ran whisper, got hallucination, and should
+      // promote the entry to { cancelled: true, transcript: 'hello' }
+      // We simulate this by setting the entry to what the fix should store:
+      // (The duplicate waiter below should return cancelled without re-running whisper)
+      //
+      // To test the real behavior: run the original through the handler first,
+      // then start the duplicate and let the original resolve.
+
+      // Reset the map — let both requests race
+      ctx.recentAudioHashes.clear()
+      whisperCallCount = 0
+
+      const formData1 = new FormData()
+      formData1.append('audio', new File([new Uint8Array(100)], 'audio.webm', { type: 'audio/webm' }))
+      const req1 = new Request('http://localhost:3030/transcribe', { method: 'POST' })
+      Object.defineProperty(req1, 'formData', { value: async () => formData1 })
+
+      // Start original request — it will reach whisper, get hallucination, should
+      // promote entry to cancelled (not delete)
+      const originalRes = handleTranscribe(req1, ctx)
+
+      // Give original a tick to set inProgress
+      await Bun.sleep(10)
+
+      // Now start duplicate — it enters the wait loop
+      const formData2 = new FormData()
+      formData2.append('audio', new File([new Uint8Array(100)], 'audio.webm', { type: 'audio/webm' }))
+      const req2 = new Request('http://localhost:3030/transcribe', { method: 'POST' })
+      Object.defineProperty(req2, 'formData', { value: async () => formData2 })
+
+      // Run both to completion
+      const [res1, res2] = await Promise.all([originalRes, handleTranscribe(req2, ctx)])
+
+      const body1: unknown = await res1.json()
+      const obj1: Record<string, unknown> = {}
+      if (typeof body1 === 'object' && body1 !== null) Object.assign(obj1, body1)
+
+      const body2: unknown = await res2.json()
+      const obj2: Record<string, unknown> = {}
+      if (typeof body2 === 'object' && body2 !== null) Object.assign(obj2, body2)
+
+      // Original should be cancelled as hallucination
+      expect(obj1['cancelled']).toBe(true)
+      expect(obj1['reason']).toBe('whisper-hallucination')
+
+      // Duplicate should get cached cancelled result (deduplicated: true)
+      // NOT re-run whisper and NOT deliver
+      expect(obj2['cancelled']).toBe(true)
+      expect(obj2['deduplicated']).toBe(true)
+
+      // Whisper should only have been called ONCE — the duplicate reads from cache
+      expect(whisperCallCount).toBe(1)
+    })
   })
 })

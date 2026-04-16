@@ -662,6 +662,122 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
     })
   })
 
+  // ── Fix 3: seenIds promoted AFTER overlay POST, with 3-retry cap ──────────
+  //
+  // The old code added msg.id to seenIds BEFORE the overlay POST. If the POST
+  // failed (network error, overlay down), the message was silently dropped —
+  // it was already marked seen so the next poll skipped it. Users never saw it.
+  //
+  // Fix: move seenIds.add(msg.id) to AFTER the overlay POST succeeds. If the
+  // overlay POST fails, the message stays unseen and gets retried on the next
+  // poll cycle. To prevent infinite retry when overlay is persistently down,
+  // track a failCount per msg.id: after 3 failures, mark it seen anyway (log
+  // a warning).
+  describe('Fix 3: seenIds promoted after overlay delivery, with retry cap', () => {
+    test('overlay POST failure does not mark message as seen — retried on next poll', async () => {
+      // This test needs its own overlay server that returns 500 once then 200
+      let overlayCallCount = 0
+      const localOverlayPosts: OverlayPost[] = []
+
+      const FAIL_OVERLAY_PORT = 48895
+      const failOverlayServer = Bun.serve({
+        port: FAIL_OVERLAY_PORT,
+        async fetch(req) {
+          if (req.method === 'POST' && new URL(req.url).pathname === '/overlay') {
+            overlayCallCount++
+            if (overlayCallCount === 1) {
+              // First call: return 500 to simulate transient failure
+              return new Response('internal error', { status: 500 })
+            }
+            // Second call: succeed
+            const body: unknown = await req.json()
+            if (isOverlayPost(body)) {
+              localOverlayPosts.push(body)
+            }
+            return Response.json({ ok: true })
+          }
+          return new Response('not found', { status: 404 })
+        }
+      })
+
+      const singleMsg = {
+        id: 'retry-test-1',
+        from: 'atlas',
+        to: 'ceo',
+        type: 'done',
+        body: 'Retry test message.',
+        ts: '2026-04-16T20:00:00Z'
+      }
+      relayMessages = [singleMsg]
+
+      const poller = createRelayPoller({
+        relayBaseUrl: `http://localhost:${RELAY_PORT}`,
+        overlayUrl: `http://localhost:${FAIL_OVERLAY_PORT}/overlay`,
+        ttsEnabled: false
+      })
+
+      // First poll — overlay returns 500. Message should NOT be marked seen.
+      await poller.pollOnce()
+      expect(overlayCallCount).toBe(1)
+      // No successful posts yet
+      expect(localOverlayPosts).toHaveLength(0)
+
+      // Second poll — same message is still unseen, overlay returns 200 now.
+      await poller.pollOnce()
+      expect(overlayCallCount).toBe(2)
+      // Now the message was delivered
+      expect(localOverlayPosts).toHaveLength(1)
+
+      failOverlayServer.stop(true)
+    })
+
+    test('after 3 overlay failures, message is marked as seen to prevent infinite retry', async () => {
+      // Overlay always fails
+      let overlayCallCount = 0
+
+      const ALWAYS_FAIL_PORT = 48896
+      const alwaysFailServer = Bun.serve({
+        port: ALWAYS_FAIL_PORT,
+        fetch(req) {
+          if (req.method === 'POST' && new URL(req.url).pathname === '/overlay') {
+            overlayCallCount++
+            return new Response('always down', { status: 500 })
+          }
+          return new Response('not found', { status: 404 })
+        }
+      })
+
+      const singleMsg = {
+        id: 'fail-cap-1',
+        from: 'command',
+        to: 'ceo',
+        type: 'done',
+        body: 'Cap test message.',
+        ts: '2026-04-16T20:00:01Z'
+      }
+      relayMessages = [singleMsg]
+
+      const poller = createRelayPoller({
+        relayBaseUrl: `http://localhost:${RELAY_PORT}`,
+        overlayUrl: `http://localhost:${ALWAYS_FAIL_PORT}/overlay`,
+        ttsEnabled: false
+      })
+
+      // 4 poll cycles — overlay always fails
+      await poller.pollOnce()
+      await poller.pollOnce()
+      await poller.pollOnce()
+      await poller.pollOnce()
+
+      // After 3 failures the message is capped as seen.
+      // The 4th poll should NOT attempt the overlay again (message is now seen).
+      // So total overlay calls must be exactly 3.
+      expect(overlayCallCount).toBe(3)
+
+      alwaysFailServer.stop(true)
+    })
+  })
+
   test('only shows done/status/message/waiting-for-input types, filters out voice-sent etc', async () => {
     relayMessages = [
       {

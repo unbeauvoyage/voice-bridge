@@ -170,6 +170,11 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
   }
 
   const seenIds = new Set<string>()
+  // Track overlay POST failure count per message id. After 3 consecutive failures,
+  // the message is marked seen to prevent infinite retry when overlay is persistently down.
+  // The count is cleared when overlay POST succeeds.
+  const overlayFailCount = new Map<string, number>()
+  const OVERLAY_MAX_RETRIES = 3
   let intervalHandle: Timer | null = null
   // In-flight guard: prevents two concurrent poll cycles from running simultaneously.
   // Without this, the 3s interval can fire a second pollOnce() while the first is
@@ -220,24 +225,52 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
       if (seenIds.has(msg.id)) continue
       if (!TOAST_TYPES.has(msg.type)) continue
 
-      seenIds.add(msg.id)
-
       const shortBody = msg.body.slice(0, MAX_BODY_CHARS)
       const toastText = `${msg.from}: ${shortBody}`
 
-      // POST to overlay
+      // POST to overlay. seenIds.add() is deferred until AFTER a successful
+      // POST so that a transient failure (overlay down) does not permanently
+      // drop the message — the next poll cycle will retry it.
+      //
+      // To prevent infinite retry when overlay is persistently down, we track
+      // failure count per message id. After OVERLAY_MAX_RETRIES (3) failures,
+      // the message is marked seen anyway (with a warning) so the queue drains.
+      let overlayOk = false
       try {
-        await fetch(overlayUrl, {
+        const res = await fetch(overlayUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ mode: 'message', text: toastText }),
           signal: AbortSignal.timeout(OVERLAY_TIMEOUT_MS)
         })
+        overlayOk = res.ok
+        if (!res.ok) {
+          console.error(`[relay-poller] overlay POST returned ${res.status} for msg ${msg.id}`)
+        }
       } catch (err) {
         console.error(
           '[relay-poller] overlay POST failed:',
           err instanceof Error ? err.message : String(err)
         )
+      }
+
+      if (overlayOk) {
+        // Success: mark seen and clear any failure count
+        seenIds.add(msg.id)
+        overlayFailCount.delete(msg.id)
+      } else {
+        // Failure: increment count; after cap, mark seen to stop retrying
+        const failures = (overlayFailCount.get(msg.id) ?? 0) + 1
+        overlayFailCount.set(msg.id, failures)
+        if (failures >= OVERLAY_MAX_RETRIES) {
+          console.warn(
+            `[relay-poller] overlay POST failed ${failures}x for msg ${msg.id} — marking seen to prevent infinite retry`
+          )
+          seenIds.add(msg.id)
+          overlayFailCount.delete(msg.id)
+        }
+        // Not yet at cap: leave message unseen so next poll retries
+        continue
       }
 
       // TTS via edge-tts (Microsoft Jenny neural voice).
