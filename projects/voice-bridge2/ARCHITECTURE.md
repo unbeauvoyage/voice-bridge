@@ -73,10 +73,8 @@ Bun server
 
 Python daemon
   ├── HTTP → Bun server (localhost:3030/transcribe, sends recorded audio)
-  ├── HTTP → message-relay (localhost:8767/history/ceo, legacy polling)
-  ├── HTTP → Ollama (localhost:11434, message summarization for TTS)
   ├── HTTP → Overlay server (localhost:47890, recording/success/error states)
-  └── reads ← daemon/settings.json (thresholds, TTS config, hot-reloaded every 5s)
+  └── reads ← daemon/settings.json (thresholds, hot-reloaded every 5s)
 ```
 
 ## Mic Pause Protocol
@@ -86,39 +84,39 @@ TTS playback must suppress wake word detection to prevent feedback loops.
 ```
 /tmp/wake-word-pause.d/          ← directory-based, per-owner tokens
   ├── manual                     ← user's mic-off (POST /mic {state: "off"})
-  ├── tts-{uuid}                 ← Bun TTS cycle (one per playback)
-  └── tts-speak-{pid}            ← Python speak script
+  └── tts-{uuid}                 ← Bun TTS cycle (one per playback)
 
 Detection suppressed when directory exists AND contains ≥1 file.
 Each owner only removes its own token — no stomping.
 ```
 
-## Dual TTS Problem (TODO: CEO decision pending)
+## TTS Pipeline
 
-Both the Bun relay-poller and Python relay_message_watcher poll the relay and speak responses. Every agent reply is spoken twice.
+Single path, owned entirely by the Bun relay-poller:
 
-| | Bun relay-poller | Python watcher |
-|---|---|---|
-| Endpoint | GET /queue/ceo (dequeues) | GET /history/ceo (reads all) |
-| TTS engine | edge-tts direct (argv spawn) | Ollama summarize → edge-tts via `speak` script |
-| Hardening | timeout+kill, TTL eviction, per-owner pause guard, no shell | TTL eviction (just fixed), PAUSE_DIR (just fixed) |
-| Summarization | None (raw text, word-limited) | Ollama llama3.2 (offline LLM) |
-
-### Options
-
-1. **Delete Python watcher, keep Bun only** — simplest, already hardened. Lose Ollama summarization.
-2. **Delete Bun TTS, keep Python** — keep smart summarization. Need further hardening.
-3. **Hybrid: add Ollama to Bun, delete Python watcher** — best of both. One system, one polling path. ~110 lines of Python deleted.
+```
+Agent reply in relay queue
+  → relay-poller.ts pollOnce() (GET /queue/ceo, every 3s)
+  → summarizeForTts() (Ollama llama3.2, localhost:11434)
+      Short messages (≤ word limit): pass through unchanged
+      Long messages: summarized to ~8-11 words
+      Ollama offline: fallback to first sentence, max 120 chars
+  → playTts() (server/tts.ts)
+      edge-tts --voice en-US-JennyNeural → /tmp/vb2-tts-{uuid}.mp3
+      afplay with 60s timeout + kill
+      Per-owner pause guard (tts-{uuid} token in PAUSE_DIR)
+      Temp mp3 cleaned up in finally block
+```
 
 ## Key Files
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `server/index.ts` | 274 | Bun HTTP server wiring (routes, context injection) |
-| `server/routes/transcribe.ts` | 409 | Audio upload → whisper → relay delivery |
+| `server/index.ts` | 280 | Bun HTTP server wiring (routes, context injection) |
+| `server/routes/transcribe.ts` | 410 | Audio upload → whisper → relay delivery |
 | `server/routes/dedup.ts` | 184 | Audio hash dedup + hallucination filter |
-| `server/relay-poller.ts` | 355 | Relay queue polling + overlay delivery |
-| `server/tts.ts` | 167 | edge-tts → afplay with timeout+kill |
+| `server/relay-poller.ts` | 377 | Relay queue polling + overlay delivery + TTS dispatch |
+| `server/tts.ts` | 222 | Ollama summarization + edge-tts → afplay with timeout+kill |
 | `server/relay.ts` | 93 | Relay HTTP client (Result types) |
 | `src/main/index.ts` | 152 | Electron app lifecycle wiring |
-| `daemon/wake_word.py` | ~490 | Wake word state machine + legacy watcher |
+| `daemon/wake_word.py` | 375 | Wake word state machine + audio recording |
