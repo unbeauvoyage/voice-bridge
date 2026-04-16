@@ -10,6 +10,9 @@ if [ -z "$TEXT" ]; then
 fi
 
 OUTFILE="/tmp/tts-$(date +%s).mp3"
-touch /tmp/wake-word-pause
+PAUSE_DIR="/tmp/wake-word-pause.d"
+PAUSE_TOKEN="$PAUSE_DIR/tts-speak-$$"
+mkdir -p "$PAUSE_DIR"
+touch "$PAUSE_TOKEN"
 /Users/riseof/environment/.venv-tts/bin/edge-tts --voice en-US-JennyNeural --text "$TEXT" --write-media "$OUTFILE" 2>/dev/null && afplay "$OUTFILE" && rm -f "$OUTFILE"
-rm -f /tmp/wake-word-pause
+rm -f "$PAUSE_TOKEN"
