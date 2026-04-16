@@ -11,10 +11,12 @@ import type { OverlayPayload } from '../typeGuards.ts'
 class FakeReq extends EventEmitter implements MinReq {
   method?: string | undefined
   url?: string | undefined
-  constructor(method: string, url: string) {
+  headers: Record<string, string>
+  constructor(method: string, url: string, headers: Record<string, string> = {}) {
     super()
     this.method = method
     this.url = url
+    this.headers = headers
   }
   send(body: string): void {
     this.emit('data', Buffer.from(body))
@@ -109,6 +111,48 @@ describe('handleOverlayRequest', () => {
       expect(res.heads[0]?.status).toBe(200)
       expect(calls).toHaveLength(1)
       expect(calls[0]).toEqual({ mode: 'message', text: 'split' })
+      done()
+    })
+  })
+
+  // Content-Length header > 1 MiB must be rejected with 413 BEFORE reading any body.
+  // The check fires immediately — no body buffering — so the 'data' handler is never reached.
+  test('413 when Content-Length exceeds 1 MiB cap', () => {
+    const calls: OverlayPayload[] = []
+    const oversizeBytes = 1024 * 1024 + 1 // 1 MiB + 1 byte
+    const req = new FakeReq('POST', '/overlay', { 'content-length': String(oversizeBytes) })
+    const res = new FakeRes()
+    handleOverlayRequest((p) => calls.push(p), req, res)
+    // Response must be written before any body events arrive (no body needed to trigger 413)
+    expect(res.heads[0]?.status).toBe(413)
+    expect(res.ended).toBe(true)
+    expect(calls).toHaveLength(0)
+  })
+
+  test('accepts request with Content-Length exactly at 1 MiB cap', (done) => {
+    const calls: OverlayPayload[] = []
+    const exactBytes = 1024 * 1024 // exactly at the limit — must not be rejected
+    const req = new FakeReq('POST', '/overlay', { 'content-length': String(exactBytes) })
+    const res = new FakeRes()
+    handleOverlayRequest((p) => calls.push(p), req, res)
+    req.send(JSON.stringify({ mode: 'recording', text: 'ok' }))
+    queueMicrotask(() => {
+      expect(res.heads[0]?.status).toBe(200)
+      expect(calls).toHaveLength(1)
+      done()
+    })
+  })
+
+  test('accepts request with no Content-Length header (streaming)', (done) => {
+    // When Content-Length is absent, the handler must not reject — streaming bodies are ok.
+    const calls: OverlayPayload[] = []
+    const req = new FakeReq('POST', '/overlay') // no headers
+    const res = new FakeRes()
+    handleOverlayRequest((p) => calls.push(p), req, res)
+    req.send(JSON.stringify({ mode: 'message', text: 'no-cl' }))
+    queueMicrotask(() => {
+      expect(res.heads[0]?.status).toBe(200)
+      expect(calls).toHaveLength(1)
       done()
     })
   })

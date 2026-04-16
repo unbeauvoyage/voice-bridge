@@ -26,6 +26,7 @@ type CreateServerFn = (handler: RequestListener) => Server
 export type MinReq = {
   method?: string | undefined
   url?: string | undefined
+  headers?: Record<string, string | string[] | undefined>
   on: (event: 'data' | 'end', listener: (chunk?: Buffer) => void) => unknown
 }
 
@@ -47,6 +48,11 @@ export type OverlayServerController = {
   isRunning: () => boolean
 }
 
+// 1 MiB — plenty for any overlay message JSON (mode + text fields).
+// Checked against Content-Length before reading the body so hostile clients
+// cannot exhaust memory by sending a giant body with a forged small header.
+const MAX_OVERLAY_BODY_BYTES = 1024 * 1024
+
 export function handleOverlayRequest(
   showOverlay: (payload: OverlayPayload) => void,
   req: MinReq,
@@ -57,6 +63,20 @@ export function handleOverlayRequest(
     res.end()
     return
   }
+
+  // Reject oversized requests early — before buffering any body bytes —
+  // consistent with the transcribe.ts approach (Content-Length preflight).
+  const clHeader = req.headers?.['content-length']
+  const clRaw = Array.isArray(clHeader) ? clHeader[0] : clHeader
+  if (clRaw !== undefined) {
+    const declared = Number(clRaw)
+    if (Number.isFinite(declared) && declared > MAX_OVERLAY_BODY_BYTES) {
+      res.writeHead(413)
+      res.end()
+      return
+    }
+  }
+
   let body = ''
   req.on('data', (chunk?: Buffer) => {
     if (chunk) body += chunk.toString()
