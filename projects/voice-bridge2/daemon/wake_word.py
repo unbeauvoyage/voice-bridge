@@ -12,7 +12,6 @@ Usage:
 
 import argparse
 import io
-import json as _json
 import json
 import urllib.request
 import os
@@ -189,7 +188,6 @@ def main():
     )
 
     # Live settings — reloaded every 5 seconds from settings.json
-    import json as _settings_json
     _SETTINGS_PATH = str(Path(__file__).parent / "settings.json")
     _settings = {
         "toast_duration": 15,
@@ -204,7 +202,7 @@ def main():
         while True:
             try:
                 with open(_SETTINGS_PATH) as f:
-                    loaded = _settings_json.load(f)
+                    loaded = json.load(f)
                 _settings.update(loaded)
             except Exception:
                 pass
@@ -231,6 +229,8 @@ def main():
     def hide_recording_overlay():
         show_overlay("hidden")
 
+    # TODO(CEO-DECISION): relay_message_watcher may be superseded by relay-poller.ts
+    # (Bun server already polls relay + does TTS via edge-tts). Confirm and delete.
     def relay_message_watcher(server_url):
         """Poll relay for new messages to 'command' and show overlay toasts."""
         relay_base = "http://localhost:8767"
@@ -324,7 +324,7 @@ def main():
                                 # Toast: write to queue immediately — no waiting
                                 print(f"[watcher] QUEUING TOAST for msg_id={msg_id}")
                                 try:
-                                    entry = _json.dumps({"from": from_agent, "body": body, "ts": time.time()})
+                                    entry = json.dumps({"from": from_agent, "body": body, "ts": time.time()})
                                     with open("/tmp/vb-toast-queue.jsonl", "a") as f:
                                         f.write(entry + "\n")
                                     print(f"  [watcher] queued toast for {from_agent}")
@@ -342,9 +342,8 @@ def main():
                 pass
             time.sleep(2)
 
-    import threading as _threading
-    _is_recording = _threading.Event()  # set when recording, clear when idle
-    _whisper_in_flight = _threading.Event()  # set while send_to_server thread is running
+    _is_recording = threading.Event()  # set when recording, clear when idle
+    _whisper_in_flight = threading.Event()  # set while send_to_server thread is running
 
     def _send_with_guard(wav_bytes, server_url, target):
         """
@@ -364,16 +363,6 @@ def main():
         daemon=True,
     )
     watcher_thread.start()
-
-    # Menu bar icon — owned by Electron; these are no-ops
-    def start_menubar_icon(state="listening"):
-        pass
-
-    def stop_menubar_icon():
-        pass
-
-    def set_menubar_state(state):
-        pass
 
     # State machine
     STATE_IDLE = "idle"
@@ -403,14 +392,6 @@ def main():
 
             predictions = model.predict(audio_array)
 
-            # DEBUG: print audio level + predictions every 50 chunks (~4s)
-            if not hasattr(model, '_dbg_count'):
-                model._dbg_count = 0
-            model._dbg_count += 1
-            if model._dbg_count % 50 == 0:
-                level = int(np.abs(audio_array).mean())
-                print(f"[debug] audio_level={level} len={len(audio_array)} predictions: {predictions}")
-
             if state == STATE_IDLE:
                 # Listen for start word
                 start_score = predictions.get(start_key, 0)
@@ -434,7 +415,6 @@ def main():
                     print(f"[wake-word] '{start_key}' detected (score={start_score:.2f}) — RECORDING")
                     play_sound("Tink")
                     start_recording_overlay()
-                    set_menubar_state("recording")
                     _is_recording.set()
                     state = STATE_RECORDING
                     recorded_frames = []
@@ -472,7 +452,6 @@ def main():
                         daemon=True,
                     ).start()
 
-                    set_menubar_state("listening")
                     _is_recording.clear()
                     state = STATE_IDLE
                     recorded_frames = []
@@ -496,7 +475,6 @@ def main():
                         daemon=True,
                     ).start()
 
-                    set_menubar_state("listening")
                     _is_recording.clear()
                     state = STATE_IDLE
                     recorded_frames = []
@@ -506,7 +484,6 @@ def main():
         print("\n[wake-word] Stopped.")
     finally:
         hide_recording_overlay()
-        stop_menubar_icon()
         stream.stop_stream()
         stream.close()
         pa.terminate()
