@@ -17,11 +17,9 @@ import urllib.request
 import os
 import subprocess
 import sys
-import datetime
 import time
 import wave
 import threading
-import queue
 from pathlib import Path
 from typing import Any
 
@@ -114,19 +112,6 @@ def send_to_server(wav_bytes: bytes, server_url: str, target: str) -> None:
 
     mode = "success" if success else "error"
     show_overlay(mode, f"{delivered_to}: {''}" if success else "Send failed")
-
-
-def evict_stale_seen_ids(seen_ids: dict[str, float], max_age_seconds: float = 60.0) -> None:
-    """Remove entries older than max_age_seconds from seen_ids dict.
-
-    Called at the top of each relay_message_watcher poll loop to prevent
-    unbounded memory growth — without eviction, seen_ids accumulates every
-    message ID forever.
-    """
-    cutoff = time.time() - max_age_seconds
-    stale = [k for k, ts in seen_ids.items() if ts < cutoff]
-    for k in stale:
-        del seen_ids[k]
 
 
 def frames_to_wav(frames: list[bytes], pa: Any) -> bytes:
@@ -244,119 +229,6 @@ def main() -> None:
     def hide_recording_overlay() -> None:
         show_overlay("hidden")
 
-    # TODO(CEO-DECISION): relay_message_watcher may be superseded by relay-poller.ts
-    # (Bun server already polls relay + does TTS via edge-tts). Confirm and delete.
-    def relay_message_watcher() -> None:
-        """Poll relay for new messages to 'command' and show overlay toasts."""
-        relay_base = "http://localhost:8767"
-        seen_ids: dict[str, float] = {}
-
-        _speech_queue: queue.Queue[str | None] = queue.Queue()
-
-        def _speech_worker() -> None:
-            while True:
-                text = _speech_queue.get()
-                if text is None:
-                    break
-                # Wait if recording is in progress
-                while _is_recording.is_set():
-                    time.sleep(0.3)
-                try:
-                    subprocess.run(["/Users/riseof/environment/bin/speak", text],
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                except Exception as e:
-                    print(f"  [tts] speak failed: {e}")
-                _speech_queue.task_done()
-
-        _speech_thread = threading.Thread(target=_speech_worker, daemon=True)
-        _speech_thread.start()
-
-        def summarize_for_audio(from_agent: str, body: str, word_limit: int = 8) -> str:
-            """Use Ollama llama3.2 to summarize message to one short spoken sentence."""
-            try:
-                prompt = (
-                    f"Summarize the following message in {word_limit} to {word_limit + 3} words. "
-                    f"No agent name. Just the key fact.\n\n"
-                    f"Message: {body}\n\nSummary:"
-                )
-                payload = json.dumps({
-                    "model": "llama3.2:latest",
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {"num_predict": word_limit * 3, "temperature": 0.3}
-                }).encode()
-                req = urllib.request.Request(
-                    "http://localhost:11434/api/generate",
-                    data=payload,
-                    headers={"Content-Type": "application/json"}
-                )
-                resp = json.loads(urllib.request.urlopen(req, timeout=8).read())
-                summary = resp.get("response", "").strip()
-                if summary.lower().startswith("summary:"):
-                    summary = summary[8:].strip()
-                return summary if summary else body[:80]
-            except Exception as e:
-                print(f"  [tts] ollama failed: {e}, using truncation fallback")
-                import re
-                first = re.split(r'[.!?\n]', body)[0].strip()
-                return first[:120]
-
-        def speak_summary(text: str) -> None:
-            print(f"  [tts] queuing: {text[:60]}")
-            _speech_queue.put(text)
-
-        while True:
-            evict_stale_seen_ids(seen_ids)
-            try:
-                res = requests.get(f"{relay_base}/history/ceo", timeout=3)
-                if res.ok:
-                    data = res.json()
-                    messages = data if isinstance(data, list) else data.get("messages", [])
-                    print(f"[watcher] polled, got {len(messages)} messages")
-                    for msg in messages:
-                        # Skip messages FROM ceo — only show messages sent TO the CEO
-                        from_agent = msg.get("from", "")
-                        if from_agent == "ceo":
-                            continue
-                        msg_id = msg.get("id") or msg.get("_id")
-                        if msg_id and msg_id not in seen_ids:
-                            seen_ids[msg_id] = time.time()
-                            # Parse timestamp and log age before filtering
-                            ts_str = msg.get("ts", "")
-                            try:
-                                if isinstance(ts_str, str):
-                                    ts_dt = datetime.datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                                    ts_unix = ts_dt.timestamp()
-                                else:
-                                    ts_unix = float(ts_str) / 1000 if float(ts_str) > 1e10 else float(ts_str)
-                            except Exception:
-                                ts_unix = 0
-                            age = time.time() - ts_unix
-                            print(f"[watcher] NEW msg from={from_agent} age={age:.1f}s body={str(msg.get('body',''))[:30]!r}")
-                            if age < 30:
-                                body = str(msg.get("body", ""))
-
-                                # Toast: write to queue immediately — no waiting
-                                print(f"[watcher] QUEUING TOAST for msg_id={msg_id}")
-                                try:
-                                    entry = json.dumps({"from": from_agent, "body": body, "ts": time.time()})
-                                    with open("/tmp/vb-toast-queue.jsonl", "a") as f:
-                                        f.write(entry + "\n")
-                                    print(f"  [watcher] queued toast for {from_agent}")
-                                except Exception as e:
-                                    print(f"  [watcher] toast queue failed: {e}")
-
-                                # TTS: fully independent — Ollama takes 1-3s, toast already done
-                                if _settings.get("tts_enabled", True):
-                                    wl = _settings.get("tts_word_limit", 8)
-                                    threading.Thread(
-                                        target=lambda fa=from_agent, b=body, wl=wl: speak_summary(summarize_for_audio(fa, b, wl)),
-                                        daemon=True
-                                    ).start()
-            except Exception:
-                pass
-            time.sleep(2)
-
     _is_recording = threading.Event()  # set when recording, clear when idle
     _whisper_in_flight = threading.Event()  # set while send_to_server thread is running
 
@@ -371,12 +243,6 @@ def main() -> None:
             send_to_server(wav_bytes, server_url, target)
         finally:
             _whisper_in_flight.clear()
-
-    watcher_thread = threading.Thread(
-        target=relay_message_watcher,
-        daemon=True,
-    )
-    watcher_thread.start()
 
     # State machine
     STATE_IDLE = "idle"
