@@ -1,17 +1,25 @@
-import { app, Tray, Menu, nativeImage, BrowserWindow, ipcMain, screen } from 'electron'
+import { app, Tray, Menu, nativeImage, ipcMain, screen } from 'electron'
 import { join } from 'path'
-import { is } from '@electron-toolkit/utils'
 import { type OverlayPayload } from './typeGuards'
 import { createTargetStore } from './state/targetStore'
 import { createDaemonController } from './processes/daemon'
 import { createBackendServerController } from './processes/backendServer'
 import { createOverlayServerController } from './overlay/overlayServer'
 import { createOverlayManager } from './overlay/overlayWindow'
+import { createOverlayBrowserWindow } from './overlay/overlayBrowserWindow'
 import { createMainWindowManager } from './windows/mainWindow'
+import { createMainBrowserWindow } from './windows/mainBrowserWindow'
 import { registerIpcHandlers } from './ipc'
 import { buildMenuTemplate, attachTrayBehavior, type TrayController } from './tray'
-import { discoverPythonApp } from './pythonApp'
-import { spawnSync } from 'node:child_process'
+import {
+  OVERLAY_PORT,
+  PROJECT_ROOT,
+  LAST_TARGET_FILE,
+  DAEMON_DIR,
+  WAKE_WORD_SCRIPT,
+  VENV_PACKAGES,
+  PYTHON_APP
+} from './config'
 
 // Single instance lock
 if (!app.requestSingleInstanceLock()) {
@@ -24,16 +32,6 @@ app.dock?.hide()
 
 let tray: Tray | null = null
 let trayCtrl: TrayController | null = null
-
-const OVERLAY_PORT = 47890
-
-// __dirname in the compiled out/main/index.js is <project>/out/main — go up twice to reach project root
-const PROJECT_ROOT = join(__dirname, '..', '..')
-const LAST_TARGET_FILE = join(PROJECT_ROOT, 'tmp', 'last-target.txt')
-const PYTHON_APP = discoverPythonApp({ spawnSync, env: process.env })
-const DAEMON_DIR = join(PROJECT_ROOT, 'daemon')
-const WAKE_WORD_SCRIPT = join(DAEMON_DIR, 'wake_word.py')
-const VENV_PACKAGES = join(DAEMON_DIR, '.venv/lib/python3.14/site-packages')
 
 const targetStore = createTargetStore(LAST_TARGET_FILE)
 
@@ -59,64 +57,8 @@ const overlayServerController = createOverlayServerController({
   showOverlay: (payload) => showOverlay(payload)
 })
 
-function createMainBrowserWindow(): BrowserWindow {
-  const w = new BrowserWindow({
-    width: 400,
-    height: 340,
-    frame: false,
-    transparent: true,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: false,
-    show: false,
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false
-    }
-  })
-
-  w.setAlwaysOnTop(true, 'pop-up-menu')
-  w.setVisibleOnAllWorkspaces(true, { skipTransformProcessType: true, visibleOnFullScreen: true })
-
-  w.on('show', () => console.log('[win] show event, visible:', w.isVisible()))
-  w.on('hide', () => {
-    console.log('[win] hide event')
-  })
-  w.on('blur', () => console.log('[win] blur fired'))
-  w.on('focus', () => console.log('[win] focus event'))
-
-  w.webContents.on('console-message', (_e, level, message, line, sourceId) => {
-    console.log(`[renderer:${level}] ${message} (${sourceId}:${line})`)
-  })
-  w.webContents.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL) => {
-    console.error(`[renderer] did-fail-load ${errorCode} ${errorDescription} ${validatedURL}`)
-  })
-  w.webContents.on('did-finish-load', () => {
-    console.log('[renderer] did-finish-load')
-    w.webContents
-      .executeJavaScript(
-        `
-      document.body.style.background = 'rgba(20,20,28,0.95)';
-      console.log('[diag] root:', document.getElementById('root')?.innerHTML?.length);
-    `
-      )
-      .catch(() => {})
-  })
-
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    w.webContents.openDevTools({ mode: 'detach' })
-    w.loadURL(process.env['ELECTRON_RENDERER_URL'])
-  } else {
-    w.loadFile(join(__dirname, '../renderer/index.html'))
-  }
-
-  return w
-}
-
 const mainWindowManager = createMainWindowManager({
-  createWindow: () => createMainBrowserWindow(),
+  createWindow: () => createMainBrowserWindow(__dirname),
   getTrayBounds: () => tray?.getBounds() ?? { x: 0, y: 0, width: 32, height: 30 },
   getLastTrayBounds: () => trayCtrl?.getLastTrayBounds(),
   getWorkAreaForPoint: (x, y) => screen.getDisplayNearestPoint({ x, y }).workArea
@@ -147,51 +89,11 @@ function buildMenu(): Electron.Menu {
   )
 }
 
-// ── Overlay window ───────────────────────────────────────────────────────────
-
-function createOverlayBrowserWindow(): BrowserWindow {
-  const bounds = { x: 18, y: 30, width: 420, height: 54 }
-
-  const w = new BrowserWindow({
-    ...bounds,
-    frame: false,
-    transparent: true,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: false,
-    focusable: false,
-    show: false,
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false
-    }
-  })
-
-  w.setAlwaysOnTop(true, 'screen-saver')
-  w.setIgnoreMouseEvents(true)
-
-  const overlayFilePath = join(__dirname, '../renderer/overlay.html')
-
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    const devUrl = `${process.env['ELECTRON_RENDERER_URL']}/overlay.html`
-    w.loadURL(devUrl).catch(() => {
-      console.warn('[overlay] dev server unreachable, falling back to loadFile')
-      w.loadFile(overlayFilePath).catch((e: Error) =>
-        console.error('[overlay] loadFile fallback failed:', e.message)
-      )
-    })
-  } else {
-    w.loadFile(overlayFilePath)
-  }
-
-  return w
-}
+// ── Overlay ───────────────────────────────────────────────────────────────────
 
 const overlayManager = createOverlayManager({
   getScreenWidth: () => screen.getPrimaryDisplay().workAreaSize.width,
-  createWindow: () => createOverlayBrowserWindow()
+  createWindow: () => createOverlayBrowserWindow(__dirname)
 })
 
 function showOverlay(payload: OverlayPayload): void {
