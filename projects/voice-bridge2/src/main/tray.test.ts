@@ -9,6 +9,118 @@ import {
   type TrayRectangle
 } from './tray.ts'
 
+// ── Recording indicator tests ─────────────────────────────────────────────────
+//
+// Privacy requirement: the user must always know when the mic is actively
+// recording. The tray icon swaps to a "recording" image when recording starts
+// and reverts to the normal image when recording stops.
+//
+// The recording icon is identified by the string token "recording-icon" and the
+// normal icon by "normal-icon". These are opaque values supplied by the caller
+// (in production: real nativeImage objects; in tests: string tokens for easy
+// assertion without depending on Electron's nativeImage).
+
+type IconToken = string
+
+class FakeTrayWithImage extends EventEmitter implements TrayLike {
+  popUps: unknown[] = []
+  images: IconToken[] = []
+  popUpContextMenu(menu: unknown): void {
+    this.popUps.push(menu)
+  }
+  setImage(icon: IconToken): void {
+    this.images.push(icon)
+  }
+}
+
+function makeDepsWithIcons(overrides: Partial<TrayDeps> = {}): {
+  deps: TrayDeps
+  calls: string[]
+  menuToken: object
+  normalIcon: IconToken
+  recordingIcon: IconToken
+} {
+  const calls: string[] = []
+  const menuToken = { fake: 'menu' }
+  const normalIcon: IconToken = 'normal-icon'
+  const recordingIcon: IconToken = 'recording-icon'
+  const deps: TrayDeps = {
+    buildMenu: () => menuToken,
+    showMainWindow: () => calls.push('show'),
+    hideMainWindow: () => calls.push('hide'),
+    isMainWindowVisible: () => false,
+    normalIcon,
+    recordingIcon,
+    ...overrides
+  }
+  return { deps, calls, menuToken, normalIcon, recordingIcon }
+}
+
+describe('TrayController — recording indicator', () => {
+  test('setRecordingState(true) swaps tray icon to recording icon', () => {
+    const tray = new FakeTrayWithImage()
+    const { deps, recordingIcon } = makeDepsWithIcons()
+    const ctrl = attachTrayBehavior(tray, deps)
+    ctrl.setRecordingState(true)
+    expect(tray.images).toContain(recordingIcon)
+  })
+
+  test('setRecordingState(false) reverts tray icon to normal icon', () => {
+    const tray = new FakeTrayWithImage()
+    const { deps, normalIcon } = makeDepsWithIcons()
+    const ctrl = attachTrayBehavior(tray, deps)
+    // Start recording then stop
+    ctrl.setRecordingState(true)
+    ctrl.setRecordingState(false)
+    expect(tray.images[tray.images.length - 1]).toBe(normalIcon)
+  })
+
+  test('setRecordingState(true) followed by false cycles icon correctly', () => {
+    const tray = new FakeTrayWithImage()
+    const { deps, normalIcon, recordingIcon } = makeDepsWithIcons()
+    const ctrl = attachTrayBehavior(tray, deps)
+    ctrl.setRecordingState(true)
+    ctrl.setRecordingState(false)
+    // Full cycle: normal → recording → normal
+    expect(tray.images).toEqual([recordingIcon, normalIcon])
+  })
+
+  // When icons are not provided in deps, setRecordingState should not throw —
+  // it's a graceful no-op so the rest of the tray keeps working even if icons
+  // are omitted (e.g., in unit tests that don't care about icon state).
+  test('setRecordingState is a no-op when icons not provided in deps', () => {
+    const tray = new FakeTrayWithImage()
+    const { deps } = makeDeps()
+    const ctrl = attachTrayBehavior(tray, deps)
+    // Should not throw
+    expect(() => ctrl.setRecordingState(true)).not.toThrow()
+    expect(() => ctrl.setRecordingState(false)).not.toThrow()
+    expect(tray.images).toHaveLength(0)
+  })
+
+  test('existing click and right-click behavior unaffected by recording state', () => {
+    const tray = new FakeTrayWithImage()
+    const calls: string[] = []
+    const { menuToken } = makeDepsWithIcons()
+    const deps: TrayDeps = {
+      buildMenu: () => menuToken,
+      showMainWindow: () => calls.push('show'),
+      hideMainWindow: () => calls.push('hide'),
+      isMainWindowVisible: () => false,
+      normalIcon: 'normal-icon',
+      recordingIcon: 'recording-icon'
+    }
+    const ctrl = attachTrayBehavior(tray, deps)
+    ctrl.setRecordingState(true)
+    // Click should still toggle window
+    tray.emit('click', null, { x: 0, y: 0, width: 32, height: 30 })
+    expect(calls).toEqual(['show'])
+    // Right-click should still pop up context menu
+    tray.emit('right-click')
+    expect(tray.popUps).toEqual([menuToken])
+  })
+})
+
 type LabelClick = Extract<MenuTemplate[number], { label: string; click: () => void }>
 
 function findLabeled(template: MenuTemplate, label: string): LabelClick {
