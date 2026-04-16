@@ -20,7 +20,12 @@
  * writeFile — production always uses the default node:fs implementations.
  */
 
-import { writeFileSync as fsWriteFileSync, renameSync as fsRenameSync } from 'node:fs'
+import {
+  writeFileSync as fsWriteFileSync,
+  renameSync as fsRenameSync,
+  unlinkSync as fsUnlinkSync
+} from 'node:fs'
+import { randomUUID } from 'node:crypto'
 
 export type AtomicWriteDeps = {
   writeFile: (path: string, content: string) => void
@@ -38,7 +43,20 @@ export function atomicWriteFile(
   deps: Partial<AtomicWriteDeps> = {}
 ): void {
   const { writeFile, rename } = { ...DEFAULT_DEPS, ...deps }
-  const tmpPath = `${path}.tmp`
+  // Use a UUID suffix so concurrent writes to the same target never share a
+  // tmp file — without this, writer B overwrites writer A's tmp, and writer A
+  // renames stale bytes to the target (concurrent-write data loss).
+  const tmpPath = `${path}.tmp.${randomUUID()}`
   writeFile(tmpPath, content)
-  rename(tmpPath, path)
+  try {
+    rename(tmpPath, path)
+  } catch (err) {
+    // Clean up the orphaned tmp file so no .tmp.{uuid} files accumulate.
+    try {
+      fsUnlinkSync(tmpPath)
+    } catch {
+      // ENOENT is fine (write may have already failed); ignore all cleanup errors.
+    }
+    throw err
+  }
 }

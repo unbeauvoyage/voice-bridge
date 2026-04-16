@@ -52,6 +52,58 @@ describe('atomicWriteFile', () => {
     expect(existsSync(`${target}.tmp`)).toBe(false)
   })
 
+  // Concurrent-write safety: two calls to atomicWriteFile for the same target
+  // must NOT share the same tmp path. If they did, writer B could overwrite
+  // writer A's tmp file before A's rename, causing A to rename stale bytes.
+  // The UUID suffix guarantees each call gets its own tmp file.
+  test('uses a unique temp path per call (no collision)', () => {
+    const target = join(dir, 'settings.json')
+    const seenTmpPaths: string[] = []
+    // Capture the tmpPath used by each call via injected writeFile/rename.
+    // Both calls must succeed (rename goes to target); we just collect the paths.
+    const captureAndWrite = (p: string, c: string) => {
+      seenTmpPaths.push(p)
+      writeFileSync(p, c)
+    }
+    let firstTmp: string | null = null
+    const captureRename = (from: string, to: string) => {
+      // record and perform the real rename
+      const { renameSync } = require('node:fs')
+      renameSync(from, to)
+      // stash so we can compare
+      firstTmp = firstTmp ?? from
+    }
+    // First call
+    atomicWriteFile(target, 'A', { writeFile: captureAndWrite, rename: captureRename })
+    // Second call — must use a different tmp path
+    atomicWriteFile(target, 'B', { writeFile: captureAndWrite, rename: captureRename })
+    expect(seenTmpPaths).toHaveLength(2)
+    expect(seenTmpPaths[0]).not.toBe(seenTmpPaths[1])
+    // Both tmp paths must be extensions of the target path (not some other dir).
+    expect(seenTmpPaths[0]).toMatch(new RegExp(`^${target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+    expect(seenTmpPaths[1]).toMatch(new RegExp(`^${target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+  })
+
+  // Cleanup guarantee: if rename fails, the unique tmp file must be deleted
+  // so that orphaned .tmp.{uuid} files don't accumulate on disk.
+  test('cleans up temp file when rename fails', () => {
+    const target = join(dir, 'settings.json')
+    let capturedTmpPath: string | null = null
+    const trackingWrite = (p: string, c: string) => {
+      capturedTmpPath = p
+      writeFileSync(p, c) // real write so the file actually exists
+    }
+    const failingRename = (_from: string, _to: string) => {
+      throw new Error('simulated rename failure')
+    }
+    expect(() => atomicWriteFile(target, 'content', { writeFile: trackingWrite, rename: failingRename })).toThrow(
+      'simulated rename failure'
+    )
+    // The temp file must have been cleaned up — no orphan left on disk.
+    expect(capturedTmpPath).not.toBeNull()
+    expect(existsSync(capturedTmpPath!)).toBe(false)
+  })
+
   // Crash-simulation: if the underlying write to the tmp file throws, the
   // original target file must be untouched — no corruption leak.
   test('target is untouched when injected write fails before rename', () => {
