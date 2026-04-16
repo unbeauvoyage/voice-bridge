@@ -107,12 +107,19 @@ export function createDaemonController(cfg: DaemonConfig): DaemonController {
   function stop(): void {
     if (proc) {
       proc.kill('SIGTERM')
-      proc = null
+      // Do NOT set proc = null here. The 'exit' event handler sets proc = null
+      // when the process actually terminates. Nulling proc here would cause
+      // isRunning() to return false while the process is still alive (between
+      // SIGTERM and the exit event) — a race condition that could allow a second
+      // start() to run before the first process exits.
     }
   }
 
   function isRunning(): boolean {
-    return proc !== null && !proc.killed
+    // proc.killed is true after kill() is called, but the process may still be
+    // running (between SIGTERM and exit). Use proc !== null as the sole indicator
+    // of whether the process is alive — the 'exit' handler nulls proc on true exit.
+    return proc !== null
   }
 
   return { start, stop, isRunning }

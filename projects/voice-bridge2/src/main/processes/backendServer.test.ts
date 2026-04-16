@@ -110,13 +110,37 @@ describe('createBackendServerController', () => {
     expect(() => ctrl.stop()).not.toThrow()
   })
 
-  test('isRunning() reflects start/stop state', () => {
+  test('isRunning() reflects start/exit state — false before start, true while running, false after exit', () => {
     const h = makeHarness()
     const ctrl = createBackendServerController(h.cfg)
     expect(ctrl.isRunning()).toBe(false)
     ctrl.start()
     expect(ctrl.isRunning()).toBe(true)
+    // After stop() sends SIGTERM, process is still running until exit event fires.
     ctrl.stop()
+    const p = h.procs[0]
+    if (!p) throw new Error('expected proc')
+    p.emit('exit', 0)
+    expect(ctrl.isRunning()).toBe(false)
+  })
+
+  // After stop() sends SIGTERM, the OS process is still alive until it emits 'exit'.
+  // isRunning() must return true between the SIGTERM and the exit event — it must NOT
+  // return false prematurely because stop() nulled proc before exit fired.
+  test('isRunning() stays true after SIGTERM until exit event fires', () => {
+    const h = makeHarness()
+    const ctrl = createBackendServerController(h.cfg)
+    ctrl.start()
+    const proc = h.procs[0]
+    if (!proc) throw new Error('expected proc')
+
+    ctrl.stop()
+
+    // Process has been sent SIGTERM but has NOT fired 'exit' yet — still alive.
+    expect(ctrl.isRunning()).toBe(true)
+
+    // Simulate exit event
+    proc.emit('exit', 0)
     expect(ctrl.isRunning()).toBe(false)
   })
 })

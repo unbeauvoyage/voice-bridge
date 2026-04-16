@@ -161,13 +161,41 @@ describe('createDaemonController — stop', () => {
     expect(() => ctrl.stop()).not.toThrow()
   })
 
-  test('isRunning() reflects start/stop state', () => {
+  test('isRunning() reflects start/exit state — false before start, true while running, false after exit', () => {
     const h = makeHarness()
     const ctrl = createDaemonController(h.cfg)
     expect(ctrl.isRunning()).toBe(false)
     ctrl.start()
     expect(ctrl.isRunning()).toBe(true)
+    // After stop() sends SIGTERM, process is still running until exit event fires.
+    // isRunning() stays true until the exit event — see the race condition test below.
     ctrl.stop()
+    h.nextProc().emit('exit', 0)
+    expect(ctrl.isRunning()).toBe(false)
+  })
+
+  // After stop() sends SIGTERM, the OS process is still alive until it emits 'exit'.
+  // isRunning() must return true between the SIGTERM and the exit event — it must NOT
+  // return false prematurely because stop() nulled proc before the exit event fired.
+  // (Previously stop() set proc=null immediately after kill(), creating a window where
+  // isRunning() returned false while the process was still alive.)
+  test('isRunning() stays true after SIGTERM until exit event fires', () => {
+    const h = makeHarness()
+    const ctrl = createDaemonController(h.cfg)
+    ctrl.start()
+    const proc = h.nextProc()
+
+    ctrl.stop()
+
+    // The process has been sent SIGTERM but has NOT fired 'exit' yet.
+    // isRunning() must truthfully report the process is still alive.
+    // NOTE: our FakeProc.kill() sets proc.killed=true but does NOT emit 'exit' —
+    // that is intentional, mirroring real OS behaviour where kill() sends a signal
+    // but the process keeps running until it actually terminates.
+    expect(ctrl.isRunning()).toBe(true)
+
+    // Now simulate the exit event arriving
+    proc.emit('exit', 0)
     expect(ctrl.isRunning()).toBe(false)
   })
 })
