@@ -16,13 +16,16 @@
  *   - `to` field longer than MAX_TO_LEN → 400
  *
  * Routing logic:
- * 1. If "please" in first 7 words → llmRoute detects agent (OVERRIDES explicit `to`)
+ * 1. If shouldLlmRoute(transcript) → llmRoute detects agent (OVERRIDES explicit `to`)
+ *    - "please" in first 7 words: split at "please" for routing/message parts
+ *    - Direct address ("tell X to Y", "ask X about Y", "message to X: Y"): full transcript to llmRoute
  * 2. Else if explicit `to` set → use it, full transcript
  * 3. Else → deliver to "command"
  */
 
 import type { TranscribeResult } from '../whisper.ts'
 import type { LlmRouteResult } from '../llmRouter.ts'
+import { shouldLlmRoute } from '../llmRouter.ts'
 import { isCancelCommand } from '../cancelUtils.ts'
 import { DEDUP_WAIT_DEADLINE_MS } from '../config.ts'
 import { type DedupEntry, checkDedupEntry, isWhisperHallucination } from './dedup.ts'
@@ -319,41 +322,61 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
   // ── Routing logic ──────────────────────────────────────────────────────────
   // Three cases (in priority order):
   //
-  // 1. Explicit `to` + no "please" in first 7 words → use explicit `to`, full transcript, skip llmRoute.
-  // 2. "please" found in first 7 words (even if explicit `to` is set) → llmRoute OVERRIDES.
-  //      routingPart = text BEFORE "please" → passed to llmRoute to detect agent
-  //      messagePart = text AFTER "please" (trimmed) → the actual message body to deliver
-  //    llmRoute returns an agent → deliver messagePart to that agent.
+  // 1. Explicit `to` + no addressing signal → use explicit `to`, full transcript, skip llmRoute.
+  // 2. Addressing signal present (shouldLlmRoute=true) → llmRoute OVERRIDES explicit `to`.
+  //      For "please"-gated transcripts: routingPart = text BEFORE "please", messagePart = text AFTER.
+  //      For direct-address transcripts ("tell X to Y"): full transcript passed to llmRoute.
+  //    llmRoute returns an agent → deliver messagePart (or full transcript) to that agent.
   //    llmRoute fails/returns nothing → fall back to explicit `to`, or "command" if no explicit `to`.
-  // 3. No "please" in first 7 words, no explicit `to` → deliver full transcript to "command".
+  // 3. No addressing signal, no explicit `to` → deliver full transcript to "command".
 
   let message: string
 
-  // Detect "please" only within the first 7 words (case-insensitive).
-  // We match the word boundary for "please" and check its position.
+  // Detect "please" within the first 7 words (case-insensitive) — used to
+  // split the transcript into routingPart / messagePart for the please-gate branch.
   const words = transcript.trimStart().split(/\s+/)
   const pleaseIndex = words.slice(0, 7).findIndex((w) => /^please$/i.test(w))
   const pleaseInFirst7 = pleaseIndex !== -1
 
-  if (pleaseInFirst7) {
-    // Case 2: "please" in first 7 words — llmRoute OVERRIDES explicit `to`.
-    // Pass everything up to and including "please" to llmRoute so it can detect the agent.
-    const routingPart = words.slice(0, pleaseIndex + 1).join(' ') // words up to and including "please"
-    const messagePart = words
-      .slice(pleaseIndex + 1)
-      .join(' ')
-      .trim() // words after "please"
-    console.log(
-      `[route] please-gate (word ${pleaseIndex + 1}): routingPart="${routingPart}", messagePart="${messagePart}"`
-    )
-    const llmResult = await ctx.llmRoute(routingPart, await ctx.getKnownAgents(), '')
-    const fallback = explicitTo || 'command'
-    to = llmResult.agent || fallback
-    message = messagePart || transcript // fallback to full transcript if nothing after "please"
-    if (llmResult.agentChanged) {
-      ctx.saveLastTarget(to)
+  // shouldLlmRoute checks both "please" (any position) and direct-address patterns.
+  // It is the authoritative gate — pleaseInFirst7 is kept only for the message-split logic below.
+  const needsLlmRoute = shouldLlmRoute(transcript)
+
+  if (needsLlmRoute) {
+    // Case 2: addressing signal — llmRoute OVERRIDES explicit `to`.
+    if (pleaseInFirst7) {
+      // "please"-gated: split routing fragment from message body at "please".
+      // Pass words up to and including "please" to llmRoute; deliver what's after.
+      const routingPart = words.slice(0, pleaseIndex + 1).join(' ')
+      const messagePart = words
+        .slice(pleaseIndex + 1)
+        .join(' ')
+        .trim()
+      console.log(
+        `[route] please-gate (word ${pleaseIndex + 1}): routingPart="${routingPart}", messagePart="${messagePart}"`
+      )
+      const llmResult = await ctx.llmRoute(routingPart, await ctx.getKnownAgents(), '')
+      const fallback = explicitTo || 'command'
+      to = llmResult.agent || fallback
+      message = messagePart || transcript
+      if (llmResult.agentChanged) {
+        ctx.saveLastTarget(to)
+      }
+      console.log(`[route] → ${to} (please-gate, changed=${llmResult.agentChanged}): "${message}"`)
+    } else {
+      // Direct-address patterns ("tell X to Y", "ask X about Y", "message to X: Y").
+      // Pass the full transcript to llmRoute — preParseTranscript inside llmRoute
+      // will extract the agent fragment. Deliver the full transcript as the message.
+      console.log(`[route] direct-address-gate: transcript="${transcript}"`)
+      const llmResult = await ctx.llmRoute(transcript, await ctx.getKnownAgents(), '')
+      const fallback = explicitTo || 'command'
+      to = llmResult.agent || fallback
+      message = llmResult.message || transcript
+      if (llmResult.agentChanged) {
+        ctx.saveLastTarget(to)
+      }
+      console.log(`[route] → ${to} (direct-address, changed=${llmResult.agentChanged}): "${message}"`)
     }
-    console.log(`[route] → ${to} (please-gate, changed=${llmResult.agentChanged}): "${message}"`)
   } else if (explicitTo) {
     // Case 1: Explicit UI selection, no "please" in first 7 words — honour it, full transcript.
     to = explicitTo

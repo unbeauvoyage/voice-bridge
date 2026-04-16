@@ -1028,4 +1028,106 @@ describe('transcribe route handler', () => {
       expect(entry && 'inProgress' in entry).toBe(false)
     })
   })
+
+  // ── Spoken-name routing without "please" ──────────────────────────────────
+  //
+  // CEO can route by speaking the agent name directly: "tell command to check
+  // the build", "ask jarvis about the weather". These addressing patterns must
+  // trigger llmRoute even without "please". The gate logic (shouldLlmRoute) is
+  // the key change — it extends the existing "please" check with additional
+  // addressing signals.
+  describe('spoken-name routing without "please" triggers llmRoute', () => {
+    // Helper: build a FormData request with a fixed audio blob
+    function makeAudioRequest(to?: string): Request {
+      const formData = new FormData()
+      formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+      if (to) formData.append('to', to)
+      const req = new Request('http://localhost:3030/transcribe', { method: 'POST' })
+      Object.defineProperty(req, 'formData', { value: async () => formData })
+      return req
+    }
+
+    // "tell command to check the build" must call llmRoute even though the
+    // transcript contains no "please" — the addressing pattern triggers the gate.
+    test('"tell command to check the build" triggers llmRoute (no "please" needed)', async () => {
+      const llmRouteCalls: string[] = []
+      const ctx = createMockContext({
+        transcribeAudio: async () => ({
+          transcript: 'tell command to check the build',
+          audioRms: 10000
+        }),
+        llmRoute: async (transcript, agents, fallback) => {
+          llmRouteCalls.push(transcript)
+          return { agent: 'command', message: 'check the build', agentChanged: false }
+        }
+      })
+
+      const res = await handleTranscribe(makeAudioRequest(), ctx)
+      expect(res.status).toBe(200)
+      // llmRoute MUST have been called — the addressing gate fired
+      expect(llmRouteCalls.length).toBeGreaterThan(0)
+    })
+
+    // "check the build please" — existing "please" path must still work unchanged.
+    test('"check the build please" still triggers llmRoute (backward compat)', async () => {
+      const llmRouteCalls: string[] = []
+      const ctx = createMockContext({
+        transcribeAudio: async () => ({
+          transcript: 'check the build please',
+          audioRms: 10000
+        }),
+        llmRoute: async (transcript, agents, fallback) => {
+          llmRouteCalls.push(transcript)
+          return { agent: fallback, message: transcript, agentChanged: false }
+        }
+      })
+
+      await handleTranscribe(makeAudioRequest(), ctx)
+      expect(llmRouteCalls.length).toBeGreaterThan(0)
+    })
+
+    // Plain transcript with no addressing signal must NOT call llmRoute — this
+    // would cause an unnecessary Ollama call for every ordinary message.
+    test('"check the build" (no addressing, no please) does NOT trigger llmRoute', async () => {
+      const llmRouteCalls: string[] = []
+      const ctx = createMockContext({
+        transcribeAudio: async () => ({
+          transcript: 'check the build',
+          audioRms: 10000
+        }),
+        llmRoute: async (transcript, agents, fallback) => {
+          llmRouteCalls.push(transcript)
+          return { agent: fallback, message: transcript, agentChanged: false }
+        }
+      })
+
+      await handleTranscribe(makeAudioRequest(), ctx)
+      // llmRoute must NOT be called — no addressing signal in the transcript
+      expect(llmRouteCalls.length).toBe(0)
+    })
+
+    // Verify the routed-to agent is correct, not just that llmRoute was called.
+    test('"tell productivitesse to run tests" routes to productivitesse', async () => {
+      const deliverCalls: Array<{ message: string; to: string }> = []
+      const ctx = createMockContext({
+        transcribeAudio: async () => ({
+          transcript: 'tell productivitesse to run tests',
+          audioRms: 10000
+        }),
+        llmRoute: async () => ({
+          agent: 'productivitesse',
+          message: 'run tests',
+          agentChanged: true
+        }),
+        deliverMessage: async (message, to) => {
+          deliverCalls.push({ message, to })
+          return { ok: true }
+        }
+      })
+
+      const res = await handleTranscribe(makeAudioRequest(), ctx)
+      expect(res.status).toBe(200)
+      expect(deliverCalls[0]?.to).toBe('productivitesse')
+    })
+  })
 })

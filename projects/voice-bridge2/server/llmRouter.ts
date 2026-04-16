@@ -21,9 +21,53 @@ const ADDRESSING_PATTERNS = [
   /^(?:to\s+)?(.+?)\s+please[,.]?\s+(.+)$/is,
   // "hey chief of staff, do X"
   /^(?:hey\s+)(.+?)[,.]\s+(.+)$/is,
+  // "tell X to Y" — e.g. "tell command to check the build"
+  /^tell\s+(.+?)\s+to\s+(.+)$/is,
+  // "message to X: Y" — e.g. "message to productivitesse: check the build"
+  /^message\s+to\s+(.+?):\s*(.+)$/is,
+  // "ask X to Y" / "ask X about Y" — natural variants
+  /^ask\s+(.+?)\s+(?:to|about)\s+(.+)$/is,
   // "chief of staff, do X" (comma as delimiter)
   /^(.+?)[,]\s+(.+)$/is
 ]
+
+/**
+ * The set of patterns that signal explicit agent addressing in a transcript.
+ * These patterns are used by shouldLlmRoute to decide whether to invoke
+ * llmRoute for a given transcript — without requiring "please".
+ *
+ * "please" is handled separately (existing behavior) so this list only covers
+ * the new spoken-name addressing patterns.
+ */
+const DIRECT_ADDRESS_PATTERNS = [
+  // "tell X to Y" — "tell command to check the build"
+  // Must start with "tell" (anchored to avoid matching mid-sentence uses).
+  /^tell\s+\S+.*?\bto\b/i,
+  // "message to X: Y" — "message to productivitesse: check the build"
+  // Anchored to start so "send a message to the team" does not match.
+  /^message\s+to\s+\S+/i,
+  // "ask X to/about Y" — "ask jarvis about the weather"
+  // Anchored to start to avoid false positives on "I ask you about the weather".
+  /^ask\s+\S+.*?\b(?:to|about)\b/i
+]
+
+/**
+ * Returns true when a transcript should be routed through llmRoute for agent
+ * detection. Broadens the original "please-in-first-7-words" gate to also
+ * recognise spoken-name addressing patterns such as "tell X to Y" and
+ * "ask X about Y", so the CEO can route messages without needing "please".
+ *
+ * This is intentionally the ONLY gate — the internal "please" guard inside
+ * llmRoute itself is a separate concern (it prevents unnecessary Ollama calls
+ * for non-addressed messages that happen to contain "please" as an aside).
+ */
+export function shouldLlmRoute(transcript: string): boolean {
+  if (!transcript) return false
+  // "please" in any position (existing behavior preserved)
+  if (/\bplease\b/i.test(transcript)) return true
+  // Direct addressing patterns (new behavior)
+  return DIRECT_ADDRESS_PATTERNS.some((p) => p.test(transcript))
+}
 
 function preParseTranscript(transcript: string): { fragment: string; message: string } | null {
   for (const pattern of ADDRESSING_PATTERNS) {
@@ -45,8 +89,12 @@ export async function llmRoute(
   knownAgents: string[],
   fallbackAgent: string
 ): Promise<LlmRouteResult> {
-  // No "please" → no explicit agent addressing → send to sticky agent, skip LLM
-  if (!/\bplease\b/i.test(transcript)) {
+  // No explicit addressing signal → send to sticky agent, skip LLM.
+  // Checks both "please" (existing behavior) and direct address patterns
+  // (tell/ask/message). shouldLlmRoute is the canonical predicate — keeping
+  // the same logic here ensures the internal guard stays consistent with the
+  // gate in transcribe.ts without creating a dependency on that module.
+  if (!shouldLlmRoute(transcript)) {
     return { agent: fallbackAgent, message: transcript, agentChanged: false }
   }
 

@@ -19,7 +19,7 @@
 process.env.OLLAMA_URL = 'http://localhost:0/api/generate'
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { llmRoute } from './llmRouter'
+import { llmRoute, shouldLlmRoute } from './llmRouter'
 
 const KNOWN_AGENTS = ['chief-of-staff', 'command', 'productivitesse', 'knowledge-base']
 const FALLBACK = 'command'
@@ -230,5 +230,174 @@ describe('llmRoute — Ollama response parsing', () => {
       makeOllamaResponse({ response: JSON.stringify({ agent: 'some-agent' }) })
     const result = await llmRoute(MISSPELLED, [], FALLBACK)
     expect(result.agent).toBe('some-agent')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// shouldLlmRoute — predicate for the transcribe gate
+// ---------------------------------------------------------------------------
+//
+// shouldLlmRoute(transcript) returns true when a transcript should be passed
+// through llmRoute for agent detection. This decouples the gate logic from
+// the "please" guard inside llmRoute itself (which prevents unnecessary Ollama
+// calls for ordinary messages that happen to pass the gate).
+//
+// True cases:
+//   - "please" is present (existing behavior)
+//   - "tell X to Y" / "tell X, Y" patterns
+//   - "message to X: Y" pattern
+//   - "ask X to Y" / "ask X about Y" patterns
+//   - "hey X, Y" patterns (already covered by ADDRESSING_PATTERNS)
+//
+// False cases:
+//   - plain statements with no addressing signal
+
+describe('shouldLlmRoute — gate predicate', () => {
+  // ---------- "please" (existing behavior preserved) ----------
+
+  test('"check the build please" → true (backward compat)', () => {
+    expect(shouldLlmRoute('check the build please')).toBe(true)
+  })
+
+  test('"please check the build" → true (backward compat)', () => {
+    expect(shouldLlmRoute('please check the build')).toBe(true)
+  })
+
+  // ---------- "tell X to/Y" patterns ----------
+
+  // "tell command to check the build" — canonical spoken-name routing
+  test('"tell command to check the build" → true', () => {
+    expect(shouldLlmRoute('tell command to check the build')).toBe(true)
+  })
+
+  test('"tell productivitesse to run the tests" → true', () => {
+    expect(shouldLlmRoute('tell productivitesse to run the tests')).toBe(true)
+  })
+
+  // ---------- "message to X: Y" pattern ----------
+
+  test('"message to productivitesse: check the build" → true', () => {
+    expect(shouldLlmRoute('message to productivitesse: check the build')).toBe(true)
+  })
+
+  // ---------- "ask X to/about Y" patterns ----------
+
+  test('"ask jarvis about the weather" → true', () => {
+    expect(shouldLlmRoute('ask jarvis about the weather')).toBe(true)
+  })
+
+  test('"ask command to check the build" → true', () => {
+    expect(shouldLlmRoute('ask command to check the build')).toBe(true)
+  })
+
+  // ---------- non-addressing transcripts → false ----------
+
+  // Plain statement with no addressing keyword must NOT trigger llmRoute.
+  // This is the most important false case — ordinary messages must not
+  // result in unnecessary LLM calls.
+  test('"just do the thing" → false (no addressing signal)', () => {
+    expect(shouldLlmRoute('just do the thing')).toBe(false)
+  })
+
+  test('"check the build" → false (no addressing, no please)', () => {
+    expect(shouldLlmRoute('check the build')).toBe(false)
+  })
+
+  test('empty string → false', () => {
+    expect(shouldLlmRoute('')).toBe(false)
+  })
+
+  // Anchoring guard: "send a message to the team" contains "message to" mid-sentence
+  // but is NOT a "message to X: Y" addressing command — must NOT trigger llmRoute.
+  test('"send a message to the team" → false (mid-sentence "message to" is not addressing)', () => {
+    expect(shouldLlmRoute('send a message to the team')).toBe(false)
+  })
+
+  // Anchoring guard: mid-sentence "tell" must not match.
+  test('"I will tell command to do it" → false ("tell" not at start)', () => {
+    expect(shouldLlmRoute('I will tell command to do it')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// llmRoute — new addressing patterns (tell/message/ask)
+// ---------------------------------------------------------------------------
+//
+// These patterns allow spoken routing WITHOUT "please". The transcript
+// is matched via ADDRESSING_PATTERNS and the agent is extracted from the
+// addressing fragment. llmRoute's internal "please" guard must NOT fire
+// for these — the gate (shouldLlmRoute) fires in transcribe.ts before
+// llmRoute is called, so these tests verify end-to-end extraction behavior
+// when Ollama is mocked to return the expected agent.
+
+describe('llmRoute — tell/ask/message addressing patterns', () => {
+  let originalFetch: typeof globalThis.fetch
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  function makeOllamaResponse(responsePayload: unknown, status = 200): Response {
+    return new Response(JSON.stringify(responsePayload), {
+      status,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }
+
+  // The "please" guard inside llmRoute fires for transcripts without "please".
+  // For "tell X to Y" transcripts, llmRoute must be modified to also recognise
+  // direct-address patterns and skip the early-return guard.
+  // These tests document the required end-to-end behavior.
+
+  test('"tell command to check the build" extracts agent="command"', async () => {
+    // "command" is in KNOWN_AGENTS, so fast-path or Ollama-path must return it.
+    globalThis.fetch = async () =>
+      makeOllamaResponse({ response: JSON.stringify({ agent: 'command' }) })
+    const result = await llmRoute(
+      'tell command to check the build',
+      ['command', 'productivitesse', 'chief-of-staff'],
+      'chief-of-staff'
+    )
+    expect(result.agent).toBe('command')
+  })
+
+  test('"message to productivitesse: run the tests" extracts agent="productivitesse"', async () => {
+    globalThis.fetch = async () =>
+      makeOllamaResponse({ response: JSON.stringify({ agent: 'productivitesse' }) })
+    const result = await llmRoute(
+      'message to productivitesse: run the tests',
+      ['command', 'productivitesse', 'chief-of-staff'],
+      'command'
+    )
+    expect(result.agent).toBe('productivitesse')
+  })
+
+  test('"ask jarvis about the weather" extracts agent="jarvis"', async () => {
+    globalThis.fetch = async () =>
+      makeOllamaResponse({ response: JSON.stringify({ agent: 'jarvis' }) })
+    // jarvis is in knownAgents here — so the guard passes and agent is returned
+    const result = await llmRoute(
+      'ask jarvis about the weather',
+      ['jarvis', 'command', 'productivitesse'],
+      'command'
+    )
+    expect(result.agent).toBe('jarvis')
+  })
+
+  test('"just do the thing" (no addressing) → fallback, no agent extracted', async () => {
+    // No addressing pattern — llmRoute must return fallback immediately.
+    // We do NOT mock fetch: if it were called, the test would fail with a
+    // network error proving the guard didn't fire correctly.
+    const result = await llmRoute(
+      'just do the thing',
+      ['command', 'productivitesse'],
+      'command'
+    )
+    expect(result.agent).toBe('command')
+    expect(result.agentChanged).toBe(false)
   })
 })
