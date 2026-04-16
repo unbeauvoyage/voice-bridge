@@ -2,9 +2,13 @@
  * Delivers transcribed text to a Claude Code agent via the relay server.
  * Also echoes the message into the CEO's own feed so the conversation view
  * shows both outgoing voice messages and agent responses in one thread.
+ *
+ * Per server-standards.md: returns Result<void> instead of throwing.
+ * Callers check result.ok; they never need to catch.
  */
 
 import { RELAY_BASE_URL_DEFAULT, RELAY_SEND_TIMEOUT_MS } from './config.ts'
+import type { Result } from './lib/result.ts'
 
 type SendRequest = { from: string; to: string; type: string; body: string }
 
@@ -14,7 +18,7 @@ type SendRequest = { from: string; to: string; type: string; body: string }
 // would pass that check, fail the 'queued' comparison, and resolve as
 // if delivered — silent non-delivery. The real relay contract is a
 // string enum of exactly 'delivered' | 'queued'; anything else is an
-// invalid response and MUST throw.
+// invalid response and MUST be treated as an error.
 type RelayStatus = 'delivered' | 'queued'
 function isRelayResponse(value: unknown): value is { status: RelayStatus } {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
@@ -30,7 +34,7 @@ function relayUrl(): string {
   return `${base}/send`
 }
 
-export async function deliverToAgent(transcript: string, to: string): Promise<void> {
+export async function deliverToAgent(transcript: string, to: string): Promise<Result<void>> {
   const body: SendRequest = {
     from: 'ceo',
     to,
@@ -39,24 +43,35 @@ export async function deliverToAgent(transcript: string, to: string): Promise<vo
   }
 
   const url = relayUrl()
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(RELAY_TIMEOUT_MS)
-  })
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(RELAY_TIMEOUT_MS)
+    })
+  } catch (err) {
+    return { ok: false, error: `Relay unreachable: ${String(err)}` }
+  }
 
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new Error(`Relay returned ${res.status}: ${text}`)
+    return { ok: false, error: `Relay returned ${res.status}: ${text}` }
   }
 
-  const data: unknown = await res.json()
+  let data: unknown
+  try {
+    data = await res.json()
+  } catch {
+    return { ok: false, error: 'Relay returned non-JSON response' }
+  }
+
   if (!isRelayResponse(data)) {
-    throw new Error('Relay returned invalid response')
+    return { ok: false, error: 'Relay returned invalid response' }
   }
   if (data.status === 'queued') {
-    throw new Error(`Agent "${to}" is offline — message queued but not delivered`)
+    return { ok: false, error: `Agent "${to}" is offline — message queued but not delivered` }
   }
 
   // Echo into CEO's feed so outgoing messages appear alongside agent responses.
@@ -73,4 +88,6 @@ export async function deliverToAgent(transcript: string, to: string): Promise<vo
     }),
     signal: AbortSignal.timeout(RELAY_TIMEOUT_MS)
   }).catch(() => {})
+
+  return { ok: true, data: undefined }
 }

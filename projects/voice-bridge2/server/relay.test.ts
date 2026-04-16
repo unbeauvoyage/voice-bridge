@@ -12,9 +12,12 @@
  * reply 200 delivered:true — a silent non-delivery.
  *
  * These tests pin the tighter shape: the response must be exactly
- * { status: 'delivered' }. 'queued' throws with the offline message;
- * anything else (wrong type, unknown enum, missing key) throws as an
- * invalid relay response.
+ * { status: 'delivered' }. 'queued' returns { ok: false } with the
+ * offline message; anything else (wrong type, unknown enum, missing key)
+ * returns { ok: false } with an invalid-response message.
+ *
+ * Per server-standards.md: functions that perform I/O return Result<T>,
+ * never void/throw. Callers check result.ok instead of catching.
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
@@ -45,44 +48,56 @@ afterAll(() => {
 })
 
 describe('deliverToAgent — strict relay response schema', () => {
-  test('resolves when relay returns {status: "delivered"}', async () => {
+  test('returns { ok: true } when relay returns {status: "delivered"}', async () => {
     nextResponse = { status: 200, body: { status: 'delivered' } }
-    await expect(deliverToAgent('hello', 'command')).resolves.toBeUndefined()
+    const result = await deliverToAgent('hello', 'command')
+    expect(result.ok).toBe(true)
   })
 
-  test('throws offline error when relay returns {status: "queued"}', async () => {
+  test('returns { ok: false } when relay returns {status: "queued"}', async () => {
+    // Agent offline — message queued but not delivered. Propagate as error rather than throw.
     nextResponse = { status: 200, body: { status: 'queued' } }
-    await expect(deliverToAgent('hello', 'command')).rejects.toThrow(/offline|queued/i)
+    const result = await deliverToAgent('hello', 'command')
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toMatch(/offline|queued/i)
+    }
   })
 
-  test('throws on unknown status enum value (e.g. "bogus")', async () => {
-    // Previously treated as success — only 'delivered' must be.
+  test('returns { ok: false } on unknown status enum value (e.g. "bogus")', async () => {
+    // Previously treated as success — only 'delivered' must be accepted.
     nextResponse = { status: 200, body: { status: 'bogus' } }
-    await expect(deliverToAgent('hello', 'command')).rejects.toThrow()
+    const result = await deliverToAgent('hello', 'command')
+    expect(result.ok).toBe(false)
   })
 
-  test('throws when status is wrong type (number)', async () => {
+  test('returns { ok: false } when status is wrong type (number)', async () => {
     nextResponse = { status: 200, body: { status: 123 } }
-    await expect(deliverToAgent('hello', 'command')).rejects.toThrow()
+    const result = await deliverToAgent('hello', 'command')
+    expect(result.ok).toBe(false)
   })
 
-  test('throws when status is wrong type (object)', async () => {
+  test('returns { ok: false } when status is wrong type (object)', async () => {
     nextResponse = { status: 200, body: { status: { nested: 'delivered' } } }
-    await expect(deliverToAgent('hello', 'command')).rejects.toThrow()
+    const result = await deliverToAgent('hello', 'command')
+    expect(result.ok).toBe(false)
   })
 
-  test('throws when status key is missing entirely', async () => {
+  test('returns { ok: false } when status key is missing entirely', async () => {
     nextResponse = { status: 200, body: { foo: 'delivered' } }
-    await expect(deliverToAgent('hello', 'command')).rejects.toThrow()
+    const result = await deliverToAgent('hello', 'command')
+    expect(result.ok).toBe(false)
   })
 
-  test('throws when body is not an object (array)', async () => {
+  test('returns { ok: false } when body is not an object (array)', async () => {
     nextResponse = { status: 200, body: ['delivered'] }
-    await expect(deliverToAgent('hello', 'command')).rejects.toThrow()
+    const result = await deliverToAgent('hello', 'command')
+    expect(result.ok).toBe(false)
   })
 
-  test('throws when body is not an object (string)', async () => {
+  test('returns { ok: false } when body is not an object (string)', async () => {
     nextResponse = { status: 200, body: 'delivered' }
-    await expect(deliverToAgent('hello', 'command')).rejects.toThrow()
+    const result = await deliverToAgent('hello', 'command')
+    expect(result.ok).toBe(false)
   })
 })

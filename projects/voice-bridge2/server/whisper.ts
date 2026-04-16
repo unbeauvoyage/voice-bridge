@@ -64,7 +64,7 @@ function convertToWav(audioBuffer: Buffer, ext: string): Buffer {
  *
  * Returns 0 if no data chunk is found or the buffer is too small.
  */
-function computeWavRms(wav: Buffer): number {
+export function computeWavRms(wav: Buffer): number {
   // Minimum valid WAV: 'RIFF' + 4-byte size + 'WAVE' + 'fmt ' chunk (minimum 24 bytes) = at least 44 bytes
   if (wav.length < 44) return 0
 
@@ -157,7 +157,7 @@ export async function transcribeAudio(audioBuffer: Buffer, mimeType: string): Pr
   return { transcript: text.trim(), audioRms }
 }
 
-function mimeTypeToExt(mimeType: string): string {
+export function mimeTypeToExt(mimeType: string): string {
   if (mimeType.includes('mp4') || mimeType.includes('aac')) return 'mp4'
   if (mimeType.includes('m4a')) return 'm4a'
   if (mimeType.includes('ogg')) return 'ogg'
