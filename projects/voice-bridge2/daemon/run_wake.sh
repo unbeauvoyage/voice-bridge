@@ -7,8 +7,6 @@ PYTHON_APP="/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framewor
 
 # Kill any existing instance before starting — prevents duplicate daemons
 pkill -f "wake_word.py" 2>/dev/null
-pkill -f "$DAEMON_DIR/menubar_icon" 2>/dev/null
-pkill -f "$DAEMON_DIR/toast_overlay" 2>/dev/null
 sleep 0.5
 
 export PYTHONPATH="$DAEMON_DIR/.venv/lib/python3.14/site-packages"
