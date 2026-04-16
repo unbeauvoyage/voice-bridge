@@ -42,6 +42,13 @@ const daemonController = createDaemonController({
   workDir: join(DAEMON_DIR, '..'),
   readTarget: () => targetStore.read(),
   onStateChange: (state: unknown) => {
+    // Authoritative recording state from daemon stdout — drives tray icon.
+    // This is the ONLY path that may call setRecordingState(). Overlay payloads
+    // must NOT drive recording state — they are best-effort HTTP and can arrive
+    // for non-recording events (e.g. mode="message" toasts) during mic recording.
+    if (state && typeof state === 'object' && 'recording' in state) {
+      trayCtrl?.setRecordingState((state as { recording: boolean }).recording)
+    }
     const w = mainWindowManager.getWindow()
     if (w) w.webContents.send('state-change', state)
   }
@@ -97,10 +104,11 @@ const overlayManager = createOverlayManager({
 })
 
 function showOverlay(payload: OverlayPayload): void {
-  // Mirror recording state on the tray icon — privacy requirement.
-  // The daemon sends mode="recording" when mic activates and mode="hidden"
-  // (or any non-recording mode) when recording stops.
-  trayCtrl?.setRecordingState(payload.mode === 'recording')
+  // Overlay payloads are display-only — they MUST NOT drive tray recording state.
+  // A "message" mode overlay from relay-poller can arrive while the mic is actively
+  // recording; if that overlay called setRecordingState it would flip the tray back
+  // to green, lying about mic state. Recording state is driven exclusively by
+  // daemon stdout JSON events in onStateChange above.
   overlayManager.show(payload)
 }
 

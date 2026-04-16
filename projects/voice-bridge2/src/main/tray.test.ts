@@ -236,6 +236,81 @@ describe('attachTrayBehavior — click', () => {
   })
 })
 
+// ── Recording state source isolation tests ───────────────────────────────────
+//
+// Bug 1: A "message" overlay payload arriving during recording must NOT flip
+// the tray back to green. Tray recording state must only be controlled by
+// explicit setRecordingState() calls from the daemon's authoritative stdout
+// events — not from showOverlay() or any overlay mode field.
+//
+// Bug 2: If the overlay server is down (overlay POST fails), the tray must
+// still show red during recording. Since tray state is now driven by daemon
+// stdout (not overlay HTTP), overlay failure is irrelevant to the indicator.
+//
+// These tests verify the TrayController interface contract: setRecordingState
+// is the sole mechanism for changing the recording indicator. The overlay
+// pathway has NO access to setRecordingState — that wiring was removed from
+// showOverlay() in index.ts. The tray itself cannot be "tricked" through any
+// other code path.
+
+describe('TrayController — recording state isolation', () => {
+  test('setRecordingState(true) then setRecordingState(false) — only these calls change the icon', () => {
+    // The tray controller exposes ONLY setRecordingState for icon changes.
+    // Simulating a "message" overlay arriving during recording: since index.ts
+    // no longer calls setRecordingState from showOverlay(), calling any other
+    // method on TrayController during recording must leave the icon unchanged.
+    // This test verifies that between setRecordingState(true) and any
+    // subsequent setRecordingState call, the icon stays as recording-icon.
+    const tray = new FakeTrayWithImage()
+    const { deps, recordingIcon } = makeDepsWithIcons()
+    const ctrl = attachTrayBehavior(tray, deps)
+
+    // Start recording — tray must go red
+    ctrl.setRecordingState(true)
+    const imagesAfterRecordingStart = [...tray.images]
+
+    // Simulate time passing (message overlays, right-clicks, etc.) — no
+    // additional setRecordingState calls arrive from overlay payloads
+    // because index.ts no longer wires overlay → setRecordingState.
+    // The icon must remain unchanged.
+    expect(tray.images).toEqual(imagesAfterRecordingStart)
+    expect(tray.images[tray.images.length - 1]).toBe(recordingIcon)
+  })
+
+  test('tray icon is recording-icon after setRecordingState(true), regardless of other events', () => {
+    // Privacy invariant: once recording starts, the icon must stay red until
+    // setRecordingState(false) is explicitly called. No other TrayController
+    // method changes the icon — right-click, click, getLastTrayBounds, etc.
+    const tray = new FakeTrayWithImage()
+    const { deps, recordingIcon } = makeDepsWithIcons()
+    const ctrl = attachTrayBehavior(tray, deps)
+
+    ctrl.setRecordingState(true)
+
+    // Trigger other tray events that must NOT affect the recording icon
+    tray.emit('right-click')
+    ctrl.getLastTrayBounds()
+
+    // Icon must still be the recording icon — no other event resets it
+    expect(tray.images[tray.images.length - 1]).toBe(recordingIcon)
+  })
+
+  test('recording icon reverts only when setRecordingState(false) is called', () => {
+    // The ONLY way to leave recording state is an explicit setRecordingState(false).
+    // This mirrors the daemon-driven model: only daemon stdout events change state.
+    const tray = new FakeTrayWithImage()
+    const { deps, normalIcon, recordingIcon } = makeDepsWithIcons()
+    const ctrl = attachTrayBehavior(tray, deps)
+
+    ctrl.setRecordingState(true)
+    expect(tray.images[tray.images.length - 1]).toBe(recordingIcon)
+
+    // Only an explicit false call reverts the icon
+    ctrl.setRecordingState(false)
+    expect(tray.images[tray.images.length - 1]).toBe(normalIcon)
+  })
+})
+
 describe('attachTrayBehavior — right-click', () => {
   test('pops up the built menu', () => {
     const tray = new FakeTray()

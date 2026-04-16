@@ -70,6 +70,23 @@ MIN_RECORD_BEFORE_STOP = 4.0  # seconds to ignore stop word after recording star
 ELECTRON_OVERLAY_URL = "http://localhost:47890/overlay"
 
 
+def emit_recording_state(recording: bool) -> None:
+    """
+    Emit a JSON state event to stdout so the Electron daemon controller can
+    drive the tray recording indicator authoritatively.
+
+    This is the canonical signal for tray state. The overlay HTTP pathway is
+    best-effort and must NOT drive the tray — only these stdout events may.
+    daemon.ts parses every stdout line starting with '{' as JSON and calls
+    onStateChange(), which in index.ts checks for {recording: bool} and calls
+    trayCtrl.setRecordingState().
+
+    flush=True is required: stdout may be line-buffered when piped, so without
+    flush the Electron process could wait indefinitely for the buffer to drain.
+    """
+    print(json.dumps({"recording": recording}), flush=True)
+
+
 def show_overlay(mode: str, text: str = "") -> None:
     """Send overlay command to Electron overlay server. Never raises."""
     try:
@@ -267,6 +284,7 @@ def main() -> None:
                     # Mic was turned off mid-recording — abort and hide overlay
                     print("[wake-word] mic paused mid-recording — discarding")
                     hide_recording_overlay()
+                    emit_recording_state(False)  # authoritative tray signal — mic is now idle
                     state = STATE_IDLE
                     recorded_frames = []
                     model.reset()
@@ -297,6 +315,7 @@ def main() -> None:
                     print(f"[wake-word] '{start_key}' detected (score={start_score:.2f}) — RECORDING")
                     play_sound("Tink")
                     start_recording_overlay()
+                    emit_recording_state(True)  # authoritative tray signal — mic is now live
                     _is_recording.set()
                     state = STATE_RECORDING
                     recorded_frames = []
@@ -317,6 +336,7 @@ def main() -> None:
                     print(f"[wake-word] '{stop_key}' detected (score={stop_score:.2f}) — stopping after {elapsed:.1f}s")
                     play_sound("Pop")
                     hide_recording_overlay()
+                    emit_recording_state(False)  # authoritative tray signal — mic is now idle
 
                     # Trim the last N seconds to remove the "alexa" utterance
                     trim_chunks = int(RATE / CHUNK * args.trim)
@@ -345,6 +365,7 @@ def main() -> None:
                     print(f"[wake-word] Hard timeout ({args.max_record}s) — sending what we have")
                     play_sound("Pop")
                     hide_recording_overlay()
+                    emit_recording_state(False)  # authoritative tray signal — mic is now idle
 
                     duration = len(recorded_frames) * CHUNK / RATE
                     print(f"  [record] {duration:.1f}s captured")
@@ -366,6 +387,7 @@ def main() -> None:
         print("\n[wake-word] Stopped.")
     finally:
         hide_recording_overlay()
+        emit_recording_state(False)  # ensure tray goes green on any exit path
         stream.stop_stream()
         stream.close()
         pa.terminate()
