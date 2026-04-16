@@ -231,7 +231,13 @@ const server = Bun.serve({
           return isNaN(pid) ? null : pid
         },
         stop: (pid: number) => {
-          spawnSync('kill', [String(pid)])
+          const result = spawnSync('kill', [String(pid)])
+          if (result.status !== 0) {
+            // Non-zero exit means the PID was stale, already dead, or kill was
+            // refused. Throw so the route handler can return an error response
+            // instead of falsely reporting { running: false }.
+            throw new Error(`kill exited with status ${result.status ?? 'null'}`)
+          }
         },
         start: (target: string) => {
           // Replicate run_daemon.sh: use Python.app (has mic entitlements) with venv PYTHONPATH

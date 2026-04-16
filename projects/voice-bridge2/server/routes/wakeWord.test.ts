@@ -220,4 +220,35 @@ describe('handleWakeWord', () => {
     expect(typeof body['error']).toBe('string')
     expect(body['error']).toContain('permission denied')
   })
+
+  test('stop returns 500 when kill exits with non-zero status (stale or already-dead PID)', async () => {
+    // This documents the contract for the real stop() implementation in index.ts:
+    // spawnSync('kill', [...]) returns a non-zero status when the PID is stale or
+    // the process is already dead. The real stop() must throw in that case so the
+    // route can report the failure instead of silently returning 200 {running: false}.
+    //
+    // Here we simulate that by having ctx.stop() throw the same error the real
+    // implementation throws when result.status !== 0.
+    const ctx: WakeWordContext = {
+      findPid: () => 9999,
+      stop: () => {
+        // Real impl: if (result.status !== 0) throw new Error(`kill exited with status ${result.status}`)
+        throw new Error('kill exited with status 1')
+      },
+      start: () => {},
+      loadLastTarget: () => 'command'
+    }
+    const res = await handleWakeWord(
+      new Request('http://localhost/wake-word/stop', { method: 'POST' }),
+      ctx
+    )
+    if (!res) throw new Error('null res')
+    // A non-zero kill exit means the PID was stale or already dead —
+    // the route must not lie and say the process was cleanly stopped.
+    expect(res.status).toBe(500)
+    const body = await readJsonObject(res)
+    expect(body['running']).toBe(true)
+    expect(typeof body['error']).toBe('string')
+    expect(body['error']).toContain('kill exited with status 1')
+  })
 })
