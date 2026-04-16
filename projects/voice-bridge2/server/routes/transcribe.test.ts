@@ -628,6 +628,106 @@ describe('transcribe route handler', () => {
     })
   })
 
+  // ── Transcript stacking regression ───────────────────────────────────────────
+  //
+  // CEO-reported bug (2026-04-16): multiple voice transcripts arrive bundled
+  // together as one message, end-to-end appended. Cause: the Whisper server
+  // (whisper.cpp) reuses internal context across calls unless explicitly told
+  // not to. Our /transcribe handler must pass `no_context=1` so each recording
+  // is transcribed independently.
+  //
+  // This test proves the handler contract at the DI boundary: two separate POST
+  // /transcribe calls — different audio bytes, different hashes — MUST produce
+  // two separate deliverMessage calls each carrying only their own transcript.
+  // The transcribeAudio injection ensures each call returns a distinct string.
+  //
+  // If transcript stacking occurred at the handler level (shared buffer, string
+  // append, etc.) the second deliverMessage call would carry both transcripts.
+  // This test catches that class of bug.
+  describe('transcript stacking — sequential recordings deliver independently', () => {
+    test('two sequential audio POSTs each deliver their own transcript (not concatenated)', async () => {
+      const deliverCalls: Array<{ message: string; to: string }> = []
+
+      // Simulate two distinct recordings that Whisper transcribes independently.
+      // In production the whisper.cpp no_context=1 flag prevents cross-request
+      // context bleed; here we verify the handler itself never concatenates.
+      let callCount = 0
+      const transcripts = ['turn on the lights', 'set a timer for ten minutes']
+      const ctx = createMockContext({
+        // Different audio buffers hash differently — use the real counter to
+        // return distinct transcripts per call.
+        transcribeAudio: async () => {
+          const t = transcripts[callCount % transcripts.length]
+          callCount++
+          return { transcript: t!, audioRms: 10000 }
+        },
+        // Each audio buffer produces a unique hash so dedup does not fire.
+        hashAudioBuffer: (_buf: Buffer) => `unique-hash-${Math.random()}`,
+        deliverMessage: async (message, to) => {
+          deliverCalls.push({ message, to })
+          return { ok: true }
+        }
+      })
+
+      // First recording
+      const form1 = new FormData()
+      form1.append('audio', new File([new Uint8Array(101)], 'recording1.wav', { type: 'audio/wav' }))
+      form1.append('to', 'command')
+      const req1 = createMockRequest(form1)
+      const res1 = await handleTranscribe(req1, ctx)
+      expect(res1.status).toBe(200)
+
+      // Second recording — separate audio bytes
+      const form2 = new FormData()
+      form2.append('audio', new File([new Uint8Array(102)], 'recording2.wav', { type: 'audio/wav' }))
+      form2.append('to', 'command')
+      const req2 = createMockRequest(form2)
+      const res2 = await handleTranscribe(req2, ctx)
+      expect(res2.status).toBe(200)
+
+      // Two separate deliver calls — one per recording
+      expect(deliverCalls).toHaveLength(2)
+
+      // Each call carries only its own transcript — no concatenation
+      expect(deliverCalls[0]!.message).toBe('turn on the lights')
+      expect(deliverCalls[1]!.message).toBe('set a timer for ten minutes')
+
+      // Neither message contains the other's text
+      expect(deliverCalls[0]!.message).not.toContain('set a timer')
+      expect(deliverCalls[1]!.message).not.toContain('turn on the lights')
+    })
+
+    test('each transcribeAudio call receives only its own audio buffer (no cross-contamination)', async () => {
+      // Verify the handler passes the audio buffer for each request in isolation
+      // to ctx.transcribeAudio. If a shared buffer were being accumulated between
+      // calls, the bufLen values below would grow — both should match their
+      // respective File sizes exactly.
+      const transcribeCallArgs: Array<{ bufLen: number; mime: string }> = []
+      const ctx = createMockContext({
+        transcribeAudio: async (buffer: Buffer, mimeType: string) => {
+          transcribeCallArgs.push({ bufLen: buffer.length, mime: mimeType })
+          return { transcript: `transcript-${buffer.length}`, audioRms: 10000 }
+        },
+        hashAudioBuffer: (_buf: Buffer) => `unique-hash-${Math.random()}`
+      })
+
+      const form1 = new FormData()
+      form1.append('audio', new File([new Uint8Array(201)], 'r1.wav', { type: 'audio/wav' }))
+      form1.append('to', 'command')
+      await handleTranscribe(createMockRequest(form1), ctx)
+
+      const form2 = new FormData()
+      form2.append('audio', new File([new Uint8Array(303)], 'r2.wav', { type: 'audio/wav' }))
+      form2.append('to', 'command')
+      await handleTranscribe(createMockRequest(form2), ctx)
+
+      expect(transcribeCallArgs).toHaveLength(2)
+      // First call: 201 bytes; second call: 303 bytes — not 504 (not accumulated)
+      expect(transcribeCallArgs[0]!.bufLen).toBe(201)
+      expect(transcribeCallArgs[1]!.bufLen).toBe(303)
+    })
+  })
+
   // ── Fix 2: dedup entry preserved as cancelled on hallucination path ────────
   //
   // The old code called ctx.recentAudioHashes.delete(audioHash) before returning

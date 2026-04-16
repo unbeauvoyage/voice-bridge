@@ -107,18 +107,17 @@ export interface TranscribeResult {
   audioRms: number
 }
 
-export async function transcribeAudio(audioBuffer: Buffer, mimeType: string): Promise<TranscribeResult> {
-  const ext = mimeTypeToExt(mimeType)
-  // WHISPER_SKIP_CONVERT=1 bypasses ffmpeg — for test environments with fake audio bytes.
-  // In this mode, treat the buffer as-is and compute RMS over it (assumed WAV in tests).
-  const wavBuffer =
-    process.env.WHISPER_SKIP_CONVERT === '1' ? audioBuffer : convertToWav(audioBuffer, ext)
-
-  // Compute RMS from the converted pcm_s16le WAV — this is the ground truth signal
-  // level, regardless of the original upload format (webm, ogg, mp4, etc.).
-  const audioRms = computeWavRms(wavBuffer)
-
-  const boundary = `----FormBoundary${randomUUID().replace(/-/g, '')}`
+/**
+ * Build the multipart form body for a whisper.cpp /inference request.
+ *
+ * Exported so tests can assert the exact fields — in particular that
+ * `no_context=1` is included to prevent whisper.cpp from conditioning
+ * subsequent transcriptions on prior calls (transcript stacking bug).
+ *
+ * @param wavBuffer pcm_s16le WAV buffer (ffmpeg-converted or raw for tests)
+ * @param boundary  Multipart boundary string (without leading --)
+ */
+export function buildWhisperBody(wavBuffer: Buffer, boundary: string): Buffer {
   const CRLF = '\r\n'
 
   const filePart =
@@ -131,20 +130,40 @@ export async function transcribeAudio(audioBuffer: Buffer, mimeType: string): Pr
     `Content-Disposition: form-data; name="${name}"${CRLF}${CRLF}` +
     value
 
-  const body = Buffer.concat([
+  return Buffer.concat([
     Buffer.from(filePart),
     wavBuffer,
     Buffer.from(textField('response_format', 'text')),
     Buffer.from(textField('language', 'auto')),
+    // no_context=1: prevents whisper.cpp from reusing its internal context
+    // window across API calls. Without this, each call is conditioned on all
+    // prior transcriptions → transcripts 2-4 include fragments of earlier calls
+    // (CEO-reported "transcript stacking" bug, 2026-04-16).
+    Buffer.from(textField('no_context', '1')),
     Buffer.from(`${CRLF}--${boundary}--${CRLF}`)
   ])
+}
+
+export async function transcribeAudio(audioBuffer: Buffer, mimeType: string): Promise<TranscribeResult> {
+  const ext = mimeTypeToExt(mimeType)
+  // WHISPER_SKIP_CONVERT=1 bypasses ffmpeg — for test environments with fake audio bytes.
+  // In this mode, treat the buffer as-is and compute RMS over it (assumed WAV in tests).
+  const wavBuffer =
+    process.env.WHISPER_SKIP_CONVERT === '1' ? audioBuffer : convertToWav(audioBuffer, ext)
+
+  // Compute RMS from the converted pcm_s16le WAV — this is the ground truth signal
+  // level, regardless of the original upload format (webm, ogg, mp4, etc.).
+  const audioRms = computeWavRms(wavBuffer)
+
+  const boundary = `----FormBoundary${randomUUID().replace(/-/g, '')}`
+  const body = buildWhisperBody(wavBuffer, boundary)
 
   const response = await fetch(WHISPER_URL, {
     method: 'POST',
     headers: {
       'Content-Type': `multipart/form-data; boundary=${boundary}`
     },
-    body,
+    body: body as unknown as BodyInit,
     signal: AbortSignal.timeout(WHISPER_TIMEOUT_MS)
   })
 

@@ -4,13 +4,73 @@
  * These are pure-function tests (no I/O, no ffmpeg, no network) covering:
  *   - computeWavRms: RMS computation over pcm_s16le WAV buffers
  *   - mimeTypeToExt: MIME type → file extension mapping
+ *   - buildWhisperBody: multipart form body sent to whisper.cpp server
  *
  * transcribeAudio is not tested here because it requires ffmpeg + a running
  * whisper-server. Those paths are exercised by integration/E2E tests.
  */
 
 import { describe, test, expect } from 'bun:test'
-import { computeWavRms, mimeTypeToExt } from './whisper.ts'
+import { computeWavRms, mimeTypeToExt, buildWhisperBody } from './whisper.ts'
+
+// ---------------------------------------------------------------------------
+// buildWhisperBody — multipart body sent to the Whisper inference endpoint
+// ---------------------------------------------------------------------------
+
+describe('buildWhisperBody', () => {
+  // CEO-reported bug (2026-04-16): multiple voice transcripts (last 3-4) arrive
+  // bundled together as one message. Root cause: whisper.cpp reuses its internal
+  // context window across API calls unless no_context=1 is included in the
+  // multipart request. Without it, each subsequent transcription is conditioned
+  // on all prior transcriptions → output includes fragments of prior calls.
+  //
+  // Fix: include no_context=1 in every /inference request body.
+  // This test verifies the field is present in the built multipart body.
+  test('includes no_context=1 field to prevent whisper.cpp context bleed across calls', () => {
+    const wav = Buffer.from('fake-wav-data')
+    const boundary = 'test-boundary'
+    const body = buildWhisperBody(wav, boundary)
+    const bodyStr = body.toString('latin1')
+
+    // The no_context field must be present with value "1".
+    // Without it, whisper.cpp reuses context from prior calls and appends
+    // their transcripts to the current one — causing the stacking bug.
+    expect(bodyStr).toContain('name="no_context"')
+    expect(bodyStr).toContain('\r\n\r\n1\r\n')
+  })
+
+  test('includes response_format=text field', () => {
+    const wav = Buffer.from('fake-wav-data')
+    const body = buildWhisperBody(wav, 'boundary-x')
+    const bodyStr = body.toString('latin1')
+    expect(bodyStr).toContain('name="response_format"')
+    expect(bodyStr).toContain('\r\n\r\ntext\r\n')
+  })
+
+  test('includes language=auto field', () => {
+    const wav = Buffer.from('fake-wav-data')
+    const body = buildWhisperBody(wav, 'boundary-x')
+    const bodyStr = body.toString('latin1')
+    expect(bodyStr).toContain('name="language"')
+    expect(bodyStr).toContain('\r\n\r\nauto\r\n')
+  })
+
+  test('includes the WAV file bytes in the body', () => {
+    const wav = Buffer.from([0x52, 0x49, 0x46, 0x46]) // "RIFF"
+    const body = buildWhisperBody(wav, 'boundary-x')
+    // The WAV bytes must appear in the body (file part)
+    const wavIdx = body.indexOf(wav)
+    expect(wavIdx).toBeGreaterThan(-1)
+  })
+
+  test('body is terminated with the closing boundary marker', () => {
+    const wav = Buffer.from('fake-wav')
+    const boundary = 'my-boundary'
+    const body = buildWhisperBody(wav, boundary)
+    const bodyStr = body.toString('latin1')
+    expect(bodyStr.endsWith(`--${boundary}--\r\n`)).toBe(true)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // Helper: build a minimal valid pcm_s16le WAV buffer
