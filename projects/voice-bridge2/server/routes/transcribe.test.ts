@@ -294,6 +294,80 @@ describe('transcribe route handler', () => {
     expect(ctx.recentAudioHashes.size).toBe(0)
   })
 
+  // Chunk-5 #4 HIGH (transcribe.ts:214-232) — the dedup waiter used to
+  // return a fake-successful `200 {transcript:"", deduplicated:true}`
+  // in two distinct bad cases: (a) the wait deadline expired while the
+  // original was still running, (b) the original failed and cleared
+  // the entry mid-wait. Both cases mislead the client into thinking
+  // the message was sent when nothing landed.
+  //
+  // The fix: on deadline expiry, return 409 with an explicit retry
+  // hint (NOT a blank transcript success). On entry-deleted (original
+  // failed), fall through and reprocess — the duplicate's own audio
+  // still deserves a real delivery attempt.
+  describe('dedup waiter — no silent blank on timeout / original-failed', () => {
+    test('returns 409 retry-later when wait deadline expires (not blank 200)', async () => {
+      const ctx = createMockContext({ dedupWaitDeadlineMs: 50 })
+      // Simulate another request already in progress — the handler will
+      // wait for it, and the deadline will expire before it resolves.
+      const hash = 'hash-100' // matches createMockContext's hashAudioBuffer
+      ctx.recentAudioHashes.set(hash, { ts: Date.now(), inProgress: true })
+
+      const formData = new FormData()
+      formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+      const req = createMockRequest(formData)
+
+      const res = await handleTranscribe(req, ctx)
+      expect(res.status).toBe(409)
+      const body: unknown = await res.json()
+      const obj: Record<string, unknown> = {}
+      if (typeof body === 'object' && body !== null) Object.assign(obj, body)
+      // Must NOT be a blank-transcript success; the client has to be
+      // told this is a retry situation, not a "nothing was heard" one.
+      expect(obj['transcript']).not.toBe('')
+      expect(String(obj['error'] ?? obj['retry'] ?? '')).toMatch(/retry|progress/i)
+    })
+
+    test('falls through to re-process when entry is deleted mid-wait (not blank 200)', async () => {
+      // Pre-seed an in-progress entry. Start the duplicate, then
+      // simulate the original failing (which deletes the entry). The
+      // duplicate must fall through, run transcription + delivery, and
+      // return a real 200 — not the old blank-200 short-circuit.
+      const deliverCalls: Array<{ message: string; to: string }> = []
+      const ctx = createMockContext({
+        dedupWaitDeadlineMs: 5000,
+        deliverMessage: async (message, to) => {
+          deliverCalls.push({ message, to })
+          return { ok: true }
+        }
+      })
+      const hash = 'hash-100'
+      ctx.recentAudioHashes.set(hash, { ts: Date.now(), inProgress: true })
+
+      const formData = new FormData()
+      formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
+      formData.append('to', 'command')
+      const req = createMockRequest(formData)
+
+      const pending = handleTranscribe(req, ctx)
+
+      // Give the handler time to enter the wait loop, then simulate
+      // the original failing and clearing the entry.
+      await Bun.sleep(350)
+      ctx.recentAudioHashes.delete(hash)
+
+      const res = await pending
+      expect(res.status).toBe(200)
+      const body: unknown = await res.json()
+      const obj: Record<string, unknown> = {}
+      if (typeof body === 'object' && body !== null) Object.assign(obj, body)
+      expect(obj['delivered']).toBe(true)
+      expect(obj['transcript']).toBe('hello world')
+      // The duplicate actually delivered — it was not short-circuited.
+      expect(deliverCalls.length).toBe(1)
+    })
+  })
+
   test('POST /transcribe returns 400 when form data is invalid', async () => {
     // Simulate invalid form data parsing
     const req = new Request('http://localhost:3030/transcribe', { method: 'POST' })

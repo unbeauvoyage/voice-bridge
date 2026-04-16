@@ -79,6 +79,11 @@ export type TranscribeContext = {
   // and returns {ok: false} only when BOTH channels have failed. The
   // handler surfaces that as 502 instead of the old silent 200.
   deliverMessage: (message: string, to: string) => Promise<DeliveryResult>
+
+  // Optional override for the dedup-waiter deadline. Defaults to the
+  // production constant from config.ts when omitted; tests inject a
+  // small value so the retry/timeout paths can be exercised quickly.
+  dedupWaitDeadlineMs?: number
 }
 
 /**
@@ -209,33 +214,62 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
   ctx.evictStaleHashes()
   const audioHash = ctx.hashAudioBuffer(audioBuffer)
   const existing = ctx.recentAudioHashes.get(audioHash)
+  const waitDeadlineMs = ctx.dedupWaitDeadlineMs ?? DEDUP_WAIT_DEADLINE_MS
   if (existing) {
     console.log(`[voice-bridge] duplicate audio detected (hash=${audioHash})`)
     if ('inProgress' in existing) {
-      // First request still transcribing — wait for it to complete rather than returning empty,
-      // because returning empty causes the phone to freeze in "transcribing" state (Tailscale latency triggers WKWebView retries)
-      const deadline = Date.now() + DEDUP_WAIT_DEADLINE_MS
+      // Chunk-5 #4 HIGH: the old waiter returned
+      // `200 {transcript:"", deduplicated:true}` on both deadline
+      // expiry and entry-deletion, which let the client believe a
+      // message was delivered when nothing had been. Now we
+      // distinguish the three outcomes explicitly.
+      const deadline = Date.now() + waitDeadlineMs
+      let outcome: 'resolved' | 'deleted' | 'timeout' = 'timeout'
+      let resolved: DedupEntry | undefined
       while (Date.now() < deadline) {
         await Bun.sleep(300)
         const updated = ctx.recentAudioHashes.get(audioHash)
-        if (!updated || !('inProgress' in updated)) {
-          if (updated) {
-            console.log(`[voice-bridge] duplicate resolved after wait, returning cached transcript`)
-            return Response.json(
-              { transcript: updated.transcript, to: updated.to, deduplicated: true },
-              { headers: corsHeaders }
-            )
-          }
+        if (!updated) {
+          outcome = 'deleted'
+          break
+        }
+        if (!('inProgress' in updated)) {
+          outcome = 'resolved'
+          resolved = updated
           break
         }
       }
-      return Response.json({ transcript: '', deduplicated: true }, { headers: corsHeaders })
+      if (outcome === 'resolved' && resolved && !('inProgress' in resolved)) {
+        console.log(`[voice-bridge] duplicate resolved after wait, returning cached transcript`)
+        return Response.json(
+          { transcript: resolved.transcript, to: resolved.to, deduplicated: true },
+          { headers: corsHeaders }
+        )
+      }
+      if (outcome === 'timeout') {
+        // Original still in progress past the wait deadline. Tell the
+        // client to retry — do NOT fabricate a successful empty
+        // transcript. 409 Conflict is the honest shape: "there is a
+        // conflicting in-flight request for this exact audio; try
+        // again shortly."
+        console.log(`[voice-bridge] dedup wait deadline exceeded for hash=${audioHash}`)
+        return Response.json(
+          { error: 'Original transcription still in progress — retry later', retryAfterMs: 2000 },
+          { status: 409, headers: corsHeaders }
+        )
+      }
+      // outcome === 'deleted' — the original request failed and
+      // cleared its cache entry. Fall through and re-run transcription
+      // + delivery for this duplicate so it gets a real attempt rather
+      // than an empty 200.
+      console.log(`[voice-bridge] original failed mid-wait — reprocessing duplicate for hash=${audioHash}`)
+    } else {
+      // First request already completed — return cached result, skip relay.
+      return Response.json(
+        { transcript: existing.transcript, to: existing.to, deduplicated: true },
+        { headers: corsHeaders }
+      )
     }
-    // First request already completed — return cached result, skip relay
-    return Response.json(
-      { transcript: existing.transcript, to: existing.to, deduplicated: true },
-      { headers: corsHeaders }
-    )
   }
   ctx.recentAudioHashes.set(audioHash, { ts: Date.now(), inProgress: true })
 
