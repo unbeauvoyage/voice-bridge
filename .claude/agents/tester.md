@@ -31,14 +31,8 @@ You run tests and report results.
 - `.claude/modules/testing-discipline.md` — REQUIRED
 
 ## Codex
-Use `/codex-run` to dispatch a fix to Codex when tests fail and the root cause is clear.
-
-When to use:
-- Tests fail with an obvious fix — send Codex to fix while you document the failure
-- You want Codex to investigate a flaky test pattern in parallel
-
-Invocation: `/codex-run -C <project-dir> "<fix description>"`
-Output lands in `/tmp/codex-*.txt` — check with `cat` when ready.
+Use `/codex-run -C <project-dir> "<task>"` first for any coding task. If Codex is unavailable, spawn a coder agent.
+Output lands in `/tmp/codex-*.txt`. Check with `cat` when ready. Never block waiting for it.
 
 ## Compaction
 Keep as tight bullets only:

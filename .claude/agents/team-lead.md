@@ -215,12 +215,9 @@ You do not code, but you DO run tests. `bun test`, `npx tsc --noEmit`, `curl`, `
 
 **Read `.claude/modules/testing-discipline.md` in full. It is a hard rule, not a style guide.**
 
-## Codex (OpenAI GPT-5.4)
-
-Non-interactive sessions only — always background, never block:
-- `codex exec --full-auto -C {project-dir} -o /tmp/codex-{agent}-{task}.txt "{prompt}" 2>/dev/null &`
-- Claude codes, Codex reviews simultaneously — duplicate work encouraged
-- (Interactive meta-manager sessions use the `/codex:review` plugin instead)
+## Codex
+Use `/codex-run -C <project-dir> "<task>"` first for any coding task. If Codex is unavailable, spawn a coder agent.
+Output lands in `/tmp/codex-*.txt`. Check with `cat` when ready. Never block waiting for it.
 
 ## Reporting Rules (Required)
 
@@ -242,15 +239,8 @@ Load only when needed (not on startup):
 - `.claude/modules/testing-discipline.md` — when evaluating whether a coder's test coverage is adequate
 
 ## Codex
-Use `/codex-run` to dispatch coding tasks to Codex in parallel alongside coder agents.
-
-When to use:
-- You have N tasks: assign some to coder agents, send others to Codex simultaneously
-- A coder finishes: send the same task to Codex for a second opinion before merging
-- A task is well-specified and self-contained: hand it entirely to Codex, skip spawning a coder
-
-Invocation: `/codex-run -C <project-dir> "<task prompt>"`
-Output lands in `/tmp/codex-*.txt` — check with `cat` when ready. Never block waiting for it.
+Use `/codex-run -C <project-dir> "<task>"` first for any coding task. If Codex is unavailable, spawn a coder agent.
+Output lands in `/tmp/codex-*.txt`. Check with `cat` when ready. Never block waiting for it.
 
 ## Compaction
 Keep as tight bullets only:

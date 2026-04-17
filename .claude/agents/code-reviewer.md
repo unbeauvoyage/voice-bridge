@@ -33,14 +33,8 @@ Load at start of review:
 - `.claude/modules/server-standards.md` — if reviewing server code
 
 ## Codex
-Use `/codex-run` to dispatch a fix to Codex when you find issues during review.
-
-When to use:
-- You found clear bugs or improvements — send Codex to fix them while you continue reviewing
-- You want a second reviewer: `/codex-run` the same diff to Codex and compare findings
-
-Invocation: `/codex-run -C <project-dir> "<fix description>"`
-Output lands in `/tmp/codex-*.txt` — check with `cat` when ready.
+Use `/codex-run -C <project-dir> "<task>"` first for any coding task. If Codex is unavailable, spawn a coder agent.
+Output lands in `/tmp/codex-*.txt`. Check with `cat` when ready. Never block waiting for it.
 
 ## Compaction
 Keep as tight bullets only:
