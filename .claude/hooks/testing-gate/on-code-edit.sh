@@ -235,7 +235,7 @@ fname = sys.argv[2]
 print(json.dumps({
   'hookSpecificOutput': {
     'hookEventName': 'PostToolUse',
-    'additionalContext': f'⚠️ Errors in {fname} — fix before committing:\n{errors}'
+    'additionalContext': f'🛑 TypeScript/ESLint errors in {fname}. The pre-commit gate WILL block your commit. Fix these NOW before continuing — do not defer:\n{errors}'
   }
 }))
 " "$CONTEXT_ERRORS" "$FILE_BASENAME"
