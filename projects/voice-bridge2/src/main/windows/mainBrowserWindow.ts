@@ -34,7 +34,9 @@ export function createMainBrowserWindow(mainDir: string): BrowserWindow {
   w.setVisibleOnAllWorkspaces(true, { skipTransformProcessType: true, visibleOnFullScreen: true })
 
   w.on('show', () => console.log('[win] show event, visible:', w.isVisible()))
-  w.on('hide', () => { console.log('[win] hide event') })
+  w.on('hide', () => {
+    console.log('[win] hide event')
+  })
   w.on('blur', () => console.log('[win] blur fired'))
   w.on('focus', () => console.log('[win] focus event'))
 
@@ -56,11 +58,20 @@ export function createMainBrowserWindow(mainDir: string): BrowserWindow {
       .catch(() => {})
   })
 
+  const settingsFilePath = join(mainDir, '../renderer/index.html')
+
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     w.webContents.openDevTools({ mode: 'detach' })
-    w.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    // loadURL can fail if the Vite dev server has crashed or restarted.
+    // Fall back to the built file so the settings panel still appears.
+    w.loadURL(process.env['ELECTRON_RENDERER_URL']).catch(() => {
+      console.warn('[main-win] dev server unreachable, falling back to loadFile')
+      w.loadFile(settingsFilePath).catch((e: Error) =>
+        console.error('[main-win] loadFile fallback failed:', e.message)
+      )
+    })
   } else {
-    w.loadFile(join(mainDir, '../renderer/index.html'))
+    w.loadFile(settingsFilePath)
   }
 
   return w
