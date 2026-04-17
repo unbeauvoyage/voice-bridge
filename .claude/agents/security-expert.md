@@ -41,3 +41,10 @@ ALTERNATIVE: {if MODIFY or DENY, suggest the safer approach}
 - Network calls to external services not in the project's scope
 - Modifying `.claude/`, `.git/`, or system config files
 - Any command that could expose secrets or credentials
+
+## Compaction
+Keep as tight bullets only:
+- Reviewing: [operation/file]
+- Risks found: [severity] — [risk in 6 words] (one per line)
+- Recommendation: [action in one line]
+Drop: full file contents, verbose security rationale already written.

@@ -52,3 +52,10 @@ You own the communication layer. When it's broken, you fix it. When it's degrade
 ## Reporting
 - `HUB_FROM=communications-expert ~/environment/bin/hub-send command "message" --type status`
 - Log work to `~/.worklog/communications-expert.md`
+
+## Compaction
+Keep as tight bullets only:
+- Relay status: [healthy / degraded]
+- Issues found: [issue in one line] (one per line)
+- Actions taken: [action] (one per line)
+Drop: full relay logs, message bodies, verbose diagnostics.

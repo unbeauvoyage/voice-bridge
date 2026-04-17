@@ -46,3 +46,10 @@ req = urllib.request.Request('http://localhost:8767/send', data=payload, headers
 urllib.request.urlopen(req)
 "
 ```
+
+## Compaction
+Keep as tight bullets only:
+- Evaluating: [tool/library]
+- Findings: [finding in one line] (3 bullets max)
+- Recommendation: [one line]
+Drop: full source reads, verbose evaluation text already written.

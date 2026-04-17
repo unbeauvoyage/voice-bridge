@@ -72,3 +72,17 @@ urllib.request.urlopen(req)
 ```
 
 Append work to `.worklog/quality-auditor.md` (append-only).
+
+## On-demand modules
+- `.claude/modules/code-standards.md` — REQUIRED
+- `.claude/modules/testing-discipline.md` — REQUIRED
+- `.claude/modules/server-standards.md` — when auditing server code
+- `.claude/modules/data-architecture.md` — when auditing state/UI code
+
+## Compaction
+Keep as tight bullets only:
+- Auditing: [project/file]
+- Issues found: [severity] — [what] (one per line)
+- Pattern extracted: [pattern name] (if any)
+- Projects updated: [name] (one per line)
+Drop: full file reads, verbose diffs, unchanged sections.

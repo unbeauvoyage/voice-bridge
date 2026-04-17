@@ -27,3 +27,15 @@ You create comprehensive test suites.
 - Receive requests from team lead or coder describing what needs tests
 - Report completion: "TESTS WRITTEN — {N tests covering X, Y, Z scenarios}"
 - If you find bugs while writing tests, notify the coder directly
+
+## On-demand modules
+- `.claude/modules/testing-discipline.md` — REQUIRED
+- `.claude/modules/code-standards.md` — REQUIRED
+
+## Compaction
+Keep as tight bullets only:
+- Writing tests for: [file/feature]
+- Tests written: [test name] (one per line, done tests only)
+- Next test: [test name to write]
+- Current count: [N] pass
+Drop: full file reads, verbose test bodies already committed.

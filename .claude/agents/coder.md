@@ -150,3 +150,19 @@ If a command is blocked by a permission prompt and not in the allowlist, ask you
 - Report format: `"DONE — {one sentence: what was done, commit hash if applicable}"`
 - Idle summaries are NOT delivered reliably as structured messages. Always use `SendMessage` to report results.
 - Check the task list for your assignments and self-claim unblocked tasks when idle
+
+## On-demand modules
+Load these at the start of your task (use Read tool):
+- `.claude/modules/testing-discipline.md` — TDD rules, completion format (REQUIRED before any task)
+- `.claude/modules/code-standards.md` — TypeScript/ESLint/vertical slice rules (REQUIRED for TS work)
+- `.claude/modules/server-standards.md` — P1-P10 server patterns (load only if touching server/API code)
+- `.claude/modules/data-architecture.md` — Zustand/TanStack Query patterns (load only if touching state/UI)
+
+## Compaction
+Keep as tight bullets only:
+- Task: [what I was implementing, one line]
+- Branch/worktree: [name]
+- Files changed: [path] — [what changed, 4 words each]
+- Next step: [what to do next]
+- Tests: [pass count] pass, [fail count] fail
+Drop: full file contents read, test output details, git log, tool result bodies.

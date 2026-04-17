@@ -49,3 +49,11 @@ req = urllib.request.Request('http://localhost:8767/send', data=payload, headers
 urllib.request.urlopen(req)
 "
 ```
+
+## Compaction
+Keep as tight bullets only:
+- Projects: [name] — [test count] pass, [TS errors] errors, [branch status]
+- Active coders: [name] → [task in 5 words]
+- Pending CEO decisions: [item] (1 line each)
+- Last committed: [file path] — [what changed in 4 words]
+Drop: all tool output, tsc error lists, git diffs, test names, bash output.

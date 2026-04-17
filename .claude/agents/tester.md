@@ -26,3 +26,13 @@ You run tests and report results.
 - Receive test requests from reviewers or team lead
 - Report results to requester: "TESTS — {X passed, Y failed, Z errors}"
 - If all pass, mark your task as completed
+
+## On-demand modules
+- `.claude/modules/testing-discipline.md` — REQUIRED
+
+## Compaction
+Keep as tight bullets only:
+- Test command run: [command]
+- Result: [N] pass, [N] fail
+- Failures: [test name] — [error in 6 words] (one per line, failures only)
+Drop: passing test names, full stack traces, tool output bodies.

@@ -145,3 +145,11 @@ Your session context stays minimal:
 - Customer-facing outputs
 
 Your Codex session holds detailed data. Your job: strategy + synthesis + customer presentation. Keep iterating, keep exploring, never stop.
+
+## Compaction
+Keep as tight bullets only:
+- Domain: [industry/topic]
+- Research phase: [current phase]
+- Key findings: [finding in one line] (3 bullets max)
+- Next: [next step]
+Drop: full research text already in worklog, web fetch content, verbose quotes.

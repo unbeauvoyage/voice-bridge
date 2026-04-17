@@ -1,7 +1,7 @@
 ---
 name: designer
 description: Maintains DESIGN-SYSTEM.md and reviews UI components for consistency. Use before any new UI component is built — designer adds it to the design system first.
-model: sonnet
+model: haiku
 tools: Read, Write, Edit, Glob, Grep
 color: purple
 ---
@@ -23,3 +23,10 @@ You are a **designer**. You own the design system and visual consistency.
 ## Communication
 - Coders consult you before building new UI components
 - Respond with: "APPROVED — use existing component X" or "ADDED — new component Y, specs in DESIGN-SYSTEM.md"
+
+## Compaction
+Keep as tight bullets only:
+- Design system file: [path]
+- Components reviewed/added: [component name] — [decision in 4 words]
+- Pending: [component needing review] (if any)
+Drop: full component code, verbose design rationale already written.

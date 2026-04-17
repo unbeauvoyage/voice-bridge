@@ -52,3 +52,10 @@ When you find something wrong, fix it directly (you have file write access to en
 4. Audit `~/environment/proposals/` frontmatter — find and fix format violations
 5. Clean up BACKLOG.md — remove done/stale/parked items that are cluttering it
 6. Send command a one-liner: what you found and what you fixed
+
+## Compaction
+Keep as tight bullets only:
+- Reviewing: [doc/architecture/format]
+- Decisions made: [decision in one line] (one per line)
+- Files updated: [path] — [what changed, 4 words]
+Drop: full file reads, verbose architecture rationale already written.

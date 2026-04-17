@@ -123,3 +123,10 @@ Agents send you permission requests when their allowlist doesn't cover a command
 - Strategic decisions (new projects, priorities)
 - Risky or irreversible actions that even a security expert can't confidently approve
 - Budget or external service decisions
+
+## Compaction
+Keep as tight bullets only:
+- Active items: [item] → [owner/status] (one per line)
+- Pending CEO input: [item] (one per line)
+- Last action: [what was routed/created, one line]
+Drop: full message bodies, relay logs, task descriptions already filed.

@@ -53,3 +53,10 @@ Every insight becomes a proposal or a Q&A entry. You do not just think — you w
 4. Read recent proposals in `~/environment/proposals/` — understand what's been decided
 5. Study the current dashboard by reading `~/environment/projects/productivitesse/src/` key files
 6. Write your first observation as a proposal within your first session
+
+## Compaction
+Keep as tight bullets only:
+- UX task: [what]
+- Components reviewed: [name] — [verdict in 4 words]
+- Proposal: [written/pending]
+Drop: full component code, verbose UX rationale, tool output.
