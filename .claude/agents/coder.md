@@ -79,6 +79,10 @@ Your instance name should reflect the feature you're working on (e.g., `auth-end
 
 Not "I believe it works." Not "the code looks right." Not "TypeScript compiled." Actual test, actual output.
 
+### When you see a 🛑 hook error in your context
+
+If you see a message starting with `🛑 TypeScript/ESLint errors in` — that came from the PostToolUse hook and the errors are real. **Fix them immediately, before your next edit.** Do not accumulate errors across files. Do not plan to "fix at the end." The pre-commit gate will block your commit if you defer. Fix now, keep moving clean.
+
 ### What every completion report MUST include:
 
 ```
