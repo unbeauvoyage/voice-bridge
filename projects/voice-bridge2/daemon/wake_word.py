@@ -64,7 +64,7 @@ COOLDOWN_SECONDS = 2      # minimum gap between activations
 START_THRESHOLD = 0.4     # confidence for "hey jarvis"
 STOP_THRESHOLD = 0.25     # confidence for "alexa"
 TRIM_SECONDS = 1.5        # trim this much from end to remove "alexa" + detection lag
-MIN_RECORD_BEFORE_STOP = 4.0  # seconds to ignore stop word after recording starts
+MIN_RECORD_BEFORE_STOP = 1.0  # seconds to ignore stop word after recording starts
 
 
 ELECTRON_OVERLAY_URL = "http://localhost:47890/overlay"
@@ -333,8 +333,10 @@ def main() -> None:
                 # Check for stop word — ignored for first MIN_RECORD_BEFORE_STOP seconds
                 elapsed = time.time() - record_start_time
                 stop_score = predictions.get(stop_key, 0)
-                if stop_score > 0.2 and elapsed >= MIN_RECORD_BEFORE_STOP:
-                    print(f"  [stop-score] {stop_score:.3f} (threshold={_settings['stop_threshold']})")
+                if stop_score > 0.1:
+                    guard_active = elapsed < MIN_RECORD_BEFORE_STOP
+                    guard_note = f" [guard active: {elapsed:.1f}s < {MIN_RECORD_BEFORE_STOP}s]" if guard_active else ""
+                    print(f"  [stop-score] {stop_score:.3f} (threshold={_settings['stop_threshold']}){guard_note}")
                 if stop_score > _settings["stop_threshold"] and elapsed >= MIN_RECORD_BEFORE_STOP:
                     print(f"[wake-word] '{stop_key}' detected (score={stop_score:.2f}) — stopping after {elapsed:.1f}s")
                     play_sound("Pop")
