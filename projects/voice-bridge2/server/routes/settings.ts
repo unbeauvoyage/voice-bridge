@@ -44,12 +44,25 @@ const SettingsPatchSchema = z
   })
   .strict()
 
+// Full existing-file schema: same fields but uses passthrough() so unknown
+// keys written by older daemon versions don't cause false-corrupt rejections.
+// We only care that every KNOWN field has the right type — unknown keys pass.
+const ExistingSettingsSchema = z
+  .object({
+    start_threshold: z.number().min(0).max(1).optional(),
+    stop_threshold: z.number().min(0).max(1).optional(),
+    tts_enabled: z.boolean().optional(),
+    tts_word_limit: z.number().int().positive().optional(),
+    toast_duration: z.number().positive().finite().optional()
+  })
+  .passthrough()
+
 /**
  * Parse the current settings file, distinguishing "legit empty/new file"
  * from "corrupt file". Missing file (raw === null) is first-time write,
- * return ok:true {}. Present-but-unparseable is corruption — the handler
- * must refuse to overwrite, else the next POST silently destroys every
- * unrelated key already on disk.
+ * return ok:true {}. Present-but-unparseable or schema-invalid is corruption —
+ * the handler must refuse to overwrite, else the next POST silently propagates
+ * corrupt typed values (e.g. tts_enabled:"yes") onto disk.
  */
 function parseCurrentSettings(
   raw: string | null
@@ -64,8 +77,15 @@ function parseCurrentSettings(
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     return { ok: false, error: 'settings.json is corrupt (not a JSON object)' }
   }
+  // Validate known fields against the schema so type-invalid values (e.g.
+  // tts_enabled:"yes") are caught before they merge into the next write.
+  const schemaResult = ExistingSettingsSchema.safeParse(parsed)
+  if (!schemaResult.success) {
+    const issues = schemaResult.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')
+    return { ok: false, error: `settings.json is corrupt (schema invalid: ${issues})` }
+  }
   const out: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(parsed)) out[k] = v
+  for (const [k, v] of Object.entries(schemaResult.data)) out[k] = v
   return { ok: true, data: out }
 }
 

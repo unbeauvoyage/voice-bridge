@@ -244,6 +244,29 @@ describe('handleSettings', () => {
     }
   })
 
+  // Bug C gap 2: the prior handler only caught JSON syntax errors in the existing file.
+  // A file with valid JSON but wrong types (e.g. tts_enabled:"yes") passed parseCurrentSettings
+  // and merged into the write — letting corrupt typed values persist on disk.
+  // Fix: validate the existing file against the full settings schema before merging.
+  // Schema-invalid existing state must refuse the merge (500), not silently propagate.
+  test('POST with schema-invalid existing file (tts_enabled:"yes") refuses merge (fail-closed, 500)', async () => {
+    const { ctx, lastWritten } = makeCtx({
+      existing: '{"tts_enabled":"yes","start_threshold":0.3}'
+    })
+    const req = new Request('http://localhost/settings', {
+      method: 'POST',
+      body: JSON.stringify({ toast_duration: 5 })
+    })
+    const res = await handleSettings(req, ctx)
+    expect(res?.status).toBe(500)
+    expect(lastWritten()).toBeNull()
+    const body = await readJsonObject(res)
+    const err = body['error']
+    expect(typeof err).toBe('string')
+    // Must indicate corrupt/invalid state, not a generic write error
+    if (typeof err === 'string') expect(err.toLowerCase()).toMatch(/corrupt|invalid|schema/)
+  })
+
   test('unsupported method returns null (dispatcher falls through)', async () => {
     const { ctx } = makeCtx({ existing: '{}' })
     const req = new Request('http://localhost/settings', { method: 'DELETE' })
