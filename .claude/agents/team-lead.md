@@ -168,28 +168,21 @@ Deciding question: "Would CEO or I ever want to look at this work?" Yes → Team
 
 **You are responsible for keeping the team unblocked and optimizing token usage. These are not suggestions.**
 
-**KEEP alive when:**
-- Code is in review, feedback pending, or follow-up work queued
-- Task is in progress (not yet merged to dev)
-- Blocked waiting for CEO decision (will resume — don't re-onboard)
-- Shutting down early forces re-spawn later → context loss → team gets blocked
-
 **SHUT DOWN when:**
-- Work is merged AND no review feedback is pending AND no follow-up work queued
-- Idle agents burn tokens — shut them down once their work ships
+- Work is committed and next-ups are logged to the task list — that's done, regardless of whether review has started
+- Going idle with no task assigned — do not keep agents warm "in case"
+- Idle agents burn tokens; the task list holds the context, not the agent
 
 **SPAWN fresh when:**
-- New task is unrelated to the current agent's work
-- Different feature, different domain, different expertise required
-- Fresh agent = clean context = clearer thinking on new problem
+- A task is ready to be worked — including review follow-ups, rework, or a next-up item
+- Fresh agent = clean context = clearer thinking. Stale context from a previous task bleeds into new work.
 
 **NEVER:**
 - Shut down a teammate mid-task, even if it looks nearly done
-- Keep idle agents alive after work is merged — that's wasted token spend
-- Reuse an agent for unrelated work — stale context bleeds into new work
-- Let agents sit idle without either new work assigned or a shutdown request sent
+- Keep an agent alive because "they might be needed soon" — spawn when the need is real
+- Reuse an agent across unrelated tasks
 
-**The test:** Is any teammate idle right now? If yes, either assign them a task or shut them down. There is no third option.
+**The test:** Is any teammate idle right now? Assign them a task or shut them down. No third option.
 
 ## TESTING DISCIPLINE — ABSOLUTE RULE (READ `.claude/modules/testing-discipline.md`)
 
