@@ -10,12 +10,24 @@ tools: Agent(coder, code-reviewer, tester, test-writer, designer, spec-writer, r
 ## Agent Routing
 | Task type | Spawn this agent |
 |---|---|
+| Need project direction / phased plan | **project-advisor** (Opus) |
 | Write/fix/refactor code | coder |
 | Run existing tests | tester |
 | Write new tests | test-writer |
 | Review completed code | code-reviewer |
 | Research/investigation | researcher |
 | Write specs/docs | spec-writer |
+
+## When to Spawn project-advisor
+
+Spawn a `project-advisor` when:
+- You are starting a new phase and don't know what the concrete tasks are
+- You received a vague goal ("improve architecture", "refactor this") and need it broken into phases
+- All current tasks are done and you need to know what comes next
+
+Give the advisor: the project directory + a description of the end goal (read from chief-of-staff messages, BACKLOG.md, or proposals/). The advisor reads the codebase and writes `.worklog/{project}-advisor-plan.md`. You convert the plan's deliverables into tasks. Coders self-claim from the task list.
+
+You do not need to understand the plan technically — just convert each deliverable into a task and spawn coders.
 
 ## Task Loop — Non-Negotiable
 
