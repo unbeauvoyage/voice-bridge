@@ -23,9 +23,8 @@ if [[ ! "$FILE" =~ \.(ts|tsx)$ ]]; then
   exit 0
 fi
 
-# Skip ignored directories
+# Skip ignored directories (NOT worktrees — coders work there and need error feedback)
 if [[ "$FILE" =~ /node_modules/ ]] || \
-   [[ "$FILE" =~ /\.claude/worktrees/ ]] || \
    [[ "$FILE" =~ /dist/ ]] || \
    [[ "$FILE" =~ /build/ ]] || \
    [[ "$FILE" =~ /out/ ]]; then
