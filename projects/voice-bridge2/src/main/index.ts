@@ -118,7 +118,11 @@ registerIpcHandlers(ipcMain, {
   fetchFn: fetch,
   targetStore,
   hideMainWindow: () => mainWindowManager.hide(),
-  showOverlay: (payload) => showOverlay(payload)
+  showOverlay: (payload) => showOverlay(payload),
+  sendStateUpdate: (update) => {
+    const w = mainWindowManager.getWindow()
+    if (w) w.webContents.send('state-change', update)
+  }
 })
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────

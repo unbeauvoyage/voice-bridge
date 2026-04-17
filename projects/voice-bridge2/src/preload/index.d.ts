@@ -32,6 +32,7 @@ declare global {
       onStateChange(cb: (state: DaemonState) => void): () => void
       hide(): void
       showOverlay(payload: OverlayPayload): Promise<void>
+      toggleMic(): Promise<void>
     }
     __overlayBridge?: {
       onShow(cb: (payload: OverlayPayload) => void): () => void

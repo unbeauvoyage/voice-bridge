@@ -1,6 +1,7 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, test, expect, beforeEach } from 'bun:test'
 import { registerIpcHandlers, type IpcMainLike, type IpcDeps } from './ipc.ts'
 import type { OverlayPayload } from './typeGuards.ts'
+import * as fs from 'node:fs'
 
 type HandleCall = {
   channel: string
@@ -28,10 +29,12 @@ function makeDeps(overrides: Partial<IpcDeps> = {}): {
   overlayCalls: OverlayPayload[]
   targetSaves: string[]
   hideCalls: number
+  stateUpdates: Array<unknown>
 } {
   const fetchCalls: Array<{ url: string; init?: RequestInit }> = []
   const overlayCalls: OverlayPayload[] = []
   const targetSaves: string[] = []
+  const stateUpdates: Array<unknown> = []
   let hideCalls = 0
   const deps: IpcDeps = {
     fetchFn: async (url, init) => {
@@ -48,6 +51,7 @@ function makeDeps(overrides: Partial<IpcDeps> = {}): {
       hideCalls += 1
     },
     showOverlay: (p) => overlayCalls.push(p),
+    sendStateUpdate: (s) => stateUpdates.push(s),
     ...overrides
   }
   return {
@@ -55,6 +59,7 @@ function makeDeps(overrides: Partial<IpcDeps> = {}): {
     fetchCalls,
     overlayCalls,
     targetSaves,
+    stateUpdates,
     get hideCalls() {
       return hideCalls
     }
@@ -62,12 +67,18 @@ function makeDeps(overrides: Partial<IpcDeps> = {}): {
 }
 
 describe('registerIpcHandlers — registrations', () => {
-  test('registers handle for get-status, set-target, show-overlay, get-agents', () => {
+  test('registers handle for get-status, set-target, show-overlay, get-agents, toggle-mic', () => {
     const f = fakeIpc()
     const d = makeDeps()
     registerIpcHandlers(f.ipc, d.deps)
     const channels = f.handles.map((h) => h.channel).sort()
-    expect(channels).toEqual(['get-agents', 'get-status', 'set-target', 'show-overlay'])
+    expect(channels).toEqual([
+      'get-agents',
+      'get-status',
+      'set-target',
+      'show-overlay',
+      'toggle-mic'
+    ])
   })
 
   test('registers on for hide-window', () => {
@@ -251,5 +262,81 @@ describe('registerIpcHandlers — get-agents', () => {
     if (!get) throw new Error('no handler')
     const result = await get.handler({})
     expect(result).toEqual([])
+  })
+})
+
+describe('registerIpcHandlers — toggle-mic', () => {
+  // toggle-mic reads /tmp/wake-word-pause.d/manual to determine current mic state:
+  //   - if the file exists → delete it (mic turns on) and push micState:'on' via sendStateUpdate
+  //   - if the file absent → create it empty (mic turns off) and push micState:'off'
+  // This lets the CEO click the MIC badge in the UI to toggle without terminal intervention.
+
+  const PAUSE_DIR = '/tmp/wake-word-pause.d'
+  const MANUAL_FILE = '/tmp/wake-word-pause.d/manual'
+
+  beforeEach(() => {
+    // Ensure a clean state: remove the manual file if left over from prior test
+    try {
+      fs.rmSync(MANUAL_FILE)
+    } catch {
+      /* ok if absent */
+    }
+    try {
+      fs.mkdirSync(PAUSE_DIR, { recursive: true })
+    } catch {
+      /* ok if exists */
+    }
+  })
+
+  test('when manual file is absent, creates it and sends micState:off', async () => {
+    // Verify precondition: file is absent
+    expect(fs.existsSync(MANUAL_FILE)).toBe(false)
+
+    const f = fakeIpc()
+    const d = makeDeps()
+    registerIpcHandlers(f.ipc, d.deps)
+
+    const toggleMic = f.handles.find((h) => h.channel === 'toggle-mic')
+    if (!toggleMic) throw new Error('no toggle-mic handler')
+    await toggleMic.handler({})
+
+    // File should now exist
+    expect(fs.existsSync(MANUAL_FILE)).toBe(true)
+    // State update should have been sent with mic off
+    expect(d.stateUpdates).toHaveLength(1)
+    const update0 = d.stateUpdates[0]
+    if (typeof update0 === 'object' && update0 !== null && 'micState' in update0) {
+      expect(update0.micState).toBe('off')
+    } else {
+      throw new Error('stateUpdates[0] is not a micState object')
+    }
+
+    // Cleanup
+    fs.rmSync(MANUAL_FILE)
+  })
+
+  test('when manual file exists, deletes it and sends micState:on', async () => {
+    // Create the file to simulate mic-is-paused state
+    fs.writeFileSync(MANUAL_FILE, '')
+    expect(fs.existsSync(MANUAL_FILE)).toBe(true)
+
+    const f = fakeIpc()
+    const d = makeDeps()
+    registerIpcHandlers(f.ipc, d.deps)
+
+    const toggleMic = f.handles.find((h) => h.channel === 'toggle-mic')
+    if (!toggleMic) throw new Error('no toggle-mic handler')
+    await toggleMic.handler({})
+
+    // File should now be gone
+    expect(fs.existsSync(MANUAL_FILE)).toBe(false)
+    // State update should have been sent with mic on
+    expect(d.stateUpdates).toHaveLength(1)
+    const update0 = d.stateUpdates[0]
+    if (typeof update0 === 'object' && update0 !== null && 'micState' in update0) {
+      expect(update0.micState).toBe('on')
+    } else {
+      throw new Error('stateUpdates[0] is not a micState object')
+    }
   })
 })

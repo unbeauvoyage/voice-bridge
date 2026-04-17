@@ -60,6 +60,9 @@ const bridge = {
   },
   async showOverlay(payload: OverlayPayload): Promise<void> {
     await ipcRenderer.invoke('show-overlay', payload)
+  },
+  async toggleMic(): Promise<void> {
+    await ipcRenderer.invoke('toggle-mic')
   }
 }
 

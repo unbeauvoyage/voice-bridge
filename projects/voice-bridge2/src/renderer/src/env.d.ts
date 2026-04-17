@@ -10,6 +10,7 @@ declare global {
       onStateChange(
         cb: (s: { wakeState?: WakeState; micState?: MicState; transcript?: string }) => void
       ): () => void
+      toggleMic?(): Promise<void>
     }
     __overlayBridge?: {
       onShow(cb: (payload: OverlayPayload) => void): () => void
