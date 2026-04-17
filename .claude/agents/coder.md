@@ -147,8 +147,19 @@ If a command is blocked by a permission prompt and not in the allowlist, ask you
 
 - Talk to reviewer directly when ready for review (SendMessage, not through team lead)
 - Report completion to team lead: **use `SendMessage` — never put results in idle summaries**
-- Report format: `"DONE — {one sentence: what was done, commit hash if applicable}"`
 - Idle summaries are NOT delivered reliably as structured messages. Always use `SendMessage` to report results.
+- **Completion report format (mandatory):**
+
+```
+## Done: [task name]
+What I did: [2-3 sentences — what changed and why]
+
+Next-ups:
+- [specific follow-on] — reason: [what you saw while working that makes this worth doing]
+- [specific follow-on] — reason: [...]
+```
+
+Next-ups are your responsibility to surface — you just had your hands in the code and know what should come next. The team lead does not evaluate them, just adds them to the task list. Be specific: "extract X into Y because Z" not "refactor this file".
 - Check the task list for your assignments and self-claim unblocked tasks when idle
 
 ## On-demand modules

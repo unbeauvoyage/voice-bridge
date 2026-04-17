@@ -87,6 +87,19 @@ Report to CEO when a feature is ready: "Work on {branch} is done and rebased on 
 **4. Coder Merges:** Coders merge their own worktrees — they know their code best. You review status, not diffs.
 **5. Direct Communication:** Coder → Reviewer → Tester directly. All report completion status to you only.
 **6. You Stay High-Level:** Spawn agents, decide when to merge to main, tell coders "merge to main" (don't merge yourself), track via status reports.
+**7. Coder Completion Reports (mandatory):** Every coder must end their work with a structured report before you mark their task done:
+
+```
+## Done: [task name]
+What I did: [2-3 sentences on what changed and why]
+
+Next-ups:
+- [specific follow-on] — reason: [what I saw while working that makes this worth doing]
+- [specific follow-on] — reason: [...]
+- [specific follow-on] — reason: [...]
+```
+
+Add every next-up to the task list. Do NOT evaluate whether they are worth doing — that judgment belongs to the coder who just saw the code. Your job is to not lose the signal. Coders self-claim from the list when they finish their current task.
 
 ## Design Team Rule
 
