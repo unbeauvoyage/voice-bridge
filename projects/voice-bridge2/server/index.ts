@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs'
 import { atomicWriteFile } from './atomicWriteFile.ts'
 import { join } from 'node:path'
 import { spawnSync, spawn } from 'node:child_process'
-import { listWorkspaceNames, deliverViaCmux } from './cmux.ts'
+import { listWorkspaceNames } from './cmux.ts'
 import { deliverToAgent } from './relay.ts'
 import { transcribeAudio } from './whisper.ts'
 import { llmRoute } from './llmRouter.ts'
@@ -27,7 +27,12 @@ import { type DedupEntry } from './routes/dedup.ts'
 import { handleMessages, type MessagesContext } from './routes/messages.ts'
 import { handleMic, isMicOn, setMic, handleMicCommand, type MicContext } from './routes/mic.ts'
 import { handleStatus, type StatusContext } from './routes/status.ts'
-import { handleTarget, loadLastTarget, saveLastTarget, type TargetContext } from './routes/target.ts'
+import {
+  handleTarget,
+  loadLastTarget,
+  saveLastTarget,
+  type TargetContext
+} from './routes/target.ts'
 import { handleAgents, getKnownAgents, type AgentsContext } from './routes/agents.ts'
 import { handleSettings, type SettingsContext } from './routes/settings.ts'
 import { handleWakeWord, type WakeWordContext } from './routes/wakeWord.ts'
@@ -132,8 +137,10 @@ const server = Bun.serve({
         getKnownAgents: getKnownAgentsBound,
         transcribeAudio,
         llmRoute,
-        // Compose relay-first-with-cmux-fallback. Returns {ok: false}
-        // only when BOTH channels fail; the handler surfaces that as 502.
+        // Relay-only delivery. Queued (offline agent) counts as ok — relay
+        // will deliver when the agent comes online. cmux fallback removed:
+        // voice-bridge2 is not a cmux process, so deliverViaCmux always
+        // throws "Access denied" and was never useful here.
         deliverMessage: async (message, to) => {
           const relayResult = await deliverToAgent(message, to)
           if (relayResult.ok) {
@@ -141,19 +148,7 @@ const server = Bun.serve({
             return { ok: true }
           }
           console.error('[voice-bridge] relay delivery failed:', relayResult.error)
-          try {
-            deliverViaCmux(message, to)
-            console.log(`[cmux] → ${to}: ${message}`)
-            return { ok: true }
-          } catch (cmuxErr) {
-            const cmuxMsg =
-              cmuxErr instanceof Error ? cmuxErr.message : String(cmuxErr)
-            console.warn('[cmux] delivery failed:', cmuxMsg)
-            return {
-              ok: false,
-              error: `relay: ${relayResult.error}; cmux: ${cmuxMsg}`
-            }
-          }
+          return { ok: false, error: relayResult.error }
         }
       }
       return handleTranscribe(req, ctx)
@@ -209,7 +204,7 @@ const server = Bun.serve({
             // Any other error (EACCES, EISDIR, EIO) is a real problem → re-throw
             // so the handler surfaces it as 500 instead of silently treating it
             // as "no settings file" and potentially overwriting with fresh {}.
-            if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') return null
+            if (err instanceof Error && 'code' in err && err.code === 'ENOENT') return null
             throw err
           }
         },
