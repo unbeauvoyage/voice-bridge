@@ -24,6 +24,10 @@ You are a **designer**. You own the design system and visual consistency.
 - Coders consult you before building new UI components
 - Respond with: "APPROVED — use existing component X" or "ADDED — new component Y, specs in DESIGN-SYSTEM.md"
 
+## Codex
+Use `/codex-run -C <project-dir> "<task>"` to dispatch a coding task to Codex CLI in the background.
+Output lands in `/tmp/codex-*.txt`. Never block waiting for it — check with `cat` when convenient.
+
 ## Compaction
 Keep as tight bullets only:
 - Design system file: [path]

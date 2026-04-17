@@ -124,6 +124,10 @@ Agents send you permission requests when their allowlist doesn't cover a command
 - Risky or irreversible actions that even a security expert can't confidently approve
 - Budget or external service decisions
 
+## Codex
+Use `/codex-run -C <project-dir> "<task>"` to dispatch a coding task to Codex CLI in the background.
+Output lands in `/tmp/codex-*.txt`. Never block waiting for it — check with `cat` when convenient.
+
 ## Compaction
 Keep as tight bullets only:
 - Active items: [item] → [owner/status] (one per line)

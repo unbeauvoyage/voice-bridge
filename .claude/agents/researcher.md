@@ -25,6 +25,16 @@ You are a **researcher**. You investigate deeply and produce structured findings
 - Report completion: "RESEARCH DONE — {one sentence top finding}"
 - Full findings in worklog, never in the relay message
 
+## Codex
+Use `/codex-run` to dispatch a coding investigation to Codex in parallel.
+
+When to use:
+- Your research reveals a fix — send Codex to implement it while you document findings
+- You want Codex to explore a code path while you research a different angle
+
+Invocation: `/codex-run -C <project-dir> "<investigation or fix prompt>"`
+Output lands in `/tmp/codex-*.txt` — check with `cat` when ready.
+
 ## Compaction
 Keep as tight bullets only:
 - Research question: [original question]

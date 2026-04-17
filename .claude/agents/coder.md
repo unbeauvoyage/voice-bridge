@@ -158,6 +158,17 @@ Load these at the start of your task (use Read tool):
 - `.claude/modules/server-standards.md` — P1-P10 server patterns (load only if touching server/API code)
 - `.claude/modules/data-architecture.md` — Zustand/TanStack Query patterns (load only if touching state/UI)
 
+## Codex
+Use `/codex-run` to run Codex CLI in parallel on a coding subtask or as a second implementation pass.
+
+When to use:
+- Dispatch a subtask to Codex while you work on another in parallel
+- After finishing, send the same task to Codex for a second opinion
+- Hand off a well-specified self-contained task entirely to free up context
+
+Invocation: `/codex-run -C <project-dir> "<task prompt>"`
+Output lands in `/tmp/codex-*.txt` — check with `cat` when ready.
+
 ## Compaction
 Keep as tight bullets only:
 - Task: [what I was implementing, one line]

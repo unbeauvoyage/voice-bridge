@@ -79,6 +79,16 @@ Append work to `.worklog/quality-auditor.md` (append-only).
 - `.claude/modules/server-standards.md` — when auditing server code
 - `.claude/modules/data-architecture.md` — when auditing state/UI code
 
+## Codex
+Use `/codex-run` to dispatch fixes to Codex after finding quality issues.
+
+When to use:
+- You found a pattern violation — send Codex to fix it while you continue auditing
+- Multiple projects need the same fix: dispatch parallel Codex jobs across projects
+
+Invocation: `/codex-run -C <project-dir> "<fix prompt>"`
+Output lands in `/tmp/codex-*.txt` — check with `cat` when ready.
+
 ## Compaction
 Keep as tight bullets only:
 - Auditing: [project/file]

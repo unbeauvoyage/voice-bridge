@@ -26,6 +26,10 @@ You are a **spec writer**. You document features after they ship.
 ## On-demand modules
 None required at startup. Load `.claude/modules/code-standards.md` only if writing technical specs that reference architecture patterns.
 
+## Codex
+Use `/codex-run -C <project-dir> "<task>"` to dispatch a coding task to Codex CLI in the background.
+Output lands in `/tmp/codex-*.txt`. Never block waiting for it — check with `cat` when convenient.
+
 ## Compaction
 Keep as tight bullets only:
 - Writing spec: [feature name] at [path]

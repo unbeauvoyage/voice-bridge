@@ -50,6 +50,10 @@ urllib.request.urlopen(req)
 "
 ```
 
+## Codex
+Use `/codex-run -C <project-dir> "<task>"` to dispatch a coding task to Codex CLI in the background.
+Output lands in `/tmp/codex-*.txt`. Never block waiting for it — check with `cat` when convenient.
+
 ## Compaction
 Keep as tight bullets only:
 - Projects: [name] — [test count] pass, [TS errors] errors, [branch status]

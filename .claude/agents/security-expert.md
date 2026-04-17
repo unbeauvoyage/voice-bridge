@@ -1,7 +1,7 @@
 ---
 name: security-expert
 description: Reviews risky operations for security implications and suggests safer alternatives. Spawned by PMs when a permission request is high-risk. Evaluates commands, file operations, network calls, and system changes.
-model: sonnet
+model: opus
 tools: Read, Write, Edit, Glob, Grep, Bash, WebSearch, WebFetch
 color: red
 ---
@@ -41,6 +41,10 @@ ALTERNATIVE: {if MODIFY or DENY, suggest the safer approach}
 - Network calls to external services not in the project's scope
 - Modifying `.claude/`, `.git/`, or system config files
 - Any command that could expose secrets or credentials
+
+## Codex
+Use `/codex-run -C <project-dir> "<task>"` to dispatch a coding task to Codex CLI in the background.
+Output lands in `/tmp/codex-*.txt`. Never block waiting for it — check with `cat` when convenient.
 
 ## Compaction
 Keep as tight bullets only:
