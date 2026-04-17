@@ -26,16 +26,29 @@ const DEFAULT_LAST_TARGET_FILE = join(import.meta.dir, '../../tmp/last-target.tx
 // Accepts a non-empty string of ≤128 chars; anything else falls back to 'command'.
 const LastTargetSchema = z.string().min(1).max(128)
 
+// Known-dead targets that should never be used as a relay destination.
+// These can get persisted in last-target.txt from debugging sessions and
+// will cause all subsequent voice commands to route to a dead/offline agent.
+// "cors-check" was a debugging target that caused CEO to lose 8 hours.
+const BLOCKED_TARGETS = new Set(['cors-check', '*', 'ceo'])
+
 /**
  * Reads the last-used relay target from disk.
- * Falls back to 'command' when the file is missing, empty, or contains invalid content.
+ * Falls back to 'command' when the file is missing, empty, invalid, or blocked.
  * Accepts an optional file path for test injection.
  */
 export function loadLastTarget(filePath: string = DEFAULT_LAST_TARGET_FILE): string {
   try {
     const raw = readFileSync(filePath, 'utf8').trim()
     const parsed = LastTargetSchema.safeParse(raw)
-    return parsed.success ? parsed.data : 'command'
+    if (!parsed.success) return 'command'
+    if (BLOCKED_TARGETS.has(parsed.data)) {
+      console.warn(
+        `[target] blocked target "${parsed.data}" in last-target.txt — resetting to "command"`
+      )
+      return 'command'
+    }
+    return parsed.data
   } catch {
     return 'command'
   }
@@ -49,7 +62,10 @@ export function saveLastTarget(target: string, filePath: string = DEFAULT_LAST_T
   try {
     atomicWriteFile(filePath, target)
   } catch (err) {
-    console.error('[target] failed to persist last target:', err instanceof Error ? err.message : String(err))
+    console.error(
+      '[target] failed to persist last target:',
+      err instanceof Error ? err.message : String(err)
+    )
   }
 }
 
