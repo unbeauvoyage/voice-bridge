@@ -1,6 +1,6 @@
-import { app, Tray, Menu, nativeImage, ipcMain, screen } from 'electron'
+import { app, Tray, Menu, nativeImage, ipcMain, screen, type NativeImage } from 'electron'
 import { join } from 'path'
-import { type OverlayPayload } from './typeGuards'
+import { type OverlayPayload, isRecordingState } from './typeGuards'
 import { createTargetStore } from './state/targetStore'
 import { createDaemonController } from './processes/daemon'
 import { createBackendServerController } from './processes/backendServer'
@@ -46,8 +46,8 @@ const daemonController = createDaemonController({
     // This is the ONLY path that may call setRecordingState(). Overlay payloads
     // must NOT drive recording state — they are best-effort HTTP and can arrive
     // for non-recording events (e.g. mode="message" toasts) during mic recording.
-    if (state && typeof state === 'object' && 'recording' in state) {
-      trayCtrl?.setRecordingState((state as { recording: boolean }).recording)
+    if (isRecordingState(state)) {
+      trayCtrl?.setRecordingState(state.recording)
     }
     const w = mainWindowManager.getWindow()
     if (w) w.webContents.send('state-change', state)
@@ -142,9 +142,8 @@ app.whenReady().then(() => {
     popUpContextMenu: (menu: unknown): void => {
       if (menu instanceof Menu) tray?.popUpContextMenu(menu)
     },
-    setImage: (icon: unknown): void => {
-      // nativeImage type is opaque at this level — cast only at the boundary
-      if (tray) tray.setImage(icon as Parameters<typeof tray.setImage>[0])
+    setImage: (icon: NativeImage): void => {
+      if (tray) tray.setImage(icon)
     }
   }
   trayCtrl = attachTrayBehavior(trayShim, {
