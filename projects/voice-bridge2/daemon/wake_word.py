@@ -111,7 +111,10 @@ def send_to_server(wav_bytes: bytes, server_url: str, target: str) -> None:
             f"{server_url}/transcribe",
             files={"audio": ("recording.wav", wav_bytes, "audio/wav")},
             data={"to": target},
-            timeout=30,
+            # 150s: whisper.cpp medium model on CPU takes 60-90s for long recordings.
+            # The previous 30s value caused systematic timeout failures, silently
+            # discarding voice commands. 150s gives 2× headroom over the worst case.
+            timeout=150,
         )
         if res.ok:
             data = res.json()
