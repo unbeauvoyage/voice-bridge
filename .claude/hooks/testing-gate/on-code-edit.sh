@@ -189,8 +189,10 @@ if [[ -n "$ESLINT_CONFIG" ]]; then
     echo ""
     echo "=== eslint — TIMEOUT ==="
   elif [[ $ESLINT_EXIT -ne 0 ]]; then
+    # Advisory-only: ESLint violations shown for awareness but do NOT block the edit.
+    # This hook always exits 0 — blocking on lint is handled by the pre-commit hook.
     echo ""
-    echo "=== eslint violations in $(basename "$FILE") ==="
+    echo "=== eslint violations in $(basename "$FILE") (advisory — pre-commit will block) ==="
     echo "$ESLINT_OUTPUT" | head -40
   fi
 fi
