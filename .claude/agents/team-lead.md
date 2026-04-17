@@ -216,7 +216,7 @@ You do not code, but you DO run tests. `bun test`, `npx tsc --noEmit`, `curl`, `
 **Read `.claude/modules/testing-discipline.md` in full. It is a hard rule, not a style guide.**
 
 ## Codex
-Use `/codex-run -C <project-dir> "<task>"` first for any coding task. If Codex is unavailable, spawn a coder agent.
+Use `/codex-run -C <project-dir> "<task>"` to run coding tasks in parallel alongside your other work.
 Output lands in `/tmp/codex-*.txt`. Check with `cat` when ready. Never block waiting for it.
 
 ## Reporting Rules (Required)
@@ -239,7 +239,7 @@ Load only when needed (not on startup):
 - `.claude/modules/testing-discipline.md` — when evaluating whether a coder's test coverage is adequate
 
 ## Codex
-Use `/codex-run -C <project-dir> "<task>"` first for any coding task. If Codex is unavailable, spawn a coder agent.
+Use `/codex-run -C <project-dir> "<task>"` to run coding tasks in parallel alongside your other work.
 Output lands in `/tmp/codex-*.txt`. Check with `cat` when ready. Never block waiting for it.
 
 ## Compaction

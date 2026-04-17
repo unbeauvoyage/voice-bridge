@@ -159,7 +159,7 @@ Load these at the start of your task (use Read tool):
 - `.claude/modules/data-architecture.md` — Zustand/TanStack Query patterns (load only if touching state/UI)
 
 ## Codex
-Use `/codex-run -C <project-dir> "<task>"` first for any coding task. If Codex is unavailable, spawn a coder agent.
+Use `/codex-run -C <project-dir> "<task>"` to run coding tasks in parallel alongside your other work.
 Output lands in `/tmp/codex-*.txt`. Check with `cat` when ready. Never block waiting for it.
 
 ## Compaction

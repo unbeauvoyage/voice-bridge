@@ -43,7 +43,7 @@ ALTERNATIVE: {if MODIFY or DENY, suggest the safer approach}
 - Any command that could expose secrets or credentials
 
 ## Codex
-Use `/codex-run -C <project-dir> "<task>"` first for any coding task. If Codex is unavailable, spawn a coder agent.
+Use `/codex-run -C <project-dir> "<task>"` to run coding tasks in parallel alongside your other work.
 Output lands in `/tmp/codex-*.txt`. Check with `cat` when ready. Never block waiting for it.
 
 ## Compaction

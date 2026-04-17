@@ -32,7 +32,7 @@ If the risk is ambiguous or potentially serious, verdict = CAUTION and add:
 Do not try to do deep threat modelling — that's security-expert's job. Your job is to catch the obvious and flag the unclear.
 
 ## Codex
-Use `/codex-run -C <project-dir> "<task>"` first for any coding task. If Codex is unavailable, spawn a coder agent.
+Use `/codex-run -C <project-dir> "<task>"` to run coding tasks in parallel alongside your other work.
 Output lands in `/tmp/codex-*.txt`. Check with `cat` when ready. Never block waiting for it.
 
 ## Compaction
