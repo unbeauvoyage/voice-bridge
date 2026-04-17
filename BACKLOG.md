@@ -102,6 +102,9 @@
 - **Replace custom relay with RabbitMQ** *(superseded — consul/command chose NATS JetStream instead)* — Closed, not pursued. Custom relay hardened instead.
 
 ## Learnings
+- **[TO EVALUATE — 2026-04-17] Agent formation experiment: Haiku leads + Sonnet coders** — Previous formation (Sonnet leads + Opus advisors) hit rate limits. Current experiment: Haiku team leads (coordination only, no technical judgment), Sonnet coders (technical judgment + next-ups), Sonnet/Opus advisors on-demand. Key changes that make Haiku leads viable: (1) coders surface their own next-ups — lead never needs to judge code; (2) open-ended directives go straight to a coder who plans their own work; (3) coders shut down after commit+next-ups, fresh spawn per task. Evaluate in ~1 week: does code quality hold? does Haiku lead coordination actually work, or does it lose track of state? does fresh-per-task coder pattern cause context re-read overhead that eats the savings? Compare: token cost per feature, bugs reaching CEO, team-lead errors. Owner: chief-of-staff. Revisit: 2026-04-24.
+
+
 - Agent teams (TeamCreate/SendMessage) lose context when CLI dies — team leads are persistent `-p` sessions instead
 - `claude -p --session-id` + `--resume` gives persistent context with no token waste on reload
 - Codex must always run in background — never block the calling agent
