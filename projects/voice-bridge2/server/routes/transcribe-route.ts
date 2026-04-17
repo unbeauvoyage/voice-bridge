@@ -4,16 +4,19 @@
  * Extracted from transcribe.ts — resolves the destination agent and message body
  * from a transcript, using one of three cases (in priority order):
  *
- *   1. "please" in first 7 words → llmRoute OVERRIDES any explicit `to`.
- *      routingPart (up to and including "please") → agent detection.
- *      messagePart (after "please") → the message body.
- *   2. Explicit `to` set, no "please" → use it, full transcript as message.
- *   3. No "please", no explicit `to` → deliver to "command", full transcript.
+ *   1. Addressing signal present (shouldLlmRoute=true) → llmRoute OVERRIDES explicit `to`.
+ *      "please"-gated: routingPart (up to and including "please") → agent detection,
+ *        messagePart (after "please") → the message body.
+ *      Direct-address patterns ("tell X to Y", "ask X about Y", "message to X: Y"):
+ *        full transcript passed to llmRoute; llmRoute returns extracted message.
+ *   2. Explicit `to` set, no addressing signal → use it, full transcript as message.
+ *   3. No addressing signal, no explicit `to` → deliver to "command", full transcript.
  *
  * No I/O beyond calling the injected llmRoute + getKnownAgents functions.
  */
 
 import type { LlmRouteResult } from '../llmRouter.ts'
+import { shouldLlmRoute } from '../llmRouter.ts'
 
 export interface RouteTranscriptOptions {
   transcript: string
@@ -40,32 +43,52 @@ export async function routeTranscript(opts: RouteTranscriptOptions): Promise<Rou
   const pleaseIndex = words.slice(0, 7).findIndex((w) => /^please$/i.test(w))
   const pleaseInFirst7 = pleaseIndex !== -1
 
-  if (pleaseInFirst7) {
-    // Case 1: "please" in first 7 words — llmRoute OVERRIDES explicit `to`.
-    const routingPart = words.slice(0, pleaseIndex + 1).join(' ')
-    const messagePart = words.slice(pleaseIndex + 1).join(' ').trim()
-    console.log(
-      `[route] please-gate (word ${pleaseIndex + 1}): routingPart="${routingPart}", messagePart="${messagePart}"`
-    )
-    const llmResult = await llmRoute(routingPart, await getKnownAgents(), '')
-    const fallback = explicitTo || 'command'
-    const to = llmResult.agent || fallback
-    const message = messagePart || transcript
-    if (llmResult.agentChanged) {
-      saveLastTarget(to)
+  // shouldLlmRoute is the authoritative gate — covers both "please" (any position)
+  // and direct-address patterns ("tell X to Y", "ask X about Y", "message to X: Y").
+  const needsLlmRoute = shouldLlmRoute(transcript)
+
+  if (needsLlmRoute) {
+    // Case 1: addressing signal — llmRoute OVERRIDES explicit `to`.
+    if (pleaseInFirst7) {
+      // "please"-gated: split routing fragment from message body at "please".
+      const routingPart = words.slice(0, pleaseIndex + 1).join(' ')
+      const messagePart = words.slice(pleaseIndex + 1).join(' ').trim()
+      console.log(
+        `[route] please-gate (word ${pleaseIndex + 1}): routingPart="${routingPart}", messagePart="${messagePart}"`
+      )
+      const llmResult = await llmRoute(routingPart, await getKnownAgents(), '')
+      const fallback = explicitTo || 'command'
+      const to = llmResult.agent || fallback
+      const message = messagePart || transcript
+      if (llmResult.agentChanged) {
+        saveLastTarget(to)
+      }
+      console.log(`[route] → ${to} (please-gate, changed=${llmResult.agentChanged}): "${message}"`)
+      return { to, message }
+    } else {
+      // Direct-address patterns ("tell X to Y", "ask X about Y", "message to X: Y").
+      // Pass the full transcript to llmRoute — it extracts the agent fragment internally.
+      console.log(`[route] direct-address-gate: transcript="${transcript}"`)
+      const llmResult = await llmRoute(transcript, await getKnownAgents(), '')
+      const fallback = explicitTo || 'command'
+      const to = llmResult.agent || fallback
+      const message = llmResult.message || transcript
+      if (llmResult.agentChanged) {
+        saveLastTarget(to)
+      }
+      console.log(`[route] → ${to} (direct-address, changed=${llmResult.agentChanged}): "${message}"`)
+      return { to, message }
     }
-    console.log(`[route] → ${to} (please-gate, changed=${llmResult.agentChanged}): "${message}"`)
-    return { to, message }
   }
 
   if (explicitTo) {
-    // Case 2: Explicit UI selection, no "please" — honour it, full transcript.
+    // Case 2: Explicit UI selection, no addressing signal — honour it, full transcript.
     saveLastTarget(explicitTo)
     console.log(`[route] → ${explicitTo} (explicit, sticky updated): "${transcript}"`)
     return { to: explicitTo, message: transcript }
   }
 
-  // Case 3: No "please", no explicit `to` — deliver to "command".
+  // Case 3: No addressing signal, no explicit `to` — deliver to "command".
   console.log(`[route] → command (no-please, direct): "${transcript}"`)
   return { to: 'command', message: transcript }
 }

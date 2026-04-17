@@ -42,6 +42,9 @@ export type MenuCallbacks = {
 export type TrayLike = {
   on: (event: 'click' | 'right-click', listener: (...args: unknown[]) => void) => unknown
   popUpContextMenu: (menu: unknown) => void
+  // Optional — present on real Electron Tray and on test fakes that exercise
+  // the recording indicator. Omitted on fakes that don't care about icons.
+  setImage?: (icon: unknown) => void
 }
 
 export type TrayDeps = {
@@ -49,10 +52,19 @@ export type TrayDeps = {
   showMainWindow: () => void
   hideMainWindow: () => void
   isMainWindowVisible: () => boolean
+  // Icon values to swap on recording state change. Both must be provided for
+  // icon swapping to activate. Either may be any value the underlying tray
+  // accepts (real nativeImage in production; opaque token in tests).
+  normalIcon?: unknown
+  recordingIcon?: unknown
 }
 
 export type TrayController = {
   getLastTrayBounds: () => TrayRectangle | undefined
+  // Privacy requirement: always indicate when the mic is recording.
+  // Swaps the tray icon between normal and recording states.
+  // No-op when `normalIcon`/`recordingIcon` were not provided in deps.
+  setRecordingState: (recording: boolean) => void
 }
 
 export function buildMenuTemplate(cb: MenuCallbacks): MenuTemplate {
@@ -96,7 +108,17 @@ export function attachTrayBehavior(tray: TrayLike, deps: TrayDeps): TrayControll
     tray.popUpContextMenu(deps.buildMenu())
   })
 
+  function setRecordingState(recording: boolean): void {
+    // Only swap icon when both icon values and the setImage method are available.
+    // Callers that don't provide icons (e.g. tests focused on click behavior)
+    // get a graceful no-op — the rest of tray functionality is unaffected.
+    if (!tray.setImage) return
+    if (deps.normalIcon === undefined || deps.recordingIcon === undefined) return
+    tray.setImage(recording ? deps.recordingIcon : deps.normalIcon)
+  }
+
   return {
-    getLastTrayBounds: () => lastTrayBounds
+    getLastTrayBounds: () => lastTrayBounds,
+    setRecordingState
   }
 }

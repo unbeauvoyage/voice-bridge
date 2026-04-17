@@ -42,6 +42,13 @@ const daemonController = createDaemonController({
   workDir: join(DAEMON_DIR, '..'),
   readTarget: () => targetStore.read(),
   onStateChange: (state: unknown) => {
+    // Authoritative recording state from daemon stdout — drives tray icon.
+    // This is the ONLY path that may call setRecordingState(). Overlay payloads
+    // must NOT drive recording state — they are best-effort HTTP and can arrive
+    // for non-recording events (e.g. mode="message" toasts) during mic recording.
+    if (state && typeof state === 'object' && 'recording' in state) {
+      trayCtrl?.setRecordingState((state as { recording: boolean }).recording)
+    }
     const w = mainWindowManager.getWindow()
     if (w) w.webContents.send('state-change', state)
   }
@@ -97,6 +104,11 @@ const overlayManager = createOverlayManager({
 })
 
 function showOverlay(payload: OverlayPayload): void {
+  // Overlay payloads are display-only — they MUST NOT drive tray recording state.
+  // A "message" mode overlay from relay-poller can arrive while the mic is actively
+  // recording; if that overlay called setRecordingState it would flip the tray back
+  // to green, lying about mic state. Recording state is driven exclusively by
+  // daemon stdout JSON events in onStateChange above.
   overlayManager.show(payload)
 }
 
@@ -114,8 +126,11 @@ registerIpcHandlers(ipcMain, {
 app.whenReady().then(() => {
   app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true })
 
-  const icon = nativeImage.createFromNamedImage('NSImageNameStatusAvailable', [-1, 0, 1])
-  tray = new Tray(icon)
+  // NSImageNameStatusAvailable → green dot (idle/ready)
+  // NSImageNameStatusUnavailable → red dot (recording — privacy indicator)
+  const normalIcon = nativeImage.createFromNamedImage('NSImageNameStatusAvailable', [-1, 0, 1])
+  const recordingIcon = nativeImage.createFromNamedImage('NSImageNameStatusUnavailable', [-1, 0, 1])
+  tray = new Tray(normalIcon)
   tray.setToolTip('Hey Jarvis — click to open settings')
   tray.setIgnoreDoubleClickEvents(true)
 
@@ -126,13 +141,19 @@ app.whenReady().then(() => {
     },
     popUpContextMenu: (menu: unknown): void => {
       if (menu instanceof Menu) tray?.popUpContextMenu(menu)
+    },
+    setImage: (icon: unknown): void => {
+      // nativeImage type is opaque at this level — cast only at the boundary
+      if (tray) tray.setImage(icon as Parameters<typeof tray.setImage>[0])
     }
   }
   trayCtrl = attachTrayBehavior(trayShim, {
     buildMenu: () => buildMenu(),
     showMainWindow: () => showWindow(),
     hideMainWindow: () => mainWindowManager.hide(),
-    isMainWindowVisible: () => mainWindowManager.isVisible()
+    isMainWindowVisible: () => mainWindowManager.isVisible(),
+    normalIcon,
+    recordingIcon
   })
 
   overlayServerController.start()

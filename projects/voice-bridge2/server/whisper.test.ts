@@ -10,8 +10,8 @@
  * whisper-server. Those paths are exercised by integration/E2E tests.
  */
 
-import { describe, test, expect } from 'bun:test'
-import { computeWavRms, mimeTypeToExt, buildWhisperBody } from './whisper.ts'
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
+import { computeWavRms, mimeTypeToExt, buildWhisperBody, transcribeAudio } from './whisper.ts'
 
 // ---------------------------------------------------------------------------
 // buildWhisperBody — multipart body sent to the Whisper inference endpoint
@@ -207,5 +207,149 @@ describe('mimeTypeToExt', () => {
     // Unrecognised types default to webm — the most common browser recording format
     expect(mimeTypeToExt('audio/unknown')).toBe('webm')
     expect(mimeTypeToExt('')).toBe('webm')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// transcribeAudio — fetch to whisper.cpp server
+// ---------------------------------------------------------------------------
+//
+// These tests use WHISPER_SKIP_CONVERT=1 (bypasses ffmpeg) and a mock global
+// fetch to avoid requiring a real whisper-server or ffmpeg binary.
+// They cover the fetch dispatch and response-parsing branches (lines 147-175).
+//
+// The env var is set BEFORE the module is imported (module-level WHISPER_URL
+// reads process.env at import time), but WHISPER_SKIP_CONVERT is checked
+// at call time inside transcribeAudio so it can be toggled per-test.
+
+describe('transcribeAudio — fetch dispatch and response parsing', () => {
+  let originalFetch: typeof globalThis.fetch
+  let originalSkip: string | undefined
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch
+    originalSkip = process.env['WHISPER_SKIP_CONVERT']
+    // Skip ffmpeg — treat the audio buffer as-is (assumed valid WAV for RMS)
+    process.env['WHISPER_SKIP_CONVERT'] = '1'
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    if (originalSkip === undefined) {
+      delete process.env['WHISPER_SKIP_CONVERT']
+    } else {
+      process.env['WHISPER_SKIP_CONVERT'] = originalSkip
+    }
+  })
+
+  // Build a minimal WAV buffer for RMS computation in skip-convert mode
+  function makeSilentWav(samples = 4): Buffer {
+    const dataBytes = samples * 2
+    const buf = Buffer.alloc(44 + dataBytes, 0)
+    buf.write('RIFF', 0, 'ascii')
+    buf.writeUInt32LE(36 + dataBytes, 4)
+    buf.write('WAVE', 8, 'ascii')
+    buf.write('fmt ', 12, 'ascii')
+    buf.writeUInt32LE(16, 16)
+    buf.writeUInt16LE(1, 20)
+    buf.writeUInt16LE(1, 22)
+    buf.writeUInt32LE(16000, 24)
+    buf.writeUInt32LE(32000, 28)
+    buf.writeUInt16LE(2, 32)
+    buf.writeUInt16LE(16, 34)
+    buf.write('data', 36, 'ascii')
+    buf.writeUInt32LE(dataBytes, 40)
+    return buf
+  }
+
+  test('returns trimmed transcript from a successful whisper response', async () => {
+    const wav = makeSilentWav()
+    globalThis.fetch = async () =>
+      new Response('  hello world  ', { status: 200 })
+
+    const result = await transcribeAudio(wav, 'audio/wav')
+    // transcribeAudio trims the response text before returning
+    expect(result.transcript).toBe('hello world')
+  })
+
+  test('includes audioRms in the result (non-zero for non-silent samples)', async () => {
+    // Build a WAV with constant int16 samples = 1000 → RMS = 1000
+    const dataBytes = 4 * 2
+    const buf = Buffer.alloc(44 + dataBytes, 0)
+    buf.write('RIFF', 0, 'ascii')
+    buf.writeUInt32LE(36 + dataBytes, 4)
+    buf.write('WAVE', 8, 'ascii')
+    buf.write('fmt ', 12, 'ascii')
+    buf.writeUInt32LE(16, 16)
+    buf.writeUInt16LE(1, 20)
+    buf.writeUInt16LE(1, 22)
+    buf.writeUInt32LE(16000, 24)
+    buf.writeUInt32LE(32000, 28)
+    buf.writeUInt16LE(2, 32)
+    buf.writeUInt16LE(16, 34)
+    buf.write('data', 36, 'ascii')
+    buf.writeUInt32LE(dataBytes, 40)
+    for (let i = 0; i < 4; i++) buf.writeInt16LE(1000, 44 + i * 2)
+
+    globalThis.fetch = async () => new Response('transcript text', { status: 200 })
+
+    const result = await transcribeAudio(buf, 'audio/wav')
+    expect(result.audioRms).toBeCloseTo(1000, 0)
+    expect(result.transcript).toBe('transcript text')
+  })
+
+  test('throws when whisper server returns a non-ok status', async () => {
+    const wav = makeSilentWav()
+    globalThis.fetch = async () =>
+      new Response('service unavailable', { status: 503 })
+
+    await expect(transcribeAudio(wav, 'audio/wav')).rejects.toThrow('Whisper service error 503')
+  })
+
+  test('error detail is truncated to 200 chars in the thrown message', async () => {
+    // The handler slices detail to 200 chars to avoid unbounded error strings.
+    // Verify that a very long error body is truncated in the thrown message.
+    const wav = makeSilentWav()
+    const longBody = 'E'.repeat(500)
+    globalThis.fetch = async () => new Response(longBody, { status: 500 })
+
+    let caught: Error | null = null
+    try {
+      await transcribeAudio(wav, 'audio/wav')
+    } catch (e) {
+      caught = e as Error
+    }
+    expect(caught).not.toBeNull()
+    // The message should contain the status code
+    expect(caught!.message).toContain('500')
+    // The error detail in the message must not exceed 200 chars of the body
+    const bodyInMsg = caught!.message.replace(/^Whisper service error \d+: /, '')
+    expect(bodyInMsg.length).toBeLessThanOrEqual(200)
+  })
+
+  test('sends multipart Content-Type header with the boundary to whisper server', async () => {
+    const wav = makeSilentWav()
+    let capturedContentType = ''
+    globalThis.fetch = async (url, init) => {
+      capturedContentType = (init?.headers as Record<string, string>)?.['Content-Type'] ?? ''
+      return new Response('ok', { status: 200 })
+    }
+
+    await transcribeAudio(wav, 'audio/wav')
+    // Must include multipart/form-data with a boundary
+    expect(capturedContentType).toContain('multipart/form-data')
+    expect(capturedContentType).toContain('boundary=')
+  })
+
+  test('uses POST method when calling whisper server', async () => {
+    const wav = makeSilentWav()
+    let capturedMethod = ''
+    globalThis.fetch = async (url, init) => {
+      capturedMethod = init?.method ?? ''
+      return new Response('text', { status: 200 })
+    }
+
+    await transcribeAudio(wav, 'audio/wav')
+    expect(capturedMethod).toBe('POST')
   })
 })

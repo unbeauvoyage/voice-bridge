@@ -243,6 +243,63 @@ class TestSendToServer:
 # frames_to_wav
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# emit_recording_state — JSON stdout events for tray indicator
+# ---------------------------------------------------------------------------
+
+class TestEmitRecordingState:
+    """
+    emit_recording_state(recording: bool) prints a well-formed JSON line to
+    stdout. This is the authoritative signal the Electron daemon controller
+    reads to drive the tray recording indicator.
+
+    Privacy requirement: the tray must reliably reflect mic state. The daemon
+    is the only authoritative source — overlay HTTP is best-effort and must
+    NOT drive the tray. These events are the replacement signal.
+    """
+
+    def test_recording_true_emits_json_with_recording_true(self, capsys):
+        """When recording starts, stdout must contain {"recording": true}."""
+        wake_word.emit_recording_state(True)
+        captured = capsys.readouterr()
+        # Each line that starts with '{' is parsed as JSON by daemon.ts
+        json_lines = [l for l in captured.out.splitlines() if l.strip().startswith("{")]
+        assert json_lines, "No JSON line emitted on stdout"
+        payload = json.loads(json_lines[-1])
+        assert payload == {"recording": True}
+
+    def test_recording_false_emits_json_with_recording_false(self, capsys):
+        """When recording stops, stdout must contain {"recording": false}."""
+        wake_word.emit_recording_state(False)
+        captured = capsys.readouterr()
+        json_lines = [l for l in captured.out.splitlines() if l.strip().startswith("{")]
+        assert json_lines, "No JSON line emitted on stdout"
+        payload = json.loads(json_lines[-1])
+        assert payload == {"recording": False}
+
+    def test_emit_produces_valid_json(self, capsys):
+        """Output must be parseable JSON — daemon.ts uses JSON.parse on each line."""
+        wake_word.emit_recording_state(True)
+        captured = capsys.readouterr()
+        json_lines = [l for l in captured.out.splitlines() if l.strip().startswith("{")]
+        for line in json_lines:
+            # Must not raise — daemon.ts swallows parse errors but we want clean output
+            parsed = json.loads(line)
+            assert isinstance(parsed, dict)
+
+    def test_emit_true_and_false_both_produce_distinct_payloads(self, capsys):
+        """True and False must produce different JSON so the controller can distinguish them."""
+        wake_word.emit_recording_state(True)
+        wake_word.emit_recording_state(False)
+        captured = capsys.readouterr()
+        json_lines = [l for l in captured.out.splitlines() if l.strip().startswith("{")]
+        assert len(json_lines) >= 2
+        payloads = [json.loads(l) for l in json_lines]
+        # Last two payloads must differ on the 'recording' field
+        assert payloads[-2]["recording"] is True
+        assert payloads[-1]["recording"] is False
+
+
 class TestFramesToWav:
     """frames_to_wav(frames, pa) converts raw PCM frames into valid WAV bytes."""
 
