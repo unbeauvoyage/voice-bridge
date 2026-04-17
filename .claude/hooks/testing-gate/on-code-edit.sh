@@ -120,6 +120,8 @@ pick_tsconfig() {
 
 TSCONFIG=$(pick_tsconfig "$FILE" "$PROJECT_ROOT")
 
+CONTEXT_ERRORS=""
+
 # Run tsc with timeout, but only show errors for the edited file
 # This matches IDE behavior: squiggles on the file you're editing, not a global dump.
 # Cross-file errors surface naturally when those files are edited.
@@ -141,17 +143,13 @@ if [[ -n "$TSCONFIG" ]]; then
   rm -f "$TSC_OUTFILE"
 
   if grep -q "^TIMEOUT$" <<< "$TSC_OUTPUT" 2>/dev/null; then
-    echo ""
-    echo "=== tsc ($TSCONFIG) — TIMEOUT ==="
-    echo "tsc timeout — check manually"
+    CONTEXT_ERRORS+=$'\n'"=== tsc ($TSCONFIG) — TIMEOUT ===\ntsc timeout — check manually"
   else
     # Filter to only lines mentioning the edited file (basename match)
     FILE_BASENAME=$(basename "$FILE")
     FILTERED=$(echo "$TSC_OUTPUT" | grep "$FILE_BASENAME" || true)
     if [[ -n "$FILTERED" ]]; then
-      echo ""
-      echo "=== tsc errors in $FILE_BASENAME ==="
-      echo "$FILTERED"
+      CONTEXT_ERRORS+=$'\n'"=== tsc errors in $FILE_BASENAME ===\n$FILTERED"
     fi
     # If tsc failed but no errors match this file, stay silent — mid-refactor state
   fi
@@ -186,14 +184,9 @@ if [[ -n "$ESLINT_CONFIG" ]]; then
   rm -f "$ESLINT_OUTFILE"
 
   if grep -q "^TIMEOUT$" <<< "$ESLINT_OUTPUT" 2>/dev/null; then
-    echo ""
-    echo "=== eslint — TIMEOUT ==="
+    CONTEXT_ERRORS+=$'\n'"=== eslint — TIMEOUT ==="
   elif [[ $ESLINT_EXIT -ne 0 ]]; then
-    # Advisory-only: ESLint violations shown for awareness but do NOT block the edit.
-    # This hook always exits 0 — blocking on lint is handled by the pre-commit hook.
-    echo ""
-    echo "=== eslint violations in $(basename "$FILE") (advisory — pre-commit will block) ==="
-    echo "$ESLINT_OUTPUT" | head -40
+    CONTEXT_ERRORS+=$'\n'"=== eslint errors in $(basename "$FILE") ===\n$ESLINT_OUTPUT"
   fi
 fi
 
@@ -229,6 +222,24 @@ if [[ -n "$TEST_FILE" ]]; then
   wait "$TWATCHER_PID" 2>/dev/null
   cat "$TEST_OUTFILE"
   rm -f "$TEST_OUTFILE"
+fi
+
+# Inject tsc/eslint errors into the agent's context window via additionalContext
+# Claude Code PostToolUse hooks can return JSON with hookSpecificOutput.additionalContext
+# which is injected directly into the model's context — stdout echo is ignored by agents
+if [[ -n "$CONTEXT_ERRORS" ]]; then
+  FILE_BASENAME=$(basename "$FILE")
+  python3 -c "
+import json, sys
+errors = sys.argv[1]
+fname = sys.argv[2]
+print(json.dumps({
+  'hookSpecificOutput': {
+    'hookEventName': 'PostToolUse',
+    'additionalContext': f'⚠️ Errors in {fname} — fix before committing:\n{errors}'
+  }
+}))
+" "$CONTEXT_ERRORS" "$FILE_BASENAME"
 fi
 
 # POST telemetry to relay for dashboard visibility
