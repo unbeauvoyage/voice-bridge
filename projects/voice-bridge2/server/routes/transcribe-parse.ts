@@ -26,7 +26,13 @@ const ALLOWED_AUDIO_MIME = new Set([
   'audio/mp4',
   'audio/mpeg',
   'audio/aac',
-  'audio/flac'
+  'audio/x-aac',
+  'audio/flac',
+  'audio/m4a',
+  'audio/x-m4a',
+  // Chrome MediaRecorder produces video/webm even for audio-only recordings.
+  // Whisper handles webm containers fine regardless of the container/codec label.
+  'video/webm'
 ])
 // Reasonable cap for a routing target name. Longer strings are almost certainly hostile.
 const MAX_TO_LEN = 128
@@ -112,7 +118,10 @@ export async function parseTranscribeRequest(req: Request): Promise<ParseTranscr
       return {
         kind: 'error',
         status: 400,
-        response: Response.json({ error: 'Invalid form data' }, { status: 400, headers: corsHeaders })
+        response: Response.json(
+          { error: 'Invalid form data' },
+          { status: 400, headers: corsHeaders }
+        )
       }
     }
   } else {
@@ -122,7 +131,10 @@ export async function parseTranscribeRequest(req: Request): Promise<ParseTranscr
       return {
         kind: 'error',
         status: 400,
-        response: Response.json({ error: 'Invalid form data' }, { status: 400, headers: corsHeaders })
+        response: Response.json(
+          { error: 'Invalid form data' },
+          { status: 400, headers: corsHeaders }
+        )
       }
     }
   }
@@ -146,7 +158,10 @@ export async function parseTranscribeRequest(req: Request): Promise<ParseTranscr
     return {
       kind: 'error',
       status: 400,
-      response: Response.json({ error: 'Missing audio field' }, { status: 400, headers: corsHeaders })
+      response: Response.json(
+        { error: 'Missing audio field' },
+        { status: 400, headers: corsHeaders }
+      )
     }
   }
 

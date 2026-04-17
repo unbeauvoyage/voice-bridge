@@ -45,9 +45,12 @@ export function createBackendServerController(cfg: BackendServerConfig): Backend
   const spawnFn: SpawnLike =
     cfg.spawnFn ?? ((command, args, options) => nodeSpawn(command, args, options))
   let proc: ChildProcess | null = null
+  // Set before calling proc.kill() so the exit handler knows the stop was intentional.
+  let intentionalStop = false
 
   function start(): void {
     if (proc && !proc.killed) return
+    intentionalStop = false
     proc = spawnFn(cfg.bunBinary, ['run', 'index.ts'], {
       cwd: cfg.serverDir,
       stdio: ['ignore', 'pipe', 'pipe']
@@ -59,14 +62,23 @@ export function createBackendServerController(cfg: BackendServerConfig): Backend
     proc.stdout?.on('data', (d: Buffer) => process.stdout.write(`[server] ${d.toString()}`))
     proc.stderr?.on('data', (d: Buffer) => process.stderr.write(`[server:err] ${d.toString()}`))
     proc.on('exit', (code: number | null) => {
-      console.log(`[server] exited ${code}`)
+      console.log(`[server] exited ${code ?? 'signal'}`)
       proc = null
+      // Auto-restart after unexpected exit — the server should never be down.
+      // Skip restart only when stop() called this intentionally. Covers both
+      // non-zero exit codes and signal kills (code=null from SIGTERM/SIGKILL).
+      // 2s delay avoids tight crash loops (port still held, bad config, etc.).
+      if (!intentionalStop && code !== 0) {
+        console.log('[server] auto-restarting in 2s...')
+        setTimeout(() => start(), 2000)
+      }
     })
     console.log(`[server] started PID=${proc.pid}`)
   }
 
   function stop(): void {
     if (proc) {
+      intentionalStop = true
       proc.kill('SIGTERM')
       // Do NOT set proc = null here. The 'exit' event handler sets proc = null
       // when the process actually terminates. Nulling proc here would cause
