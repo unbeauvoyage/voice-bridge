@@ -13,7 +13,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { POLL_INTERVAL_MS, RELAY_POLL_TIMEOUT_MS } from './config.ts'
+import { POLL_INTERVAL_MS, RELAY_POLL_TIMEOUT_MS, MAX_OVERLAY_MESSAGE_AGE_MS } from './config.ts'
 import {
   type TtsSpawn,
   type TtsPauseGuard,
@@ -103,6 +103,19 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
       messages = parseQueueResponse(await res.json())
     } catch {
       return // relay offline — silent skip
+    }
+
+    // Mark messages older than MAX_OVERLAY_MESSAGE_AGE_MS as seen without
+    // dispatching them to the overlay. This prevents replaying a historical
+    // backlog of messages (e.g. from hours ago) when the server restarts with
+    // an empty seenIds map. The overlay should only show recent activity.
+    const ageCutoff = Date.now() - MAX_OVERLAY_MESSAGE_AGE_MS
+    for (const msg of messages) {
+      if (overlayState.seenIds.has(msg.id)) continue
+      const msgTs = new Date(msg.ts).getTime()
+      if (Number.isNaN(msgTs) || msgTs < ageCutoff) {
+        overlayState.seenIds.set(msg.id, Date.now())
+      }
     }
 
     // Dispatch overlay toasts; dispatchOverlayMessages mutates overlayState.

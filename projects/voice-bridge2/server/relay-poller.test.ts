@@ -12,6 +12,12 @@ import { EventEmitter } from 'node:events'
 import { createRelayPoller, type TtsSpawn, type TtsPauseGuard } from './relay-poller'
 import { MIC_PAUSE_DIR } from './config'
 
+// Timestamps used in test messages.
+// RECENT_TS: within the 5-minute age window — overlay shows these.
+// STALE_TS: older than 5 minutes — overlay silently skips these.
+const RECENT_TS = new Date().toISOString()
+const STALE_TS = new Date(Date.now() - 10 * 60 * 1000).toISOString() // 10 minutes ago
+
 // ─── Mock servers ─────────────────────────────────────────────────────────────
 
 type OverlayPost = { mode: string; text: string }
@@ -86,7 +92,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
         to: 'ceo',
         type: 'done',
         body: 'Task finished successfully.',
-        ts: '2026-04-15T10:00:00Z'
+        ts: RECENT_TS
       },
       {
         id: 'msg-2',
@@ -94,7 +100,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
         to: 'ceo',
         type: 'status',
         body: 'Build is running in the background.',
-        ts: '2026-04-15T10:00:01Z'
+        ts: RECENT_TS
       }
     ]
     overlayPosts.length = 0
@@ -127,7 +133,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
         to: 'ceo',
         type: 'message',
         body: longBody,
-        ts: '2026-04-15T10:00:02Z'
+        ts: RECENT_TS
       }
     ]
     overlayPosts.length = 0
@@ -156,7 +162,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
         to: 'ceo',
         type: 'done',
         body: 'Deployment complete.',
-        ts: '2026-04-15T10:00:03Z'
+        ts: RECENT_TS
       }
     ]
     overlayPosts.length = 0
@@ -207,7 +213,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
           to: 'ceo',
           type: 'message',
           body: 'Short harmless body.',
-          ts: '2026-04-16T10:00:00Z'
+          ts: RECENT_TS
         }
       ]
       overlayPosts.length = 0
@@ -258,7 +264,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
           to: 'ceo',
           type: 'message',
           body: payload,
-          ts: '2026-04-16T10:00:01Z'
+          ts: RECENT_TS
         }
       ]
       overlayPosts.length = 0
@@ -330,7 +336,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
           to: 'ceo',
           type: 'message',
           body: 'Pause guard test.',
-          ts: '2026-04-16T12:00:00Z'
+          ts: RECENT_TS
         }
       ]
       overlayPosts.length = 0
@@ -389,7 +395,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
           to: 'ceo',
           type: 'message',
           body: 'Throw guard test.',
-          ts: '2026-04-16T12:00:01Z'
+          ts: RECENT_TS
         }
       ]
       overlayPosts.length = 0
@@ -446,7 +452,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
           to: 'ceo',
           type: 'message',
           body: 'hello',
-          ts: '2026-04-16T13:00:00Z'
+          ts: RECENT_TS
         }
       ]
       overlayPosts.length = 0
@@ -511,7 +517,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
         to: 'ceo',
         type: 'message',
         body: 'one',
-        ts: '2026-04-16T14:00:00Z'
+        ts: RECENT_TS
       }
       const msg2 = {
         id: 'overlap-2',
@@ -519,7 +525,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
         to: 'ceo',
         type: 'message',
         body: 'two',
-        ts: '2026-04-16T14:00:01Z'
+        ts: RECENT_TS
       }
 
       relayMessages = [msg1]
@@ -624,7 +630,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
           to: 'ceo',
           type: 'message',
           body: 'test',
-          ts: '2026-04-16T15:00:00Z'
+          ts: RECENT_TS
         }
       ]
 
@@ -660,7 +666,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
           to: 'ceo',
           type: 'message',
           body: 'test',
-          ts: '2026-04-16T15:00:00Z'
+          ts: RECENT_TS
         }
       ]
 
@@ -723,7 +729,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
         to: 'ceo',
         type: 'done',
         body: 'Retry test message.',
-        ts: '2026-04-16T20:00:00Z'
+        ts: RECENT_TS
       }
       relayMessages = [singleMsg]
 
@@ -770,7 +776,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
         to: 'ceo',
         type: 'done',
         body: 'Cap test message.',
-        ts: '2026-04-16T20:00:01Z'
+        ts: RECENT_TS
       }
       relayMessages = [singleMsg]
 
@@ -823,7 +829,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
         to: 'ceo',
         type: 'message',
         body: 'hot reload test',
-        ts: '2026-04-16T16:00:00Z'
+        ts: RECENT_TS
       }
       relayMessages = [msg]
       overlayPosts.length = 0
@@ -851,7 +857,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
         to: 'ceo',
         type: 'message',
         body: 'hot reload test second',
-        ts: '2026-04-16T16:00:01Z'
+        ts: RECENT_TS
       }
       relayMessages = [msg2]
 
@@ -878,7 +884,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
         to: 'ceo',
         type: 'message',
         body: 'settings throw test',
-        ts: '2026-04-16T16:00:02Z'
+        ts: RECENT_TS
       }
       relayMessages = [msg]
       overlayPosts.length = 0
@@ -941,7 +947,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
           to: 'ceo',
           type: 'message',
           body: 'Sequential TTS test.',
-          ts: '2026-04-16T17:00:00Z'
+          ts: RECENT_TS
         }
       ]
       overlayPosts.length = 0
@@ -992,7 +998,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
           to: 'ceo',
           type: 'message',
           body: 'Timeout TTS test.',
-          ts: '2026-04-16T17:00:01Z'
+          ts: RECENT_TS
         }
       ]
       overlayPosts.length = 0
@@ -1048,7 +1054,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
           to: 'ceo',
           type: 'message',
           body: 'First message.',
-          ts: '2026-04-16T17:00:02Z'
+          ts: RECENT_TS
         },
         {
           id: 'unique-mp3-2',
@@ -1056,7 +1062,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
           to: 'ceo',
           type: 'message',
           body: 'Second message.',
-          ts: '2026-04-16T17:00:03Z'
+          ts: RECENT_TS
         }
       ]
       overlayPosts.length = 0
@@ -1119,7 +1125,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
           to: 'ceo',
           type: 'message',
           body: 'Kill timeout test.',
-          ts: '2026-04-16T18:00:00Z'
+          ts: RECENT_TS
         }
       ]
       overlayPosts.length = 0
@@ -1176,7 +1182,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
                   to: 'ceo',
                   type: 'message',
                   body: 'start double test',
-                  ts: '2026-04-16T19:00:00Z'
+                  ts: RECENT_TS
                 }
               ]
             })
@@ -1238,7 +1244,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
         to: 'ceo',
         type: 'done',
         body: 'Done message.',
-        ts: '2026-04-15T10:00:04Z'
+        ts: RECENT_TS
       },
       {
         id: 'type-2',
@@ -1246,7 +1252,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
         to: 'ceo',
         type: 'voice-sent',
         body: 'Voice echo — should be ignored.',
-        ts: '2026-04-15T10:00:05Z'
+        ts: RECENT_TS
       },
       {
         id: 'type-3',
@@ -1254,7 +1260,7 @@ describe('relay poller: sends agent responses to overlay as message toasts', () 
         to: 'ceo',
         type: 'status',
         body: 'Status update.',
-        ts: '2026-04-15T10:00:06Z'
+        ts: RECENT_TS
       }
     ]
     overlayPosts.length = 0
@@ -1328,5 +1334,122 @@ describe('validateTtsWordLimit: tts_word_limit settings validation', () => {
     // Word counts must be integers; 3.5 is not a valid limit.
     expect(validateTtsWordLimit(3.5)).toBe(DEFAULT)
     expect(validateTtsWordLimit(0.1)).toBe(DEFAULT)
+  })
+})
+
+// ─── Stale message age filter ─────────────────────────────────────────────────
+//
+// Root cause investigated 2026-04-19: overlay replays historical messages from
+// hours ago when the server restarts with an empty seenIds map. Fix: messages
+// older than MAX_OVERLAY_MESSAGE_AGE_MS (5 min) are silently marked seen on
+// first encounter without posting to the overlay.
+
+describe('relay poller: stale messages older than 5 minutes are not shown in overlay', () => {
+  test('recent messages (within 5 min) are dispatched to the overlay', async () => {
+    relayMessages = [
+      {
+        id: 'stale-test-recent-1',
+        from: 'agent-x',
+        to: 'ceo',
+        type: 'done',
+        body: 'Fresh message.',
+        ts: RECENT_TS
+      }
+    ]
+    overlayPosts.length = 0
+
+    const poller = createRelayPoller({
+      relayBaseUrl: `http://localhost:${RELAY_PORT}`,
+      overlayUrl: `http://localhost:${OVERLAY_PORT}/overlay`,
+      ttsEnabled: false
+    })
+
+    await poller.pollOnce()
+
+    expect(overlayPosts).toHaveLength(1)
+    expect(overlayPosts[0]?.text).toBe('agent-x: Fresh message.')
+  })
+
+  test('stale messages (older than 5 min) are silently skipped — not shown in overlay', async () => {
+    relayMessages = [
+      {
+        id: 'stale-test-old-1',
+        from: 'agent-y',
+        to: 'ceo',
+        type: 'done',
+        body: 'Old message from 10 minutes ago.',
+        ts: STALE_TS
+      }
+    ]
+    overlayPosts.length = 0
+
+    const poller = createRelayPoller({
+      relayBaseUrl: `http://localhost:${RELAY_PORT}`,
+      overlayUrl: `http://localhost:${OVERLAY_PORT}/overlay`,
+      ttsEnabled: false
+    })
+
+    await poller.pollOnce()
+
+    expect(overlayPosts).toHaveLength(0)
+  })
+
+  test('mix of stale and recent — only recent messages reach the overlay', async () => {
+    relayMessages = [
+      {
+        id: 'stale-test-mix-old',
+        from: 'agent-a',
+        to: 'ceo',
+        type: 'status',
+        body: 'Hours-old status.',
+        ts: STALE_TS
+      },
+      {
+        id: 'stale-test-mix-new',
+        from: 'agent-b',
+        to: 'ceo',
+        type: 'done',
+        body: 'Just finished.',
+        ts: RECENT_TS
+      }
+    ]
+    overlayPosts.length = 0
+
+    const poller = createRelayPoller({
+      relayBaseUrl: `http://localhost:${RELAY_PORT}`,
+      overlayUrl: `http://localhost:${OVERLAY_PORT}/overlay`,
+      ttsEnabled: false
+    })
+
+    await poller.pollOnce()
+
+    expect(overlayPosts).toHaveLength(1)
+    expect(overlayPosts[0]?.text).toBe('agent-b: Just finished.')
+  })
+
+  test('stale message is not retried on subsequent polls after being silently skipped', async () => {
+    relayMessages = [
+      {
+        id: 'stale-test-no-retry',
+        from: 'agent-z',
+        to: 'ceo',
+        type: 'message',
+        body: 'Ancient history.',
+        ts: STALE_TS
+      }
+    ]
+    overlayPosts.length = 0
+
+    const poller = createRelayPoller({
+      relayBaseUrl: `http://localhost:${RELAY_PORT}`,
+      overlayUrl: `http://localhost:${OVERLAY_PORT}/overlay`,
+      ttsEnabled: false
+    })
+
+    // Poll twice — stale message must not appear on either cycle
+    await poller.pollOnce()
+    await poller.pollOnce()
+
+    expect(overlayPosts).toHaveLength(0)
   })
 })
