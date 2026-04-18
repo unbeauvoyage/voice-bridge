@@ -17,6 +17,8 @@ export type WakeWordContext = {
   stop: (pid: number) => void
   start: (target: string) => void
   loadLastTarget: () => string
+  /** When false, POST /wake-word/start is a no-op — the listener is permanently disabled. */
+  wakeWordEnabled?: boolean
 }
 
 import { logger } from '../logger.ts'
@@ -50,6 +52,10 @@ export function handleWakeWord(req: Request, ctx: WakeWordContext): Response | n
   }
 
   if (req.method === 'POST' && url.pathname === '/wake-word/start') {
+    if (ctx.wakeWordEnabled === false) {
+      return Response.json({ running: false, disabled: true }, { headers: CORS_HEADERS })
+    }
+
     const existing = ctx.findPid()
     if (!existing) {
       const target = ctx.loadLastTarget()
