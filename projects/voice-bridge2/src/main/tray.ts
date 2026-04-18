@@ -65,6 +65,10 @@ export type TrayDeps<TIcon = unknown> = {
   // reverts to normalIcon.
   relayDisconnectedIcon?: TIcon
   relayErrorIcon?: TIcon
+  // Whisper-server connectivity icons. When provided, setWhisperState() swaps
+  // the icon to reflect whisper-server health; 'connected' reverts to normalIcon.
+  whisperDisconnectedIcon?: TIcon
+  whisperErrorIcon?: TIcon
 }
 
 export type TrayController = {
@@ -77,6 +81,10 @@ export type TrayController = {
   // 'connected' → normalIcon, 'disconnected' → relayDisconnectedIcon,
   // 'error' → relayErrorIcon. No-op when relay icons not provided in deps.
   setRelayState: (state: 'connected' | 'disconnected' | 'error') => void
+  // Whisper-server connectivity indicator. Same three-state model as relay.
+  // 'connected' → normalIcon, 'disconnected' → whisperDisconnectedIcon,
+  // 'error' → whisperErrorIcon. No-op when whisper icons not provided in deps.
+  setWhisperState: (state: 'connected' | 'disconnected' | 'error') => void
 }
 
 export function buildMenuTemplate(cb: MenuCallbacks): MenuTemplate {
@@ -144,9 +152,21 @@ export function attachTrayBehavior<TIcon>(
     }
   }
 
+  function setWhisperState(state: 'connected' | 'disconnected' | 'error'): void {
+    if (!tray.setImage) return
+    if (state === 'disconnected') {
+      if (deps.whisperDisconnectedIcon !== undefined) tray.setImage(deps.whisperDisconnectedIcon)
+    } else if (state === 'error') {
+      if (deps.whisperErrorIcon !== undefined) tray.setImage(deps.whisperErrorIcon)
+    } else {
+      if (deps.normalIcon !== undefined) tray.setImage(deps.normalIcon)
+    }
+  }
+
   return {
     getLastTrayBounds: () => lastTrayBounds,
     setRecordingState,
-    setRelayState
+    setRelayState,
+    setWhisperState
   }
 }
