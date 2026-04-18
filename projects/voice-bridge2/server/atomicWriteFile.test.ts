@@ -17,7 +17,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, renameSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { atomicWriteFile } from './atomicWriteFile.ts'
@@ -61,14 +61,13 @@ describe('atomicWriteFile', () => {
     const seenTmpPaths: string[] = []
     // Capture the tmpPath used by each call via injected writeFile/rename.
     // Both calls must succeed (rename goes to target); we just collect the paths.
-    const captureAndWrite = (p: string, c: string) => {
+    const captureAndWrite = (p: string, c: string): void => {
       seenTmpPaths.push(p)
       writeFileSync(p, c)
     }
     let firstTmp: string | null = null
-    const captureRename = (from: string, to: string) => {
+    const captureRename = (from: string, to: string): void => {
       // record and perform the real rename
-      const { renameSync } = require('node:fs')
       renameSync(from, to)
       // stash so we can compare
       firstTmp = firstTmp ?? from
@@ -89,19 +88,21 @@ describe('atomicWriteFile', () => {
   test('cleans up temp file when rename fails', () => {
     const target = join(dir, 'settings.json')
     let capturedTmpPath: string | null = null
-    const trackingWrite = (p: string, c: string) => {
+    const trackingWrite = (p: string, c: string): void => {
       capturedTmpPath = p
       writeFileSync(p, c) // real write so the file actually exists
     }
-    const failingRename = (_from: string, _to: string) => {
+    const failingRename = (): void => {
       throw new Error('simulated rename failure')
     }
-    expect(() => atomicWriteFile(target, 'content', { writeFile: trackingWrite, rename: failingRename })).toThrow(
-      'simulated rename failure'
-    )
+    expect(() =>
+      atomicWriteFile(target, 'content', { writeFile: trackingWrite, rename: failingRename })
+    ).toThrow('simulated rename failure')
     // The temp file must have been cleaned up — no orphan left on disk.
     expect(capturedTmpPath).not.toBeNull()
-    expect(existsSync(capturedTmpPath!)).toBe(false)
+    if (capturedTmpPath === null)
+      throw new Error('expected capturedTmpPath to be set by trackingWrite')
+    expect(existsSync(capturedTmpPath)).toBe(false)
   })
 
   // Crash-simulation: if the underlying write to the tmp file throws, the

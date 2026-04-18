@@ -11,7 +11,7 @@
 import { describe, test, expect } from 'bun:test'
 
 // These imports will fail until the file exists — intentionally red.
-import { parseTranscribeRequest, type ParsedTranscribeRequest } from './transcribe-parse.ts'
+import { parseTranscribeRequest } from './transcribe-parse.ts'
 
 describe('parseTranscribeRequest: request body parsing concern', () => {
   // Helper to make a bare Request with a stubbed formData
@@ -37,7 +37,9 @@ describe('parseTranscribeRequest: request body parsing concern', () => {
   test('returns 400 error when formData is invalid', async () => {
     const req = new Request('http://localhost:3030/transcribe', { method: 'POST' })
     Object.defineProperty(req, 'formData', {
-      value: async () => { throw new Error('bad form') }
+      value: async () => {
+        throw new Error('bad form')
+      }
     })
     const result = await parseTranscribeRequest(req)
     expect(result.kind).toBe('error')
@@ -70,7 +72,10 @@ describe('parseTranscribeRequest: request body parsing concern', () => {
 
   test('returns 413 error when audio file exceeds MAX_AUDIO_BYTES', async () => {
     const form = new FormData()
-    form.append('audio', new File([new Uint8Array(9 * 1024 * 1024)], 'big.webm', { type: 'audio/webm' }))
+    form.append(
+      'audio',
+      new File([new Uint8Array(9 * 1024 * 1024)], 'big.webm', { type: 'audio/webm' })
+    )
     const req = makeReq(form)
     const result = await parseTranscribeRequest(req)
     expect(result.kind).toBe('error')
@@ -81,7 +86,10 @@ describe('parseTranscribeRequest: request body parsing concern', () => {
 
   test('returns 415 error when audio MIME is not in allowlist', async () => {
     const form = new FormData()
-    form.append('audio', new File([new Uint8Array(100)], 'bad.exe', { type: 'application/x-msdownload' }))
+    form.append(
+      'audio',
+      new File([new Uint8Array(100)], 'bad.exe', { type: 'application/x-msdownload' })
+    )
     const req = makeReq(form)
     const result = await parseTranscribeRequest(req)
     expect(result.kind).toBe('error')
@@ -111,7 +119,7 @@ describe('parseTranscribeRequest: request body parsing concern', () => {
     const result = await parseTranscribeRequest(req)
     expect(result.kind).toBe('ok')
     if (result.kind === 'ok') {
-      const parsed = result.parsed as ParsedTranscribeRequest
+      const parsed = result.parsed
       expect(parsed.audioFile instanceof File).toBe(true)
       expect(parsed.explicitTo).toBe('command')
       expect(parsed.transcribeOnly).toBe(true)

@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process'
 import { writeFileSync, readFileSync, unlinkSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { WHISPER_BASE_URL_DEFAULT, WHISPER_TIMEOUT_MS } from './config.ts'
+import { logger } from './logger.ts'
 
 const WHISPER_URL = process.env.WHISPER_URL ?? WHISPER_BASE_URL_DEFAULT
 // WHISPER_TIMEOUT_MS: 2 min — medium model on CPU can take 60-90s for longer messages
@@ -22,24 +23,25 @@ function convertToWav(audioBuffer: Buffer, ext: string): Buffer {
   const wavPath = join(TMP_DIR, `${id}.wav`)
   try {
     writeFileSync(inputPath, audioBuffer)
-    console.log(`[whisper] input: ${audioBuffer.length} bytes (${ext})`)
+    logger.info('whisper', 'ffmpeg_input', { bytes: audioBuffer.length, ext })
     const ffOut = execFileSync(
       'ffmpeg',
       ['-i', inputPath, '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', wavPath, '-y'],
       { timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'] }
     )
-    console.log(
-      `[whisper] ffmpeg: ${ffOut
-        .toString()
-        .split('\n')
-        .filter((l) => l.includes('Duration') || l.includes('Output'))
-        .join(' | ')}`
-    )
+    const ffLines = ffOut
+      .toString()
+      .split('\n')
+      .filter((l) => l.includes('Duration') || l.includes('Output'))
+      .join(' | ')
+    logger.info('whisper', 'ffmpeg_output', { summary: ffLines })
     const wav = readFileSync(wavPath)
     const wavSamples = (wav.length - 44) / 2 // 16-bit samples
-    console.log(
-      `[whisper] wav: ${wav.length} bytes, ${wavSamples} samples, ${(wavSamples / 16000).toFixed(1)}s`
-    )
+    logger.info('whisper', 'wav_info', {
+      bytes: wav.length,
+      samples: wavSamples,
+      durationS: Number((wavSamples / 16000).toFixed(1))
+    })
     return wav
   } finally {
     try {
@@ -144,7 +146,10 @@ export function buildWhisperBody(wavBuffer: Buffer, boundary: string): Buffer {
   ])
 }
 
-export async function transcribeAudio(audioBuffer: Buffer, mimeType: string): Promise<TranscribeResult> {
+export async function transcribeAudio(
+  audioBuffer: Buffer,
+  mimeType: string
+): Promise<TranscribeResult> {
   const ext = mimeTypeToExt(mimeType)
   // WHISPER_SKIP_CONVERT=1 bypasses ffmpeg — for test environments with fake audio bytes.
   // In this mode, treat the buffer as-is and compute RMS over it (assumed WAV in tests).
@@ -163,7 +168,7 @@ export async function transcribeAudio(audioBuffer: Buffer, mimeType: string): Pr
     headers: {
       'Content-Type': `multipart/form-data; boundary=${boundary}`
     },
-    body: body as unknown as BodyInit,
+    body,
     signal: AbortSignal.timeout(WHISPER_TIMEOUT_MS)
   })
 

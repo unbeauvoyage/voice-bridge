@@ -93,20 +93,20 @@ function buildWav(samples: number[]): Buffer {
 
   // fmt chunk
   buf.write('fmt ', 12, 'ascii')
-  buf.writeUInt32LE(16, 16)     // chunk size
-  buf.writeUInt16LE(1, 20)      // PCM format
-  buf.writeUInt16LE(1, 22)      // mono
-  buf.writeUInt32LE(16000, 24)  // sample rate
-  buf.writeUInt32LE(32000, 28)  // byte rate
-  buf.writeUInt16LE(2, 32)      // block align
-  buf.writeUInt16LE(16, 34)     // bits per sample
+  buf.writeUInt32LE(16, 16) // chunk size
+  buf.writeUInt16LE(1, 20) // PCM format
+  buf.writeUInt16LE(1, 22) // mono
+  buf.writeUInt32LE(16000, 24) // sample rate
+  buf.writeUInt32LE(32000, 28) // byte rate
+  buf.writeUInt16LE(2, 32) // block align
+  buf.writeUInt16LE(16, 34) // bits per sample
 
   // data chunk
   buf.write('data', 36, 'ascii')
   buf.writeUInt32LE(sampleBytes, 40)
-  for (let i = 0; i < samples.length; i++) {
-    buf.writeInt16LE(samples[i]!, 44 + i * 2)
-  }
+  samples.forEach((sample, i) => {
+    buf.writeInt16LE(sample, 44 + i * 2)
+  })
   return buf
 }
 
@@ -264,8 +264,7 @@ describe('transcribeAudio — fetch dispatch and response parsing', () => {
 
   test('returns trimmed transcript from a successful whisper response', async () => {
     const wav = makeSilentWav()
-    globalThis.fetch = async () =>
-      new Response('  hello world  ', { status: 200 })
+    globalThis.fetch = async () => new Response('  hello world  ', { status: 200 })
 
     const result = await transcribeAudio(wav, 'audio/wav')
     // transcribeAudio trims the response text before returning
@@ -300,8 +299,7 @@ describe('transcribeAudio — fetch dispatch and response parsing', () => {
 
   test('throws when whisper server returns a non-ok status', async () => {
     const wav = makeSilentWav()
-    globalThis.fetch = async () =>
-      new Response('service unavailable', { status: 503 })
+    globalThis.fetch = async () => new Response('service unavailable', { status: 503 })
 
     await expect(transcribeAudio(wav, 'audio/wav')).rejects.toThrow('Whisper service error 503')
   })
@@ -313,17 +311,17 @@ describe('transcribeAudio — fetch dispatch and response parsing', () => {
     const longBody = 'E'.repeat(500)
     globalThis.fetch = async () => new Response(longBody, { status: 500 })
 
-    let caught: Error | null = null
+    let caughtMessage: string | null = null
     try {
       await transcribeAudio(wav, 'audio/wav')
     } catch (e) {
-      caught = e as Error
+      caughtMessage = e instanceof Error ? e.message : String(e)
     }
-    expect(caught).not.toBeNull()
+    expect(caughtMessage).not.toBeNull()
     // The message should contain the status code
-    expect(caught!.message).toContain('500')
+    expect(caughtMessage).toContain('500')
     // The error detail in the message must not exceed 200 chars of the body
-    const bodyInMsg = caught!.message.replace(/^Whisper service error \d+: /, '')
+    const bodyInMsg = (caughtMessage ?? '').replace(/^Whisper service error \d+: /, '')
     expect(bodyInMsg.length).toBeLessThanOrEqual(200)
   })
 
@@ -331,7 +329,10 @@ describe('transcribeAudio — fetch dispatch and response parsing', () => {
     const wav = makeSilentWav()
     let capturedContentType = ''
     globalThis.fetch = async (url, init) => {
-      capturedContentType = (init?.headers as Record<string, string>)?.['Content-Type'] ?? ''
+      const h = init?.headers
+      if (h !== null && typeof h === 'object' && !Array.isArray(h) && 'Content-Type' in h) {
+        capturedContentType = String(h['Content-Type'])
+      }
       return new Response('ok', { status: 200 })
     }
 

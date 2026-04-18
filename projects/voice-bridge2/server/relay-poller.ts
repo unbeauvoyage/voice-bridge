@@ -56,7 +56,11 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
   // kept for backward compat with existing tests that don't use getSettings.
   const resolveSettings = (): { ttsEnabled: boolean; ttsWordLimit: number } => {
     if (options.getSettings) {
-      try { return options.getSettings() } catch { return { ttsEnabled: false, ttsWordLimit: 50 } }
+      try {
+        return options.getSettings()
+      } catch {
+        return { ttsEnabled: false, ttsWordLimit: 50 }
+      }
     }
     return { ttsEnabled: options.ttsEnabled ?? false, ttsWordLimit: options.ttsWordLimit ?? 50 }
   }
@@ -96,7 +100,7 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
         signal: AbortSignal.timeout(RELAY_POLL_TIMEOUT_MS)
       })
       if (!res.ok) return
-      messages = parseQueueResponse(await res.json() as unknown)
+      messages = parseQueueResponse(await res.json())
     } catch {
       return // relay offline — silent skip
     }
@@ -121,16 +125,23 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
     // Set inFlight BEFORE the eager fire so interval ticks while TTS is running
     // are dropped by the inFlight guard.
     inFlight = true
-    pollOnce().finally(() => { inFlight = false })
+    pollOnce().finally(() => {
+      inFlight = false
+    })
     intervalHandle = setInterval(() => {
       if (inFlight) return
       inFlight = true
-      pollOnce().finally(() => { inFlight = false })
+      pollOnce().finally(() => {
+        inFlight = false
+      })
     }, POLL_INTERVAL_MS)
   }
 
   function stop(): void {
-    if (intervalHandle !== null) { clearInterval(intervalHandle); intervalHandle = null }
+    if (intervalHandle !== null) {
+      clearInterval(intervalHandle)
+      intervalHandle = null
+    }
   }
 
   return { pollOnce, start, stop }

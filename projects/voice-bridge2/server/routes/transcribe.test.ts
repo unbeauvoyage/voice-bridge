@@ -26,6 +26,25 @@ import type { LlmRouteResult } from '../llmRouter.ts'
 // Build a real Request whose formData() returns the given FormData. We stub
 // only `formData` on the instance because Bun/undici's native Request.formData
 // requires a matching body stream; for unit tests we want the in-memory form.
+
+/** Type predicate: narrows unknown to a plain JSON object. */
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v)
+}
+
+/** Parses a response body as a Record for test assertions. Throws if not an object. */
+async function jsonBody(res: Response): Promise<Record<string, unknown>> {
+  const v: unknown = await res.json()
+  if (!isRecord(v)) throw new Error(`Expected JSON object, got: ${JSON.stringify(v)}`)
+  return v
+}
+
+/** Asserts a value is defined, throws otherwise. */
+function assertDefined<T>(x: T | undefined, msg: string): T {
+  if (x === undefined) throw new Error(msg)
+  return x
+}
+
 function createMockRequest(body: FormData, headerMap: Record<string, string> = {}): Request {
   const req = new Request('http://localhost:3030/transcribe', {
     method: 'POST',
@@ -36,9 +55,7 @@ function createMockRequest(body: FormData, headerMap: Record<string, string> = {
 }
 
 // Minimal context for unit tests
-function createMockContext(
-  overrides: Partial<TranscribeContext> = {}
-): TranscribeContext {
+function createMockContext(overrides: Partial<TranscribeContext> = {}): TranscribeContext {
   return {
     recentAudioHashes: new Map<string, DedupEntry>(),
     evictStaleHashes: () => {
@@ -60,7 +77,11 @@ function createMockContext(
     transcribeAudio: async () => ({ transcript: 'hello world', audioRms: 10000 }),
     // DI-injected LLM router — returns no-match by default; tests that exercise
     // the "please"-gate routing override this to simulate agent detection.
-    llmRoute: async (_transcript: string, _knownAgents: string[], fallbackAgent: string): Promise<LlmRouteResult> => ({
+    llmRoute: async (
+      _transcript: string,
+      _knownAgents: string[],
+      fallbackAgent: string
+    ): Promise<LlmRouteResult> => ({
       agent: fallbackAgent,
       message: _transcript,
       agentChanged: false
@@ -110,7 +131,10 @@ describe('transcribe route handler', () => {
 
   test('POST /transcribe returns 415 when audio MIME is not in allowlist', async () => {
     const formData = new FormData()
-    formData.append('audio', new File([new Uint8Array(100)], 'bad.exe', { type: 'application/x-msdownload' }))
+    formData.append(
+      'audio',
+      new File([new Uint8Array(100)], 'bad.exe', { type: 'application/x-msdownload' })
+    )
     const req = createMockRequest(formData)
     const ctx = createMockContext()
     const res = await handleTranscribe(req, ctx)
@@ -200,7 +224,9 @@ describe('transcribe route handler', () => {
     formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
     const req = createMockRequest(formData)
     const ctx = createMockContext({
-      transcribeAudio: async () => { throw new Error('whisper exploded') }
+      transcribeAudio: async () => {
+        throw new Error('whisper exploded')
+      }
     })
     const res = await handleTranscribe(req, ctx)
     expect(res.status).toBe(500)
@@ -394,11 +420,11 @@ describe('transcribe route handler', () => {
       buf.write('WAVE', 8)
       buf.write('fmt ', 12)
       buf.writeUInt32LE(16, 16) // PCM chunk size
-      buf.writeUInt16LE(1, 20)  // PCM format
-      buf.writeUInt16LE(1, 22)  // mono
+      buf.writeUInt16LE(1, 20) // PCM format
+      buf.writeUInt16LE(1, 22) // mono
       buf.writeUInt32LE(sampleRate, 24)
       buf.writeUInt32LE(sampleRate * 2, 28) // byte rate
-      buf.writeUInt16LE(2, 32)  // block align
+      buf.writeUInt16LE(2, 32) // block align
       buf.writeUInt16LE(16, 34) // bits per sample
       buf.write('data', 36)
       buf.writeUInt32LE(dataBytes, 40)
@@ -452,7 +478,10 @@ describe('transcribe route handler', () => {
         transcribeAudio: async () => ({ transcript: 'hello', audioRms: 0 })
       })
       const deliverCalls: unknown[] = []
-      ctx.deliverMessage = async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
+      ctx.deliverMessage = async (msg, to) => {
+        deliverCalls.push({ msg, to })
+        return { ok: true }
+      }
 
       const res = await handleTranscribe(makeRequest(wavToFile(makeSilentWav())), ctx)
       expect(res.status).toBe(200)
@@ -473,7 +502,10 @@ describe('transcribe route handler', () => {
         transcribeAudio: async () => ({ transcript: 'hello', audioRms: 10000 })
       })
       const deliverCalls: unknown[] = []
-      ctx.deliverMessage = async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
+      ctx.deliverMessage = async (msg, to) => {
+        deliverCalls.push({ msg, to })
+        return { ok: true }
+      }
 
       const res = await handleTranscribe(makeRequest(wavToFile(makeLoudWav())), ctx)
       expect(res.status).toBe(200)
@@ -493,7 +525,10 @@ describe('transcribe route handler', () => {
         transcribeAudio: async () => ({ transcript: 'hello can you open the door', audioRms: 0 })
       })
       const deliverCalls: unknown[] = []
-      ctx.deliverMessage = async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
+      ctx.deliverMessage = async (msg, to) => {
+        deliverCalls.push({ msg, to })
+        return { ok: true }
+      }
 
       const res = await handleTranscribe(makeRequest(wavToFile(makeSilentWav())), ctx)
       expect(res.status).toBe(200)
@@ -505,31 +540,31 @@ describe('transcribe route handler', () => {
       expect(deliverCalls).toHaveLength(1)
     })
 
-    test.each([
-      ['Hello.'],
-      ['Thank you!'],
-      ['Thanks for watching.'],
-      ['You'],
-      ['Bye'],
-    ])('hallucination filter is case-insensitive and strips trailing punctuation: %s', async (phrase) => {
-      const ctx = createMockContext({
-        transcribeAudio: async () => ({
-          transcript: phrase,
-          audioRms: 0 // below threshold — hallucination condition applies
+    test.each([['Hello.'], ['Thank you!'], ['Thanks for watching.'], ['You'], ['Bye']])(
+      'hallucination filter is case-insensitive and strips trailing punctuation: %s',
+      async (phrase) => {
+        const ctx = createMockContext({
+          transcribeAudio: async () => ({
+            transcript: phrase,
+            audioRms: 0 // below threshold — hallucination condition applies
+          })
         })
-      })
-      const deliverCalls: unknown[] = []
-      ctx.deliverMessage = async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
+        const deliverCalls: unknown[] = []
+        ctx.deliverMessage = async (msg, to) => {
+          deliverCalls.push({ msg, to })
+          return { ok: true }
+        }
 
-      const res = await handleTranscribe(makeRequest(wavToFile(makeSilentWav())), ctx)
-      expect(res.status).toBe(200)
-      const body: unknown = await res.json()
-      const obj: Record<string, unknown> = {}
-      if (typeof body === 'object' && body !== null) Object.assign(obj, body)
-      expect(obj['cancelled']).toBe(true)
-      expect(obj['reason']).toBe('whisper-hallucination')
-      expect(deliverCalls).toHaveLength(0)
-    })
+        const res = await handleTranscribe(makeRequest(wavToFile(makeSilentWav())), ctx)
+        expect(res.status).toBe(200)
+        const body: unknown = await res.json()
+        const obj: Record<string, unknown> = {}
+        if (typeof body === 'object' && body !== null) Object.assign(obj, body)
+        expect(obj['cancelled']).toBe(true)
+        expect(obj['reason']).toBe('whisper-hallucination')
+        expect(deliverCalls).toHaveLength(0)
+      }
+    )
   })
 
   test('POST /transcribe returns 400 when form data is invalid', async () => {
@@ -582,7 +617,10 @@ describe('transcribe route handler', () => {
       const deliverCalls: unknown[] = []
       const ctx = createMockContext({
         transcribeAudio: async () => ({ transcript: 'hello', audioRms: 0 }),
-        deliverMessage: async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
+        deliverMessage: async (msg, to) => {
+          deliverCalls.push({ msg, to })
+          return { ok: true }
+        }
       })
 
       const formData = new FormData()
@@ -609,11 +647,17 @@ describe('transcribe route handler', () => {
           transcript: 'hello',
           audioRms: 10000 // well above WHISPER_HALLUCINATION_RMS_THRESHOLD (500)
         }),
-        deliverMessage: async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
+        deliverMessage: async (msg, to) => {
+          deliverCalls.push({ msg, to })
+          return { ok: true }
+        }
       })
 
       const formData = new FormData()
-      formData.append('audio', new File([new Uint8Array(100)], 'audio.webm', { type: 'audio/webm' }))
+      formData.append(
+        'audio',
+        new File([new Uint8Array(100)], 'audio.webm', { type: 'audio/webm' })
+      )
       const req = new Request('http://localhost:3030/transcribe', { method: 'POST' })
       Object.defineProperty(req, 'formData', { value: async () => formData })
 
@@ -657,12 +701,12 @@ describe('transcribe route handler', () => {
         // Different audio buffers hash differently — use the real counter to
         // return distinct transcripts per call.
         transcribeAudio: async () => {
-          const t = transcripts[callCount % transcripts.length]
+          const t = transcripts[callCount % transcripts.length] ?? 'fallback'
           callCount++
-          return { transcript: t!, audioRms: 10000 }
+          return { transcript: t, audioRms: 10000 }
         },
         // Each audio buffer produces a unique hash so dedup does not fire.
-        hashAudioBuffer: (_buf: Buffer) => `unique-hash-${Math.random()}`,
+        hashAudioBuffer: () => `unique-hash-${Math.random()}`,
         deliverMessage: async (message, to) => {
           deliverCalls.push({ message, to })
           return { ok: true }
@@ -671,7 +715,10 @@ describe('transcribe route handler', () => {
 
       // First recording
       const form1 = new FormData()
-      form1.append('audio', new File([new Uint8Array(101)], 'recording1.wav', { type: 'audio/wav' }))
+      form1.append(
+        'audio',
+        new File([new Uint8Array(101)], 'recording1.wav', { type: 'audio/wav' })
+      )
       form1.append('to', 'command')
       const req1 = createMockRequest(form1)
       const res1 = await handleTranscribe(req1, ctx)
@@ -679,7 +726,10 @@ describe('transcribe route handler', () => {
 
       // Second recording — separate audio bytes
       const form2 = new FormData()
-      form2.append('audio', new File([new Uint8Array(102)], 'recording2.wav', { type: 'audio/wav' }))
+      form2.append(
+        'audio',
+        new File([new Uint8Array(102)], 'recording2.wav', { type: 'audio/wav' })
+      )
       form2.append('to', 'command')
       const req2 = createMockRequest(form2)
       const res2 = await handleTranscribe(req2, ctx)
@@ -688,13 +738,16 @@ describe('transcribe route handler', () => {
       // Two separate deliver calls — one per recording
       expect(deliverCalls).toHaveLength(2)
 
+      const dc0 = assertDefined(deliverCalls[0], 'expected deliverCalls[0]')
+      const dc1 = assertDefined(deliverCalls[1], 'expected deliverCalls[1]')
+
       // Each call carries only its own transcript — no concatenation
-      expect(deliverCalls[0]!.message).toBe('turn on the lights')
-      expect(deliverCalls[1]!.message).toBe('set a timer for ten minutes')
+      expect(dc0.message).toBe('turn on the lights')
+      expect(dc1.message).toBe('set a timer for ten minutes')
 
       // Neither message contains the other's text
-      expect(deliverCalls[0]!.message).not.toContain('set a timer')
-      expect(deliverCalls[1]!.message).not.toContain('turn on the lights')
+      expect(dc0.message).not.toContain('set a timer')
+      expect(dc1.message).not.toContain('turn on the lights')
     })
 
     test('each transcribeAudio call receives only its own audio buffer (no cross-contamination)', async () => {
@@ -708,7 +761,7 @@ describe('transcribe route handler', () => {
           transcribeCallArgs.push({ bufLen: buffer.length, mime: mimeType })
           return { transcript: `transcript-${buffer.length}`, audioRms: 10000 }
         },
-        hashAudioBuffer: (_buf: Buffer) => `unique-hash-${Math.random()}`
+        hashAudioBuffer: () => `unique-hash-${Math.random()}`
       })
 
       const form1 = new FormData()
@@ -723,8 +776,8 @@ describe('transcribe route handler', () => {
 
       expect(transcribeCallArgs).toHaveLength(2)
       // First call: 201 bytes; second call: 303 bytes — not 504 (not accumulated)
-      expect(transcribeCallArgs[0]!.bufLen).toBe(201)
-      expect(transcribeCallArgs[1]!.bufLen).toBe(303)
+      expect(assertDefined(transcribeCallArgs[0], 'transcribeCallArgs[0]').bufLen).toBe(201)
+      expect(assertDefined(transcribeCallArgs[1], 'transcribeCallArgs[1]').bufLen).toBe(303)
     })
   })
 
@@ -770,7 +823,10 @@ describe('transcribe route handler', () => {
       whisperCallCount = 0
 
       const formData1 = new FormData()
-      formData1.append('audio', new File([new Uint8Array(100)], 'audio.webm', { type: 'audio/webm' }))
+      formData1.append(
+        'audio',
+        new File([new Uint8Array(100)], 'audio.webm', { type: 'audio/webm' })
+      )
       const req1 = new Request('http://localhost:3030/transcribe', { method: 'POST' })
       Object.defineProperty(req1, 'formData', { value: async () => formData1 })
 
@@ -783,7 +839,10 @@ describe('transcribe route handler', () => {
 
       // Now start duplicate — it enters the wait loop
       const formData2 = new FormData()
-      formData2.append('audio', new File([new Uint8Array(100)], 'audio.webm', { type: 'audio/webm' }))
+      formData2.append(
+        'audio',
+        new File([new Uint8Array(100)], 'audio.webm', { type: 'audio/webm' })
+      )
       const req2 = new Request('http://localhost:3030/transcribe', { method: 'POST' })
       Object.defineProperty(req2, 'formData', { value: async () => formData2 })
 
@@ -822,7 +881,10 @@ describe('transcribe route handler', () => {
       const deliverCalls: unknown[] = []
       const ctx = createMockContext({
         transcribeAudio: async () => ({ transcript: 'test hello world', audioRms: 10000 }),
-        deliverMessage: async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
+        deliverMessage: async (msg, to) => {
+          deliverCalls.push({ msg, to })
+          return { ok: true }
+        }
       })
       const formData = new FormData()
       formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
@@ -830,7 +892,7 @@ describe('transcribe route handler', () => {
 
       const res = await handleTranscribe(req, ctx)
       expect(res.status).toBe(200)
-      const body = await res.json() as Record<string, unknown>
+      const body = await jsonBody(res)
       expect(body['test']).toBe(true)
       expect(body['transcript']).toBe('test hello world')
       // Relay must NOT be called — test mode is a dry-run
@@ -864,7 +926,10 @@ describe('transcribe route handler', () => {
       const ctx = createMockContext({
         transcribeAudio: async () => ({ transcript: 'turn off mic', audioRms: 10000 }),
         handleMicCommand: () => ({ handled: true, state: 'off' as const }),
-        deliverMessage: async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
+        deliverMessage: async (msg, to) => {
+          deliverCalls.push({ msg, to })
+          return { ok: true }
+        }
       })
       const formData = new FormData()
       formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
@@ -872,7 +937,7 @@ describe('transcribe route handler', () => {
 
       const res = await handleTranscribe(req, ctx)
       expect(res.status).toBe(200)
-      const body = await res.json() as Record<string, unknown>
+      const body = await jsonBody(res)
       expect(body['mic']).toBe('off')
       expect(body['command']).toBe(true)
       expect(body['transcript']).toBe('turn off mic')
@@ -890,7 +955,7 @@ describe('transcribe route handler', () => {
       const req = createMockRequest(formData)
 
       const res = await handleTranscribe(req, ctx)
-      const body = await res.json() as Record<string, unknown>
+      const body = await jsonBody(res)
       expect(body['mic']).toBe('on')
       expect(body['command']).toBe(true)
     })
@@ -919,9 +984,19 @@ describe('transcribe route handler', () => {
     test('routes to agent returned by llmRoute when "please" is present', async () => {
       const deliverCalls: Array<{ message: string; to: string }> = []
       const ctx = createMockContext({
-        transcribeAudio: async () => ({ transcript: 'to atlas please deploy the service', audioRms: 10000 }),
-        llmRoute: async () => ({ agent: 'atlas', message: 'deploy the service', agentChanged: true }),
-        deliverMessage: async (message, to) => { deliverCalls.push({ message, to }); return { ok: true } }
+        transcribeAudio: async () => ({
+          transcript: 'to atlas please deploy the service',
+          audioRms: 10000
+        }),
+        llmRoute: async () => ({
+          agent: 'atlas',
+          message: 'deploy the service',
+          agentChanged: true
+        }),
+        deliverMessage: async (message, to) => {
+          deliverCalls.push({ message, to })
+          return { ok: true }
+        }
       })
       const formData = new FormData()
       formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
@@ -929,7 +1004,7 @@ describe('transcribe route handler', () => {
 
       const res = await handleTranscribe(req, ctx)
       expect(res.status).toBe(200)
-      const body = await res.json() as Record<string, unknown>
+      const body = await jsonBody(res)
       expect(body['to']).toBe('atlas')
       // Message delivered must be the part AFTER "please" (words after please)
       expect(deliverCalls[0]?.to).toBe('atlas')
@@ -939,9 +1014,19 @@ describe('transcribe route handler', () => {
       // llmRoute returns empty agent → handler falls back to 'command'
       const deliverCalls: Array<{ to: string }> = []
       const ctx = createMockContext({
-        transcribeAudio: async () => ({ transcript: 'mumbled noise please do something', audioRms: 10000 }),
-        llmRoute: async (_t, _agents, fallback) => ({ agent: fallback, message: 'do something', agentChanged: false }),
-        deliverMessage: async (message, to) => { deliverCalls.push({ to }); return { ok: true } }
+        transcribeAudio: async () => ({
+          transcript: 'mumbled noise please do something',
+          audioRms: 10000
+        }),
+        llmRoute: async (_t, _agents, fallback) => ({
+          agent: fallback,
+          message: 'do something',
+          agentChanged: false
+        }),
+        deliverMessage: async (message, to) => {
+          deliverCalls.push({ to })
+          return { ok: true }
+        }
       })
       const formData = new FormData()
       formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
@@ -954,9 +1039,14 @@ describe('transcribe route handler', () => {
     test('saves last target when llmRoute detects an agent change', async () => {
       const savedTargets: string[] = []
       const ctx = createMockContext({
-        transcribeAudio: async () => ({ transcript: 'to atlas please check the logs', audioRms: 10000 }),
+        transcribeAudio: async () => ({
+          transcript: 'to atlas please check the logs',
+          audioRms: 10000
+        }),
         llmRoute: async () => ({ agent: 'atlas', message: 'check the logs', agentChanged: true }),
-        saveLastTarget: (target) => { savedTargets.push(target) }
+        saveLastTarget: (target) => {
+          savedTargets.push(target)
+        }
       })
       const formData = new FormData()
       formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
@@ -970,8 +1060,14 @@ describe('transcribe route handler', () => {
       const savedTargets: string[] = []
       const ctx = createMockContext({
         transcribeAudio: async () => ({ transcript: 'please do this thing', audioRms: 10000 }),
-        llmRoute: async (_t, _agents, fallback) => ({ agent: fallback, message: 'do this thing', agentChanged: false }),
-        saveLastTarget: (target) => { savedTargets.push(target) }
+        llmRoute: async (_t, _agents, fallback) => ({
+          agent: fallback,
+          message: 'do this thing',
+          agentChanged: false
+        }),
+        saveLastTarget: (target) => {
+          savedTargets.push(target)
+        }
       })
       const formData = new FormData()
       formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
@@ -991,8 +1087,14 @@ describe('transcribe route handler', () => {
     test('returns transcript and to without calling deliverMessage', async () => {
       const deliverCalls: unknown[] = []
       const ctx = createMockContext({
-        transcribeAudio: async () => ({ transcript: 'send a message to the team', audioRms: 10000 }),
-        deliverMessage: async (msg, to) => { deliverCalls.push({ msg, to }); return { ok: true } }
+        transcribeAudio: async () => ({
+          transcript: 'send a message to the team',
+          audioRms: 10000
+        }),
+        deliverMessage: async (msg, to) => {
+          deliverCalls.push({ msg, to })
+          return { ok: true }
+        }
       })
       const formData = new FormData()
       formData.append('audio', new File([new Uint8Array(100)], 'ok.webm', { type: 'audio/webm' }))
@@ -1002,7 +1104,7 @@ describe('transcribe route handler', () => {
 
       const res = await handleTranscribe(req, ctx)
       expect(res.status).toBe(200)
-      const body = await res.json() as Record<string, unknown>
+      const body = await jsonBody(res)
       expect(body['transcript']).toBe('send a message to the team')
       expect(body['to']).toBe('atlas')
       // Must NOT deliver — user hasn't confirmed yet
@@ -1056,7 +1158,7 @@ describe('transcribe route handler', () => {
           transcript: 'tell command to check the build',
           audioRms: 10000
         }),
-        llmRoute: async (transcript, agents, fallback) => {
+        llmRoute: async (transcript) => {
           llmRouteCalls.push(transcript)
           return { agent: 'command', message: 'check the build', agentChanged: false }
         }

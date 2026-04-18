@@ -9,7 +9,7 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
 import { existsSync, mkdirSync, writeFileSync, unlinkSync } from 'node:fs'
 import { EventEmitter } from 'node:events'
-import { createRelayPoller, startRelayPoller, type TtsSpawn, type TtsPauseGuard } from './relay-poller'
+import { createRelayPoller, type TtsSpawn, type TtsPauseGuard } from './relay-poller'
 import { MIC_PAUSE_DIR } from './config'
 
 // ─── Mock servers ─────────────────────────────────────────────────────────────

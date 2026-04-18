@@ -19,11 +19,9 @@ const ANCHOR_OVERLAY_PORT = 48910
 type OverlayPost = { mode: string; text: string }
 
 function isOverlayPost(v: unknown): v is OverlayPost {
-  return (
-    v !== null && typeof v === 'object' &&
-    'mode' in v && typeof (v as Record<string, unknown>).mode === 'string' &&
-    'text' in v && typeof (v as Record<string, unknown>).text === 'string'
-  )
+  if (v === null || typeof v !== 'object') return false
+  if (!('mode' in v) || !('text' in v)) return false
+  return typeof v.mode === 'string' && typeof v.text === 'string'
 }
 
 const posts: OverlayPost[] = []
@@ -54,7 +52,12 @@ function makeState(): OverlayDispatchState {
   }
 }
 
-function makeMsg(id: string, from: string, type: string, body: string) {
+function makeMsg(
+  id: string,
+  from: string,
+  type: string,
+  body: string
+): { id: string; from: string; to: string; type: string; body: string; ts: string } {
   return { id, from, to: 'ceo', type, body, ts: '2026-04-17T00:00:00Z' }
 }
 
@@ -67,7 +70,9 @@ describe('dispatchOverlayMessages: overlay dispatch concern', () => {
     await dispatchOverlayMessages(msgs, `http://localhost:${ANCHOR_OVERLAY_PORT}/overlay`, state)
 
     expect(posts).toHaveLength(1)
-    expect(posts[0]!.text).toBe('atlas: Done.')
+    const post0 = posts[0]
+    if (post0 === undefined) throw new Error('expected posts[0] to exist')
+    expect(post0.text).toBe('atlas: Done.')
     expect(state.seenIds.has('anchor-1')).toBe(true)
   })
 
@@ -100,7 +105,9 @@ describe('dispatchOverlayMessages: overlay dispatch concern', () => {
     await dispatchOverlayMessages(msgs, `http://localhost:${ANCHOR_OVERLAY_PORT}/overlay`, state)
 
     expect(posts).toHaveLength(1)
-    expect(posts[0]!.text).toBe(`x: ${'A'.repeat(120)}`)
+    const truncPost = posts[0]
+    if (truncPost === undefined) throw new Error('expected posts[0] to exist')
+    expect(truncPost.text).toBe(`x: ${'A'.repeat(120)}`)
   })
 
   test('does not mark message seen after overlay failure — retried on next call', async () => {
