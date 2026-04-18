@@ -60,6 +60,11 @@ export type TrayDeps<TIcon = unknown> = {
   // accepts (real nativeImage in production; opaque token in tests).
   normalIcon?: TIcon
   recordingIcon?: TIcon
+  // Relay connectivity icons. When provided, setRelayState() swaps the icon
+  // to reflect the relay's health ('disconnected' or 'error'); 'connected'
+  // reverts to normalIcon.
+  relayDisconnectedIcon?: TIcon
+  relayErrorIcon?: TIcon
 }
 
 export type TrayController = {
@@ -68,6 +73,10 @@ export type TrayController = {
   // Swaps the tray icon between normal and recording states.
   // No-op when `normalIcon`/`recordingIcon` were not provided in deps.
   setRecordingState: (recording: boolean) => void
+  // Relay connectivity indicator. Updates the tray icon to reflect relay health.
+  // 'connected' → normalIcon, 'disconnected' → relayDisconnectedIcon,
+  // 'error' → relayErrorIcon. No-op when relay icons not provided in deps.
+  setRelayState: (state: 'connected' | 'disconnected' | 'error') => void
 }
 
 export function buildMenuTemplate(cb: MenuCallbacks): MenuTemplate {
@@ -123,8 +132,21 @@ export function attachTrayBehavior<TIcon>(
     tray.setImage(recording ? deps.recordingIcon : deps.normalIcon)
   }
 
+  function setRelayState(state: 'connected' | 'disconnected' | 'error'): void {
+    if (!tray.setImage) return
+    if (state === 'disconnected') {
+      if (deps.relayDisconnectedIcon !== undefined) tray.setImage(deps.relayDisconnectedIcon)
+    } else if (state === 'error') {
+      if (deps.relayErrorIcon !== undefined) tray.setImage(deps.relayErrorIcon)
+    } else {
+      // 'connected' → revert to normalIcon
+      if (deps.normalIcon !== undefined) tray.setImage(deps.normalIcon)
+    }
+  }
+
   return {
     getLastTrayBounds: () => lastTrayBounds,
-    setRecordingState
+    setRecordingState,
+    setRelayState
   }
 }
