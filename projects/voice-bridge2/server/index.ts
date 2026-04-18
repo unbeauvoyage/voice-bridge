@@ -22,6 +22,7 @@ import { deliverToAgent } from './relay.ts'
 import { transcribeAudio } from './whisper.ts'
 import { llmRoute } from './llmRouter.ts'
 import { startRelayPoller } from './relay-poller.ts'
+import { drainVoiceBridgeQueue } from './queue-drain.ts'
 import { handleTranscribe, type TranscribeContext } from './routes/transcribe.ts'
 import { type DedupEntry, hashAudioBuffer, evictStaleHashes } from './routes/dedup.ts'
 import { createWakeWordOsContext } from './wakeWordController.ts'
@@ -218,6 +219,17 @@ const server = Bun.serve({
 logger.info('server', 'listening', { port: server.port, url: `http://localhost:${server.port}` })
 logger.info('server', 'mobile_ui_note', {
   note: 'HTTPS required for non-localhost access — use mkcert'
+})
+
+// Drain voice-bridge's own relay queue — messages sent while offline are not lost
+drainVoiceBridgeQueue(RELAY_BASE_URL, (msg) => {
+  logger.info('queue-drain', 'startup_message_received', {
+    from: msg.from,
+    type: msg.type,
+    body: msg.body
+  })
+}).catch(() => {
+  /* drain errors already logged inside drainVoiceBridgeQueue */
 })
 
 // Start relay response poller — agent replies appear as overlay message toasts
