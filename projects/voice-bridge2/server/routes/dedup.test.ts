@@ -28,8 +28,8 @@ async function jsonBody(res: Response): Promise<Record<string, unknown>> {
 }
 
 /** Asserts a value is defined, throws otherwise. */
-function assertDefined<T>(x: T | undefined, msg: string): T {
-  if (x === undefined) throw new Error(msg)
+function assertDefined<T>(x: T | undefined | null, msg: string): T {
+  if (x === undefined || x === null) throw new Error(msg)
   return x
 }
 

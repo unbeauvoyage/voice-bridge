@@ -47,7 +47,8 @@ export async function summarizeForTts(text: string, wordLimit: number = 8): Prom
 
   try {
     const prompt = `Summarize the following message in ${wordLimit} to ${wordLimit + 3} words. No agent name. Just the key fact.\n\nMessage: ${text}\n\nSummary:`
-    const res = await fetch(OLLAMA_BASE_URL_DEFAULT, {
+    const ollamaUrl = process.env.OLLAMA_URL ?? OLLAMA_BASE_URL_DEFAULT
+    const res = await fetch(ollamaUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

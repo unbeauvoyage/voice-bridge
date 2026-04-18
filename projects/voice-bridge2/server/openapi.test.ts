@@ -30,8 +30,16 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 /** Parses a response body as a Record for test assertions. Throws if not an object. */
 async function jsonBody(res: Response): Promise<Record<string, unknown>> {
-  const v: unknown = await res.json()
-  if (!isRecord(v)) throw new Error(`Expected JSON object, got: ${JSON.stringify(v)}`)
+  let v: unknown
+  try {
+    v = await res.json()
+  } catch (err) {
+    throw new Error(
+      `jsonBody: failed to parse JSON from ${res.url} (status ${res.status}): ${String(err)}`
+    )
+  }
+  if (!isRecord(v))
+    throw new Error(`jsonBody: expected JSON object from ${res.url}, got: ${JSON.stringify(v)}`)
   return v
 }
 
