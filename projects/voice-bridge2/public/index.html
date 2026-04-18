@@ -413,6 +413,12 @@
             opt.textContent = name
             agentSelect.appendChild(opt)
           })
+
+          // Restore previously selected agent from localStorage
+          const stored = localStorage.getItem('selectedAgent')
+          if (stored && names.includes(stored)) {
+            agentSelect.value = stored
+          }
         } catch (err) {
           agentSelect.innerHTML = '<option value="">Error loading agents</option>'
           console.error('[voice-bridge] loadAgents:', err)
@@ -434,6 +440,11 @@
           /* relay may be briefly unreachable — keep showing last state */
         }
       }
+
+      // ── Persist agent selection ────────────────────────────────
+      agentSelect.addEventListener('change', () => {
+        if (agentSelect.value) localStorage.setItem('selectedAgent', agentSelect.value)
+      })
 
       // ── MediaRecorder — tap Record ─────────────────────────────
       recordBtn.addEventListener('click', async () => {
