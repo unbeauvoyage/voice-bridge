@@ -19,6 +19,7 @@
 
 import { z } from 'zod'
 import { parseJsonBody } from './validation.ts'
+import { logger } from '../logger.ts'
 
 export type SettingsContext = {
   /** Return the raw settings-file contents, or null if the file is missing. */
@@ -81,7 +82,9 @@ function parseCurrentSettings(
   // tts_enabled:"yes") are caught before they merge into the next write.
   const schemaResult = ExistingSettingsSchema.safeParse(parsed)
   if (!schemaResult.success) {
-    const issues = schemaResult.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')
+    const issues = schemaResult.error.issues
+      .map((i) => `${i.path.join('.')}: ${i.message}`)
+      .join('; ')
     return { ok: false, error: `settings.json is corrupt (schema invalid: ${issues})` }
   }
   const out: Record<string, unknown> = {}
@@ -129,7 +132,7 @@ export async function handleSettings(req: Request, ctx: SettingsContext): Promis
     }
     const currentResult = parseCurrentSettings(rawForMerge)
     if (!currentResult.ok) {
-      console.error(`[settings] refusing to overwrite: ${currentResult.error}`)
+      logger.error('settings', 'refusing_overwrite', { reason: currentResult.error })
       return Response.json(
         { error: `Refusing to overwrite: ${currentResult.error}` },
         { status: 500, headers: CORS_HEADERS }
@@ -144,7 +147,7 @@ export async function handleSettings(req: Request, ctx: SettingsContext): Promis
         { status: 500, headers: CORS_HEADERS }
       )
     }
-    console.log(`[settings] updated: ${JSON.stringify(parsed.data)}`)
+    logger.info('settings', 'updated', { data: parsed.data })
     return Response.json(merged, { headers: CORS_HEADERS })
   }
 

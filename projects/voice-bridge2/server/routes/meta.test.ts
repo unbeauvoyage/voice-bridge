@@ -54,18 +54,24 @@ describe('handleIndexHtml', () => {
   })
 
   test('returns 404 "Not found" when loader throws', async () => {
-    const res = await handleIndexHtml(makeCtx({
-      loadIndexHtml: async () => { throw new Error('ENOENT') }
-    }))
+    const res = await handleIndexHtml(
+      makeCtx({
+        loadIndexHtml: async () => {
+          throw new Error('ENOENT')
+        }
+      })
+    )
     expect(res.status).toBe(404)
     const text = await res.text()
     expect(text).toBe('Not found')
   })
 
   test('accepts Buffer-like content from loader', async () => {
-    const res = await handleIndexHtml(makeCtx({
-      loadIndexHtml: async () => Buffer.from('<html/>', 'utf8')
-    }))
+    const res = await handleIndexHtml(
+      makeCtx({
+        loadIndexHtml: async () => Buffer.from('<html/>', 'utf8')
+      })
+    )
     expect(res.status).toBe(200)
     const text = await res.text()
     expect(text).toBe('<html/>')

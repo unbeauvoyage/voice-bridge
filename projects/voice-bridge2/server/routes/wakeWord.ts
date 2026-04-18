@@ -19,6 +19,8 @@ export type WakeWordContext = {
   loadLastTarget: () => string
 }
 
+import { logger } from '../logger.ts'
+
 const CORS_HEADERS = { 'Access-Control-Allow-Origin': '*' } as const
 
 export function handleWakeWord(req: Request, ctx: WakeWordContext): Response | null {
@@ -33,11 +35,11 @@ export function handleWakeWord(req: Request, ctx: WakeWordContext): Response | n
     if (pid) {
       try {
         ctx.stop(pid)
-        console.log(`[wake-word] stopped (PID ${pid})`)
+        logger.info('wake-word', 'stopped', { pid })
       } catch (err) {
         // kill failed (e.g. permission denied) — process is still running
         const message = err instanceof Error ? err.message : String(err)
-        console.error(`[wake-word] stop failed for PID ${pid}: ${message}`)
+        logger.error('wake-word', 'stop_failed', { pid, error: err })
         return Response.json(
           { running: true, error: message },
           { status: 500, headers: CORS_HEADERS }
@@ -53,11 +55,11 @@ export function handleWakeWord(req: Request, ctx: WakeWordContext): Response | n
       const target = ctx.loadLastTarget()
       try {
         ctx.start(target)
-        console.log(`[wake-word] started with target "${target}"`)
+        logger.info('wake-word', 'started', { target })
       } catch (err) {
         // spawn failed (Python not found, path error, etc.)
         const message = err instanceof Error ? err.message : String(err)
-        console.error(`[wake-word] start failed: ${message}`)
+        logger.error('wake-word', 'start_failed', { error: err })
         return Response.json(
           { running: false, error: message },
           { status: 500, headers: CORS_HEADERS }
@@ -69,7 +71,7 @@ export function handleWakeWord(req: Request, ctx: WakeWordContext): Response | n
       const alive = ctx.findPid()
       if (!alive) {
         const message = 'Process exited immediately after spawn'
-        console.error(`[wake-word] ${message}`)
+        logger.error('wake-word', 'process_exited_immediately', {})
         return Response.json(
           { running: false, error: message },
           { status: 500, headers: CORS_HEADERS }

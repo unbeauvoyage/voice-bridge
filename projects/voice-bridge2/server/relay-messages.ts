@@ -18,12 +18,18 @@ export interface QueuedMessage {
 export function isQueuedMessage(value: unknown): value is QueuedMessage {
   if (value === null || typeof value !== 'object') return false
   return (
-    'id' in value && typeof value.id === 'string' &&
-    'from' in value && typeof value.from === 'string' &&
-    'to' in value && typeof value.to === 'string' &&
-    'type' in value && typeof value.type === 'string' &&
-    'body' in value && typeof value.body === 'string' &&
-    'ts' in value && typeof value.ts === 'string'
+    'id' in value &&
+    typeof value.id === 'string' &&
+    'from' in value &&
+    typeof value.from === 'string' &&
+    'to' in value &&
+    typeof value.to === 'string' &&
+    'type' in value &&
+    typeof value.type === 'string' &&
+    'body' in value &&
+    typeof value.body === 'string' &&
+    'ts' in value &&
+    typeof value.ts === 'string'
   )
 }
 

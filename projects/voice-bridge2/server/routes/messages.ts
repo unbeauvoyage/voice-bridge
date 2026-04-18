@@ -11,6 +11,7 @@
  */
 
 import { RELAY_TIMEOUT_MS } from '../config.ts'
+import { logger } from '../logger.ts'
 
 // Maximum agent name length — matches the MAX_TO_LEN convention from /transcribe.
 const MAX_AGENT_LEN = 128
@@ -30,7 +31,10 @@ export async function handleMessages(req: Request, ctx: MessagesContext): Promis
   // Cap agent name length to prevent relay URL bloat and match MAX_TO_LEN.
   if (agent.length > MAX_AGENT_LEN) {
     return Response.json(
-      { error: `agent name too long (max ${MAX_AGENT_LEN} chars)`, agent: agent.slice(0, 32) + '...' },
+      {
+        error: `agent name too long (max ${MAX_AGENT_LEN} chars)`,
+        agent: agent.slice(0, 32) + '...'
+      },
       { status: 400, headers: CORS_HEADERS }
     )
   }
@@ -60,7 +64,7 @@ export async function handleMessages(req: Request, ctx: MessagesContext): Promis
     // Validate relay response shape — must be an object or array.
     // Forwarding a bare string, number, or null blindly could mask relay bugs.
     if (typeof data !== 'object' || data === null) {
-      console.warn('[relay] unexpected relay response shape:', typeof data)
+      logger.warn('relay', 'unexpected_response_shape', { type: typeof data })
       return Response.json(
         { error: 'unexpected relay response shape', agent },
         { status: 502, headers: CORS_HEADERS }
@@ -69,7 +73,7 @@ export async function handleMessages(req: Request, ctx: MessagesContext): Promis
 
     return Response.json(data, { headers: CORS_HEADERS })
   } catch (err) {
-    console.warn('[relay] messages fetch failed:', err)
+    logger.warn('relay', 'messages_fetch_failed', { error: err })
     return Response.json(
       {
         error: 'Relay unavailable',

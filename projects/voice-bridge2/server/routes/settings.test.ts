@@ -283,8 +283,12 @@ describe('handleSettings', () => {
   test('GET /settings returns 500 when readSettings throws EACCES', async () => {
     const eaccesErr = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
     const ctx: SettingsContext = {
-      readSettings: () => { throw eaccesErr },
-      writeSettings: () => { /* should not be called */ }
+      readSettings: () => {
+        throw eaccesErr
+      },
+      writeSettings: () => {
+        /* should not be called */
+      }
     }
     const req = new Request('http://localhost/settings')
     const res = await handleSettings(req, ctx)
@@ -298,8 +302,12 @@ describe('handleSettings', () => {
   test('POST /settings returns 500 when readSettings throws EACCES', async () => {
     const eaccesErr = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
     const ctx: SettingsContext = {
-      readSettings: () => { throw eaccesErr },
-      writeSettings: () => { /* should not be called */ }
+      readSettings: () => {
+        throw eaccesErr
+      },
+      writeSettings: () => {
+        /* should not be called */
+      }
     }
     const req = new Request('http://localhost/settings', {
       method: 'POST',

@@ -17,6 +17,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWriteFile } from '../atomicWriteFile.ts'
 import { parseJsonBody } from './validation.ts'
+import { logger } from '../logger.ts'
 
 // ─── Target persistence business logic ───────────────────────────────────────
 
@@ -43,9 +44,7 @@ export function loadLastTarget(filePath: string = DEFAULT_LAST_TARGET_FILE): str
     const parsed = LastTargetSchema.safeParse(raw)
     if (!parsed.success) return 'command'
     if (BLOCKED_TARGETS.has(parsed.data)) {
-      console.warn(
-        `[target] blocked target "${parsed.data}" in last-target.txt — resetting to "command"`
-      )
+      logger.warn('target', 'blocked_target_reset', { blocked: parsed.data })
       return 'command'
     }
     return parsed.data
@@ -62,10 +61,7 @@ export function saveLastTarget(target: string, filePath: string = DEFAULT_LAST_T
   try {
     atomicWriteFile(filePath, target)
   } catch (err) {
-    console.error(
-      '[target] failed to persist last target:',
-      err instanceof Error ? err.message : String(err)
-    )
+    logger.error('target', 'persist_failed', { error: err })
   }
 }
 
@@ -91,6 +87,6 @@ export async function handleTarget(req: Request, ctx: TargetContext): Promise<Re
     return Response.json({ error: 'Missing target' }, { status: 400, headers: CORS_HEADERS })
   }
   ctx.saveLastTarget(target)
-  console.log(`[target] updated to "${target}"`)
+  logger.info('target', 'updated', { target })
   return Response.json({ target }, { headers: CORS_HEADERS })
 }

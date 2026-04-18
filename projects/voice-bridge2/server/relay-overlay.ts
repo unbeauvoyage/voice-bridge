@@ -14,6 +14,7 @@
  */
 
 import { OVERLAY_TIMEOUT_MS } from './config.ts'
+import { logger } from './logger.ts'
 
 /** Message types that should be shown in the overlay */
 const TOAST_TYPES = new Set(['done', 'status', 'message', 'waiting-for-input'])
@@ -83,13 +84,13 @@ export async function dispatchOverlayMessages(
       })
       overlayOk = res.ok
       if (!res.ok) {
-        console.error(`[relay-poller] overlay POST returned ${res.status} for msg ${msg.id}`)
+        logger.error('relay-poller', 'overlay_post_failed_status', {
+          status: res.status,
+          msgId: msg.id
+        })
       }
     } catch (err) {
-      console.error(
-        '[relay-poller] overlay POST failed:',
-        err instanceof Error ? err.message : String(err)
-      )
+      logger.error('relay-poller', 'overlay_post_failed', { msgId: msg.id, error: err })
     }
 
     if (overlayOk) {
@@ -101,9 +102,7 @@ export async function dispatchOverlayMessages(
       const failures = (state.overlayFailCount.get(msg.id) ?? 0) + 1
       state.overlayFailCount.set(msg.id, failures)
       if (failures >= OVERLAY_MAX_RETRIES) {
-        console.warn(
-          `[relay-poller] overlay POST failed ${failures}x for msg ${msg.id} — marking seen to prevent infinite retry`
-        )
+        logger.warn('relay-poller', 'overlay_post_retry_cap_reached', { failures, msgId: msg.id })
         state.seenIds.set(msg.id, Date.now())
         state.overlayFailCount.delete(msg.id)
       }

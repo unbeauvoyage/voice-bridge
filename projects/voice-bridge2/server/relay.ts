@@ -9,6 +9,7 @@
 
 import { RELAY_BASE_URL_DEFAULT, RELAY_SEND_TIMEOUT_MS } from './config.ts'
 import type { Result } from './lib/result.ts'
+import { logger } from './logger.ts'
 
 type SendRequest = { from: string; to: string; type: string; body: string }
 
@@ -71,7 +72,12 @@ export async function deliverToAgent(transcript: string, to: string): Promise<Re
     return { ok: false, error: 'Relay returned invalid response' }
   }
   if (data.status === 'queued') {
-    return { ok: false, error: `Agent "${to}" is offline — message queued but not delivered` }
+    // Message accepted by relay and queued for delivery — not an error.
+    // The agent is offline but the relay will deliver when it reconnects.
+    // Returning ok:false here causes callers to fall back to cmux, which
+    // fails with "Access denied" for agents not started inside cmux.
+    logger.info('relay', 'agent_offline_message_queued', { to })
+    return { ok: true, data: undefined }
   }
 
   // Echo into CEO's feed so outgoing messages appear alongside agent responses.

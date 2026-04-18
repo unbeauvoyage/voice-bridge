@@ -131,11 +131,19 @@ const TEST_TARGET_FILE = join(TEST_TMP_DIR, 'last-target.txt')
 
 describe('loadLastTarget (extracted from index.ts)', () => {
   beforeEach(() => {
-    try { rmSync(TEST_TMP_DIR, { recursive: true }) } catch { /* ok */ }
+    try {
+      rmSync(TEST_TMP_DIR, { recursive: true })
+    } catch {
+      /* ok */
+    }
     mkdirSync(TEST_TMP_DIR, { recursive: true })
   })
   afterEach(() => {
-    try { rmSync(TEST_TMP_DIR, { recursive: true }) } catch { /* ok */ }
+    try {
+      rmSync(TEST_TMP_DIR, { recursive: true })
+    } catch {
+      /* ok */
+    }
   })
 
   test('returns "command" when file does not exist', () => {
@@ -167,11 +175,19 @@ describe('loadLastTarget (extracted from index.ts)', () => {
 
 describe('saveLastTarget (extracted from index.ts)', () => {
   beforeEach(() => {
-    try { rmSync(TEST_TMP_DIR, { recursive: true }) } catch { /* ok */ }
+    try {
+      rmSync(TEST_TMP_DIR, { recursive: true })
+    } catch {
+      /* ok */
+    }
     mkdirSync(TEST_TMP_DIR, { recursive: true })
   })
   afterEach(() => {
-    try { rmSync(TEST_TMP_DIR, { recursive: true }) } catch { /* ok */ }
+    try {
+      rmSync(TEST_TMP_DIR, { recursive: true })
+    } catch {
+      /* ok */
+    }
   })
 
   test('writes target to file atomically and loadLastTarget reads it back', () => {

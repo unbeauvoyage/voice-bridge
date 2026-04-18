@@ -39,15 +39,18 @@ export type MenuCallbacks = {
   onQuit: () => void
 }
 
-export type TrayLike = {
+// TIcon is the type of icon values (NativeImage in production; opaque token in tests).
+// Defaults to unknown so test fakes and production code can both implement TrayLike
+// without needing a cast at the call site.
+export type TrayLike<TIcon = unknown> = {
   on: (event: 'click' | 'right-click', listener: (...args: unknown[]) => void) => unknown
   popUpContextMenu: (menu: unknown) => void
   // Optional — present on real Electron Tray and on test fakes that exercise
   // the recording indicator. Omitted on fakes that don't care about icons.
-  setImage?: (icon: unknown) => void
+  setImage?: (icon: TIcon) => void
 }
 
-export type TrayDeps = {
+export type TrayDeps<TIcon = unknown> = {
   buildMenu: () => unknown
   showMainWindow: () => void
   hideMainWindow: () => void
@@ -55,8 +58,8 @@ export type TrayDeps = {
   // Icon values to swap on recording state change. Both must be provided for
   // icon swapping to activate. Either may be any value the underlying tray
   // accepts (real nativeImage in production; opaque token in tests).
-  normalIcon?: unknown
-  recordingIcon?: unknown
+  normalIcon?: TIcon
+  recordingIcon?: TIcon
 }
 
 export type TrayController = {
@@ -91,7 +94,10 @@ function isTrayRectangle(v: unknown): v is TrayRectangle {
   )
 }
 
-export function attachTrayBehavior(tray: TrayLike, deps: TrayDeps): TrayController {
+export function attachTrayBehavior<TIcon>(
+  tray: TrayLike<TIcon>,
+  deps: TrayDeps<TIcon>
+): TrayController {
   let lastTrayBounds: TrayRectangle | undefined
 
   tray.on('click', (..._args: unknown[]) => {

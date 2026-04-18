@@ -143,10 +143,18 @@ const TEST_MANUAL_TOKEN = `${TEST_PAUSE_DIR}/manual`
 describe('setMic / isMicOn (extracted from index.ts)', () => {
   beforeEach(() => {
     // Ensure clean state: no pause directory
-    try { rmSync(TEST_PAUSE_DIR, { recursive: true }) } catch { /* ok */ }
+    try {
+      rmSync(TEST_PAUSE_DIR, { recursive: true })
+    } catch {
+      /* ok */
+    }
   })
   afterEach(() => {
-    try { rmSync(TEST_PAUSE_DIR, { recursive: true }) } catch { /* ok */ }
+    try {
+      rmSync(TEST_PAUSE_DIR, { recursive: true })
+    } catch {
+      /* ok */
+    }
   })
 
   test('isMicOn returns true when manual token does not exist', () => {
@@ -185,10 +193,18 @@ describe('setMic / isMicOn (extracted from index.ts)', () => {
 
 describe('handleMicCommand (extracted from index.ts)', () => {
   beforeEach(() => {
-    try { rmSync(TEST_PAUSE_DIR, { recursive: true }) } catch { /* ok */ }
+    try {
+      rmSync(TEST_PAUSE_DIR, { recursive: true })
+    } catch {
+      /* ok */
+    }
   })
   afterEach(() => {
-    try { rmSync(TEST_PAUSE_DIR, { recursive: true }) } catch { /* ok */ }
+    try {
+      rmSync(TEST_PAUSE_DIR, { recursive: true })
+    } catch {
+      /* ok */
+    }
   })
 
   test('returns null for unrelated transcripts', () => {

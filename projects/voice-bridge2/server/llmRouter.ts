@@ -6,6 +6,7 @@
  */
 
 import { OLLAMA_BASE_URL_DEFAULT, OLLAMA_TIMEOUT_MS } from './config.ts'
+import { logger } from './logger.ts'
 
 const DEFAULT_OLLAMA_URL = OLLAMA_BASE_URL_DEFAULT
 const OLLAMA_MODEL = 'llama3.2:latest'
@@ -108,7 +109,7 @@ export async function llmRoute(
       return norm === spoken || norm.replace(/-/g, ' ') === spoken.replace(/-/g, ' ')
     })
     if (match) {
-      console.log(`[llmRoute] fast-path: "${spoken}" → "${match}"`)
+      logger.info('llmRoute', 'fast_path_match', { spoken, match })
       return { agent: match, message: transcript, agentChanged: match !== fallbackAgent }
     }
   }
@@ -151,7 +152,7 @@ export async function llmRoute(
     })
 
     if (!res.ok) {
-      console.warn(`[llmRoute] Ollama returned ${res.status} — falling back`)
+      logger.warn('llmRoute', 'ollama_non_ok_falling_back', { status: res.status })
       return { agent: fallbackAgent, message: transcript, agentChanged: false }
     }
 
@@ -173,7 +174,10 @@ export async function llmRoute(
     }
 
     if (llmParsed.agent === null || llmParsed.agent === undefined || llmParsed.agent === '') {
-      console.log(`[llmRoute] no match for "${fragmentToMatch}" → sticky "${fallbackAgent}"`)
+      logger.info('llmRoute', 'no_match_keeping_sticky', {
+        fragment: fragmentToMatch,
+        sticky: fallbackAgent
+      })
       return { agent: fallbackAgent, message: transcript, agentChanged: false }
     }
 
@@ -188,7 +192,7 @@ export async function llmRoute(
 
     // Guard: never switch to "command" unless explicitly said
     if (agentNorm === 'command' && !/\bcommand\b/i.test(transcript)) {
-      console.log(`[llmRoute] LLM returned "command" but transcript lacks it — keeping sticky`)
+      logger.info('llmRoute', 'command_guard_keeping_sticky', { transcript })
       return { agent: fallbackAgent, message: transcript, agentChanged: false }
     }
 
@@ -197,12 +201,10 @@ export async function llmRoute(
       knownNorm.length === 0 || knownNorm.includes(agentNorm) ? agentNorm : fallbackAgent
     const agentChanged = agent !== fallbackAgent
 
-    console.log(
-      `[llmRoute] fragment="${fragmentToMatch}" → agent="${agent}" (changed=${agentChanged})`
-    )
+    logger.info('llmRoute', 'agent_resolved', { fragment: fragmentToMatch, agent, agentChanged })
     return { agent, message: messageBody, agentChanged }
   } catch (err) {
-    console.warn('[llmRoute] error:', String(err))
+    logger.warn('llmRoute', 'llm_error_falling_back', { error: err })
     return { agent: fallbackAgent, message: transcript, agentChanged: false }
   }
 }

@@ -3,8 +3,33 @@ import {
   isMicResponse,
   isAgentsResponse,
   isOverlayPayload,
+  isRecordingState,
   type OverlayPayload
 } from './typeGuards.ts'
+
+describe('isRecordingState', () => {
+  test('accepts {recording: true}', () => {
+    expect(isRecordingState({ recording: true })).toBe(true)
+  })
+  test('accepts {recording: false}', () => {
+    expect(isRecordingState({ recording: false })).toBe(true)
+  })
+  test('rejects non-boolean recording value', () => {
+    // Daemon stdout might carry "recording" as a string — must reject to stay type-safe
+    expect(isRecordingState({ recording: 'true' })).toBe(false)
+    expect(isRecordingState({ recording: 1 })).toBe(false)
+  })
+  test('rejects missing recording key', () => {
+    expect(isRecordingState({})).toBe(false)
+  })
+  test('rejects null', () => {
+    expect(isRecordingState(null)).toBe(false)
+  })
+  test('rejects primitives', () => {
+    expect(isRecordingState(true)).toBe(false)
+    expect(isRecordingState('recording')).toBe(false)
+  })
+})
 
 describe('isMicResponse', () => {
   test('accepts {state: "on"}', () => {

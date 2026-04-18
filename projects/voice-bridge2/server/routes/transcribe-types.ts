@@ -34,7 +34,11 @@ export type TranscribeContext = {
   transcribeAudio: (buffer: Buffer, mimeType: string) => Promise<TranscribeResult>
 
   // LLM-based agent routing — injected so tests can stub without mock.module()
-  llmRoute: (transcript: string, knownAgents: string[], fallbackAgent: string) => Promise<LlmRouteResult>
+  llmRoute: (
+    transcript: string,
+    knownAgents: string[],
+    fallbackAgent: string
+  ) => Promise<LlmRouteResult>
 
   // Message delivery — returns {ok:false} only when BOTH relay and cmux fail.
   deliverMessage: (message: string, to: string) => Promise<DeliveryResult>

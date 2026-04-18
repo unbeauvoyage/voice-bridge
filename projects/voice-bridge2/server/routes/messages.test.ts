@@ -9,14 +9,17 @@ async function readJsonObject(res: Response): Promise<Record<string, unknown>> {
   return out
 }
 
-function makeCtx(overrides: Partial<MessagesContext> & { relayJson?: unknown } = {}): MessagesContext {
+function makeCtx(
+  overrides: Partial<MessagesContext> & { relayJson?: unknown } = {}
+): MessagesContext {
   const { relayJson, ...ctxOverrides } = overrides
   return {
     relayBaseUrl: 'http://mock-relay',
-    fetchFn: async () => new Response(JSON.stringify(relayJson ?? { messages: [] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    }),
+    fetchFn: async () =>
+      new Response(JSON.stringify(relayJson ?? { messages: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      }),
     ...ctxOverrides
   }
 }

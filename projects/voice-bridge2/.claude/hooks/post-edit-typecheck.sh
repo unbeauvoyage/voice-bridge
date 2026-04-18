@@ -15,11 +15,12 @@ print(ti.get('file_path', ti.get('path', '')))
 " 2>/dev/null || echo "")
 
 # Only run for TypeScript source files under src/ or server/ (not .d.ts, not config)
-if [[ ! "$FILE" =~ /projects/voice-bridge2/(src|server)/.*\.ts$ ]] || [[ "$FILE" =~ \.d\.ts$ ]]; then
+# Match src/ or server/ anywhere in path — handles both main repo and worktrees
+if [[ ! "$FILE" =~ /(src|server)/.*\.ts$ ]] || [[ "$FILE" =~ \.d\.ts$ ]]; then
   exit 0
 fi
 
-PROJECT="/Users/riseof/environment/projects/voice-bridge2"
+PROJECT=$(cd "$(dirname "$FILE")" && git rev-parse --show-toplevel 2>/dev/null || echo "")
 cd "$PROJECT"
 
 DEBT_FILE="$PROJECT/.claude/.compiler-debt.md"

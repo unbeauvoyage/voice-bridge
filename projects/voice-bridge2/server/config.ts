@@ -148,3 +148,14 @@ export const DEDUP_WINDOW_MS = 30_000
  * a duplicate request (ms).
  */
 export const DEDUP_WAIT_DEADLINE_MS = 90_000
+
+// ─── Python venv ──────────────────────────────────────────────────────────────
+
+/**
+ * Relative path from daemonDir to the venv site-packages directory.
+ * Used when spawning wake_word.py so it can import from the venv without
+ * activating it (PYTHONPATH injection).
+ *
+ * Update when the daemon venv is rebuilt against a different Python version.
+ */
+export const PYTHON_VENV_SITE_PACKAGES = '.venv/lib/python3.14/site-packages'

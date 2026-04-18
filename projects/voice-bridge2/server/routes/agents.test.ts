@@ -10,12 +10,14 @@ async function readJsonObject(res: Response): Promise<Record<string, unknown>> {
   return out
 }
 
-function makeCtx(overrides: Partial<AgentsContext> & {
-  relayOk?: boolean
-  relayThrows?: boolean
-  relayJson?: unknown
-  workspaces?: string[]
-} = {}): AgentsContext {
+function makeCtx(
+  overrides: Partial<AgentsContext> & {
+    relayOk?: boolean
+    relayThrows?: boolean
+    relayJson?: unknown
+    workspaces?: string[]
+  } = {}
+): AgentsContext {
   const { relayOk, relayThrows, relayJson, workspaces, ...ctxOverrides } = overrides
   return {
     relayBaseUrl: 'http://relay.example',
@@ -40,7 +42,10 @@ describe('handleAgents', () => {
     const ctx = makeCtx({
       listWorkspaceNames: () => ['alpha', 'beta'],
       fetchFn: Object.assign(
-        async () => { fetchCalls += 1; return new Response('{}') },
+        async () => {
+          fetchCalls += 1
+          return new Response('{}')
+        },
         { preconnect: () => {} }
       )
     })
@@ -162,7 +167,10 @@ describe('getKnownAgents (extracted from index.ts)', () => {
   })
 
   test('deduplicates names appearing in both relay and workspaces', async () => {
-    const ctx = makeCtx({ relayJson: { agents: { command: {} } }, workspaces: ['command', 'extra'] })
+    const ctx = makeCtx({
+      relayJson: { agents: { command: {} } },
+      workspaces: ['command', 'extra']
+    })
     const result = await getKnownAgents(ctx)
     const commandCount = result.filter((a) => a === 'command').length
     expect(commandCount).toBe(1)

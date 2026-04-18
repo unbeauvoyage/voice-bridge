@@ -203,7 +203,11 @@ describe('llmRoute — Ollama response parsing', () => {
     globalThis.fetch = async () =>
       makeOllamaResponse({ response: JSON.stringify({ agent: 'command' }) })
     // transcript has "please" but NOT "command" → guard fires → fallback
-    const result = await llmRoute('cheff of stoff please do the thing', KNOWN_AGENTS, 'productivitesse')
+    const result = await llmRoute(
+      'cheff of stoff please do the thing',
+      KNOWN_AGENTS,
+      'productivitesse'
+    )
     expect(result.agent).toBe('productivitesse')
     expect(result.agentChanged).toBe(false)
   })
@@ -217,7 +221,9 @@ describe('llmRoute — Ollama response parsing', () => {
   })
 
   test('falls back on network error (fetch throws)', async () => {
-    globalThis.fetch = async () => { throw new Error('ECONNREFUSED') }
+    globalThis.fetch = async () => {
+      throw new Error('ECONNREFUSED')
+    }
     const result = await llmRoute(MISSPELLED, KNOWN_AGENTS, FALLBACK)
     expect(result.agent).toBe(FALLBACK)
     expect(result.agentChanged).toBe(false)
@@ -392,11 +398,7 @@ describe('llmRoute — tell/ask/message addressing patterns', () => {
     // No addressing pattern — llmRoute must return fallback immediately.
     // We do NOT mock fetch: if it were called, the test would fail with a
     // network error proving the guard didn't fire correctly.
-    const result = await llmRoute(
-      'just do the thing',
-      ['command', 'productivitesse'],
-      'command'
-    )
+    const result = await llmRoute('just do the thing', ['command', 'productivitesse'], 'command')
     expect(result.agent).toBe('command')
     expect(result.agentChanged).toBe(false)
   })

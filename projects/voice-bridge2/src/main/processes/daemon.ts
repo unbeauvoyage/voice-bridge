@@ -100,6 +100,11 @@ export function createDaemonController(cfg: DaemonConfig): DaemonController {
     proc.on('exit', (code: number | null) => {
       console.log(`[daemon] exited with code ${code}`)
       proc = null
+      // Restart on crash (non-null exit code = crash, null = killed by SIGTERM)
+      if (code !== null) {
+        console.log('[daemon] unexpected exit — restarting in 2s')
+        setTimeout(() => start(), 2000)
+      }
     })
     console.log(`[daemon] started PID=${proc.pid}`)
   }

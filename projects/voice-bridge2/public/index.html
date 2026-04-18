@@ -1,507 +1,521 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <title>Voice Bridge</title>
-  <style>
-    /* ── Reset ──────────────────────────────────────────────── */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    /* ── Dark theme ─────────────────────────────────────────── */
-    :root {
-      --bg:        #14141c;
-      --surface:   #1e1e2a;
-      --border:    #2e2e40;
-      --text:      #e8e8f0;
-      --muted:     #7a7a9a;
-      --accent:    #6c6cf7;
-      --accent-h:  #5a5ae0;
-      --danger:    #e05a5a;
-      --danger-h:  #c94040;
-      --success:   #4ade80;
-      --warn:      #facc15;
-      --radius:    14px;
-    }
-
-    html, body {
-      height: 100%;
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-      font-size: 16px;
-      -webkit-tap-highlight-color: transparent;
-      user-select: none;
-    }
-
-    body {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: flex-start;
-      padding: env(safe-area-inset-top, 24px) 20px env(safe-area-inset-bottom, 24px);
-      gap: 20px;
-      min-height: 100dvh;
-    }
-
-    /* ── Header ─────────────────────────────────────────────── */
-    .header {
-      width: 100%;
-      max-width: 480px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 0 4px;
-    }
-
-    .app-title {
-      font-size: 18px;
-      font-weight: 700;
-      letter-spacing: 0.02em;
-      color: var(--text);
-    }
-
-    /* ── Mic state indicator ────────────────────────────────── */
-    #mic-indicator {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 13px;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--muted);
-      padding: 6px 14px;
-      border-radius: 999px;
-      background: var(--surface);
-      border: 1.5px solid var(--border);
-      transition: color 0.25s, border-color 0.25s;
-    }
-
-    #mic-indicator.mic-on {
-      color: var(--success);
-      border-color: var(--success);
-    }
-
-    #mic-indicator.mic-off {
-      color: var(--danger);
-      border-color: var(--danger);
-    }
-
-    .mic-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: currentColor;
-      flex-shrink: 0;
-    }
-
-    /* ── Agent selector ─────────────────────────────────────── */
-    .agent-section {
-      width: 100%;
-      max-width: 480px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    label {
-      font-size: 12px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-
-    #agent-select {
-      width: 100%;
-      padding: 14px 16px;
-      background: var(--surface);
-      color: var(--text);
-      border: 1.5px solid var(--border);
-      border-radius: var(--radius);
-      font-size: 16px;
-      font-family: inherit;
-      appearance: none;
-      -webkit-appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%237a7a9a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: right 14px center;
-      cursor: pointer;
-      outline: none;
-      transition: border-color 0.2s;
-    }
-
-    #agent-select:focus {
-      border-color: var(--accent);
-    }
-
-    /* ── Buttons ─────────────────────────────────────────────── */
-    .button-row {
-      width: 100%;
-      max-width: 480px;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 14px;
-    }
-
-    .btn {
-      padding: 20px 16px;
-      border: none;
-      border-radius: var(--radius);
-      font-size: 17px;
-      font-weight: 700;
-      font-family: inherit;
-      cursor: pointer;
-      transition: background 0.15s, opacity 0.15s, transform 0.1s;
-      -webkit-user-select: none;
-      letter-spacing: 0.02em;
-    }
-
-    .btn:active {
-      transform: scale(0.97);
-    }
-
-    .btn:disabled {
-      opacity: 0.38;
-      cursor: not-allowed;
-      transform: none;
-    }
-
-    #record-btn {
-      background: var(--accent);
-      color: #fff;
-    }
-
-    #record-btn:not(:disabled):hover {
-      background: var(--accent-h);
-    }
-
-    #record-btn.recording {
-      background: var(--danger);
-      animation: pulse 1.5s ease-in-out infinite;
-    }
-
-    #stop-btn {
-      background: var(--surface);
-      color: var(--text);
-      border: 1.5px solid var(--border);
-    }
-
-    #stop-btn:not(:disabled):hover {
-      background: var(--border);
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50%       { opacity: 0.75; }
-    }
-
-    /* ── Status area ─────────────────────────────────────────── */
-    .status-section {
-      width: 100%;
-      max-width: 480px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    #status-display {
-      width: 100%;
-      min-height: 96px;
-      padding: 16px;
-      background: var(--surface);
-      border: 1.5px solid var(--border);
-      border-radius: var(--radius);
-      font-size: 15px;
-      line-height: 1.5;
-      color: var(--muted);
-      word-break: break-word;
-      white-space: pre-wrap;
-      transition: border-color 0.25s, color 0.25s;
-    }
-
-    #status-display.state-recording {
-      border-color: var(--danger);
-      color: var(--danger);
-    }
-
-    #status-display.state-transcribing {
-      border-color: var(--warn);
-      color: var(--warn);
-    }
-
-    #status-display.state-sent {
-      border-color: var(--success);
-      color: var(--success);
-    }
-
-    #status-display.state-error {
-      border-color: var(--danger);
-      color: var(--danger);
-    }
-
-    /* ── Transcript history ──────────────────────────────────── */
-    .history-section {
-      width: 100%;
-      max-width: 480px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      flex: 1;
-    }
-
-    #transcript-history {
-      flex: 1;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .history-item {
-      padding: 12px 14px;
-      background: var(--surface);
-      border-radius: 10px;
-      font-size: 14px;
-      line-height: 1.4;
-    }
-
-    .history-item .agent-tag {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--accent);
-      margin-bottom: 4px;
-    }
-
-    .history-item .transcript-text {
-      color: var(--text);
-    }
-  </style>
-</head>
-<body>
-
-  <!-- ── Header ─────────────────────────────────────────────── -->
-  <div class="header">
-    <span class="app-title">Voice Bridge</span>
-    <!-- Mic state indicator: polls GET /mic every 3s -->
-    <div id="mic-indicator" class="mic-off" role="status" aria-live="polite">
-      <span class="mic-dot"></span>
-      <span id="mic-label">MIC OFF</span>
-    </div>
-  </div>
-
-  <!-- ── Agent selector ─────────────────────────────────────── -->
-  <div class="agent-section">
-    <label for="agent-select">Send to agent</label>
-    <select id="agent-select" aria-label="Select destination agent">
-      <option value="">Loading agents…</option>
-    </select>
-  </div>
-
-  <!-- ── Record / Stop buttons ──────────────────────────────── -->
-  <div class="button-row">
-    <button id="record-btn" class="btn" aria-label="Start recording">
-      &#9679; Record
-    </button>
-    <button id="stop-btn" class="btn" disabled aria-label="Stop recording">
-      &#9632; Stop
-    </button>
-  </div>
-
-  <!-- ── Status area ────────────────────────────────────────── -->
-  <div class="status-section">
-    <label for="status-display">Status</label>
-    <div id="status-display" role="status" aria-live="polite">Idle</div>
-  </div>
-
-  <!-- ── Transcript history ─────────────────────────────────── -->
-  <div class="history-section">
-    <label>Recent</label>
-    <div id="transcript-history"></div>
-  </div>
-
-  <script>
-    // ── DOM refs ───────────────────────────────────────────────
-    const agentSelect   = document.getElementById('agent-select')
-    const micIndicator  = document.getElementById('mic-indicator')
-    const micLabel      = document.getElementById('mic-label')
-    const recordBtn     = document.getElementById('record-btn')
-    const stopBtn       = document.getElementById('stop-btn')
-    const statusDisplay = document.getElementById('status-display')
-    const history       = document.getElementById('transcript-history')
-
-    // ── State ──────────────────────────────────────────────────
-    let mediaRecorder  = null
-    let audioChunks    = []
-    let isRecording    = false
-
-    // ── Helpers ────────────────────────────────────────────────
-    function setStatus(text, stateClass) {
-      statusDisplay.textContent = text
-      statusDisplay.className = stateClass ? 'state-' + stateClass : ''
-    }
-
-    function setRecordingUI(recording) {
-      isRecording = recording
-      recordBtn.disabled = recording
-      stopBtn.disabled   = !recording
-      if (recording) {
-        recordBtn.classList.add('recording')
-      } else {
-        recordBtn.classList.remove('recording')
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Voice Bridge</title>
+    <style>
+      /* ── Reset ──────────────────────────────────────────────── */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
       }
-    }
 
-    function addHistoryItem(agent, transcript) {
-      const item = document.createElement('div')
-      item.className = 'history-item'
-      item.innerHTML = `
+      /* ── Dark theme ─────────────────────────────────────────── */
+      :root {
+        --bg: #14141c;
+        --surface: #1e1e2a;
+        --border: #2e2e40;
+        --text: #e8e8f0;
+        --muted: #7a7a9a;
+        --accent: #6c6cf7;
+        --accent-h: #5a5ae0;
+        --danger: #e05a5a;
+        --danger-h: #c94040;
+        --success: #4ade80;
+        --warn: #facc15;
+        --radius: 14px;
+      }
+
+      html,
+      body {
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+        font-size: 16px;
+        -webkit-tap-highlight-color: transparent;
+        user-select: none;
+      }
+
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        padding: env(safe-area-inset-top, 24px) 20px env(safe-area-inset-bottom, 24px);
+        gap: 20px;
+        min-height: 100dvh;
+      }
+
+      /* ── Header ─────────────────────────────────────────────── */
+      .header {
+        width: 100%;
+        max-width: 480px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 0 4px;
+      }
+
+      .app-title {
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        color: var(--text);
+      }
+
+      /* ── Mic state indicator ────────────────────────────────── */
+      #mic-indicator {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+        padding: 6px 14px;
+        border-radius: 999px;
+        background: var(--surface);
+        border: 1.5px solid var(--border);
+        transition:
+          color 0.25s,
+          border-color 0.25s;
+      }
+
+      #mic-indicator.mic-on {
+        color: var(--success);
+        border-color: var(--success);
+      }
+
+      #mic-indicator.mic-off {
+        color: var(--danger);
+        border-color: var(--danger);
+      }
+
+      .mic-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: currentColor;
+        flex-shrink: 0;
+      }
+
+      /* ── Agent selector ─────────────────────────────────────── */
+      .agent-section {
+        width: 100%;
+        max-width: 480px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      label {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      #agent-select {
+        width: 100%;
+        padding: 14px 16px;
+        background: var(--surface);
+        color: var(--text);
+        border: 1.5px solid var(--border);
+        border-radius: var(--radius);
+        font-size: 16px;
+        font-family: inherit;
+        appearance: none;
+        -webkit-appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%237a7a9a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 14px center;
+        cursor: pointer;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+
+      #agent-select:focus {
+        border-color: var(--accent);
+      }
+
+      /* ── Buttons ─────────────────────────────────────────────── */
+      .button-row {
+        width: 100%;
+        max-width: 480px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+
+      .btn {
+        padding: 20px 16px;
+        border: none;
+        border-radius: var(--radius);
+        font-size: 17px;
+        font-weight: 700;
+        font-family: inherit;
+        cursor: pointer;
+        transition:
+          background 0.15s,
+          opacity 0.15s,
+          transform 0.1s;
+        -webkit-user-select: none;
+        letter-spacing: 0.02em;
+      }
+
+      .btn:active {
+        transform: scale(0.97);
+      }
+
+      .btn:disabled {
+        opacity: 0.38;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      #record-btn {
+        background: var(--accent);
+        color: #fff;
+      }
+
+      #record-btn:not(:disabled):hover {
+        background: var(--accent-h);
+      }
+
+      #record-btn.recording {
+        background: var(--danger);
+        animation: pulse 1.5s ease-in-out infinite;
+      }
+
+      #stop-btn {
+        background: var(--surface);
+        color: var(--text);
+        border: 1.5px solid var(--border);
+      }
+
+      #stop-btn:not(:disabled):hover {
+        background: var(--border);
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.75;
+        }
+      }
+
+      /* ── Status area ─────────────────────────────────────────── */
+      .status-section {
+        width: 100%;
+        max-width: 480px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      #status-display {
+        width: 100%;
+        min-height: 96px;
+        padding: 16px;
+        background: var(--surface);
+        border: 1.5px solid var(--border);
+        border-radius: var(--radius);
+        font-size: 15px;
+        line-height: 1.5;
+        color: var(--muted);
+        word-break: break-word;
+        white-space: pre-wrap;
+        transition:
+          border-color 0.25s,
+          color 0.25s;
+      }
+
+      #status-display.state-recording {
+        border-color: var(--danger);
+        color: var(--danger);
+      }
+
+      #status-display.state-transcribing {
+        border-color: var(--warn);
+        color: var(--warn);
+      }
+
+      #status-display.state-sent {
+        border-color: var(--success);
+        color: var(--success);
+      }
+
+      #status-display.state-error {
+        border-color: var(--danger);
+        color: var(--danger);
+      }
+
+      /* ── Transcript history ──────────────────────────────────── */
+      .history-section {
+        width: 100%;
+        max-width: 480px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        flex: 1;
+      }
+
+      #transcript-history {
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .history-item {
+        padding: 12px 14px;
+        background: var(--surface);
+        border-radius: 10px;
+        font-size: 14px;
+        line-height: 1.4;
+      }
+
+      .history-item .agent-tag {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin-bottom: 4px;
+      }
+
+      .history-item .transcript-text {
+        color: var(--text);
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ── Header ─────────────────────────────────────────────── -->
+    <div class="header">
+      <span class="app-title">Voice Bridge</span>
+      <!-- Mic state indicator: polls GET /mic every 3s -->
+      <div id="mic-indicator" class="mic-off" role="status" aria-live="polite">
+        <span class="mic-dot"></span>
+        <span id="mic-label">MIC OFF</span>
+      </div>
+    </div>
+
+    <!-- ── Agent selector ─────────────────────────────────────── -->
+    <div class="agent-section">
+      <label for="agent-select">Send to agent</label>
+      <select id="agent-select" aria-label="Select destination agent">
+        <option value="">Loading agents…</option>
+      </select>
+    </div>
+
+    <!-- ── Record / Stop buttons ──────────────────────────────── -->
+    <div class="button-row">
+      <button id="record-btn" class="btn" aria-label="Start recording">&#9679; Record</button>
+      <button id="stop-btn" class="btn" disabled aria-label="Stop recording">&#9632; Stop</button>
+    </div>
+
+    <!-- ── Status area ────────────────────────────────────────── -->
+    <div class="status-section">
+      <label for="status-display">Status</label>
+      <div id="status-display" role="status" aria-live="polite">Idle</div>
+    </div>
+
+    <!-- ── Transcript history ─────────────────────────────────── -->
+    <div class="history-section">
+      <label>Recent</label>
+      <div id="transcript-history"></div>
+    </div>
+
+    <script>
+      // ── DOM refs ───────────────────────────────────────────────
+      const agentSelect = document.getElementById('agent-select')
+      const micIndicator = document.getElementById('mic-indicator')
+      const micLabel = document.getElementById('mic-label')
+      const recordBtn = document.getElementById('record-btn')
+      const stopBtn = document.getElementById('stop-btn')
+      const statusDisplay = document.getElementById('status-display')
+      const history = document.getElementById('transcript-history')
+
+      // ── State ──────────────────────────────────────────────────
+      let mediaRecorder = null
+      let audioChunks = []
+      let isRecording = false
+
+      // ── Helpers ────────────────────────────────────────────────
+      function setStatus(text, stateClass) {
+        statusDisplay.textContent = text
+        statusDisplay.className = stateClass ? 'state-' + stateClass : ''
+      }
+
+      function setRecordingUI(recording) {
+        isRecording = recording
+        recordBtn.disabled = recording
+        stopBtn.disabled = !recording
+        if (recording) {
+          recordBtn.classList.add('recording')
+        } else {
+          recordBtn.classList.remove('recording')
+        }
+      }
+
+      function addHistoryItem(agent, transcript) {
+        const item = document.createElement('div')
+        item.className = 'history-item'
+        item.innerHTML = `
         <div class="agent-tag">${escapeHtml(agent)}</div>
         <div class="transcript-text">${escapeHtml(transcript)}</div>
       `
-      history.prepend(item)
-    }
+        history.prepend(item)
+      }
 
-    function escapeHtml(str) {
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-    }
+      function escapeHtml(str) {
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+      }
 
-    // ── Fetch agents — GET /agents ─────────────────────────────
-    // Called once on load to populate the dropdown.
-    async function loadAgents() {
-      try {
-        const res = await fetch('/agents')
-        if (!res.ok) throw new Error(`/agents returned ${res.status}`)
-        const data = await res.json()
+      // ── Fetch agents — GET /agents ─────────────────────────────
+      // Called once on load to populate the dropdown.
+      async function loadAgents() {
+        try {
+          const res = await fetch('/agents')
+          if (!res.ok) throw new Error(`/agents returned ${res.status}`)
+          const data = await res.json()
 
-        // Relay returns { agents: string[] | {name:string}[] }
-        const raw = Array.isArray(data.agents) ? data.agents : []
-        const names = raw.map(a => (typeof a === 'string' ? a : a.name)).filter(Boolean)
+          // Relay returns { agents: string[] | {name:string}[] }
+          const raw = Array.isArray(data.agents) ? data.agents : []
+          const names = raw.map((a) => (typeof a === 'string' ? a : a.name)).filter(Boolean)
 
-        agentSelect.innerHTML = ''
-        if (names.length === 0) {
-          const opt = document.createElement('option')
-          opt.textContent = 'No agents found'
-          agentSelect.appendChild(opt)
+          agentSelect.innerHTML = ''
+          if (names.length === 0) {
+            const opt = document.createElement('option')
+            opt.textContent = 'No agents found'
+            agentSelect.appendChild(opt)
+            return
+          }
+          names.forEach((name) => {
+            const opt = document.createElement('option')
+            opt.value = name
+            opt.textContent = name
+            agentSelect.appendChild(opt)
+          })
+        } catch (err) {
+          agentSelect.innerHTML = '<option value="">Error loading agents</option>'
+          console.error('[voice-bridge] loadAgents:', err)
+        }
+      }
+
+      // ── Mic state polling — GET /mic every 3s ──────────────────
+      // Keeps the indicator current without requiring a reload.
+      async function pollMic() {
+        try {
+          const res = await fetch('/mic')
+          if (!res.ok) return
+          const data = await res.json()
+          const on = data.state === 'on'
+          micIndicator.classList.toggle('mic-on', on)
+          micIndicator.classList.toggle('mic-off', !on)
+          micLabel.textContent = on ? 'MIC ON' : 'MIC OFF'
+        } catch {
+          /* relay may be briefly unreachable — keep showing last state */
+        }
+      }
+
+      // ── MediaRecorder — tap Record ─────────────────────────────
+      recordBtn.addEventListener('click', async () => {
+        if (isRecording) return
+
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+          audioChunks = []
+
+          // Prefer opus/webm (best compression), fall back to whatever browser supports
+          const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+            ? 'audio/webm;codecs=opus'
+            : MediaRecorder.isTypeSupported('audio/webm')
+              ? 'audio/webm'
+              : ''
+
+          mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+
+          mediaRecorder.addEventListener('dataavailable', (e) => {
+            if (e.data && e.data.size > 0) audioChunks.push(e.data)
+          })
+
+          mediaRecorder.addEventListener('stop', () => {
+            stream.getTracks().forEach((t) => t.stop())
+            sendAudio()
+          })
+
+          mediaRecorder.start()
+          setRecordingUI(true)
+          setStatus('Recording…', 'recording')
+        } catch (err) {
+          setStatus('Microphone access denied: ' + err.message, 'error')
+          console.error('[voice-bridge] getUserMedia:', err)
+        }
+      })
+
+      // ── Stop recording — tap Stop ──────────────────────────────
+      stopBtn.addEventListener('click', () => {
+        if (!isRecording || !mediaRecorder) return
+        setRecordingUI(false)
+        mediaRecorder.stop()
+        setStatus('Transcribing…', 'transcribing')
+      })
+
+      // ── POST /transcribe — multipart FormData ──────────────────
+      // Sends the recorded audio blob + selected agent to the server.
+      async function sendAudio() {
+        const blob = new Blob(audioChunks, { type: mediaRecorder?.mimeType || 'audio/webm' })
+        const agent = agentSelect.value || (agentSelect.options[0]?.value ?? '')
+
+        if (blob.size === 0) {
+          setStatus('No audio captured.', 'error')
           return
         }
-        names.forEach(name => {
-          const opt = document.createElement('option')
-          opt.value   = name
-          opt.textContent = name
-          agentSelect.appendChild(opt)
-        })
-      } catch (err) {
-        agentSelect.innerHTML = '<option value="">Error loading agents</option>'
-        console.error('[voice-bridge] loadAgents:', err)
-      }
-    }
 
-    // ── Mic state polling — GET /mic every 3s ──────────────────
-    // Keeps the indicator current without requiring a reload.
-    async function pollMic() {
-      try {
-        const res = await fetch('/mic')
-        if (!res.ok) return
-        const data = await res.json()
-        const on = data.state === 'on'
-        micIndicator.classList.toggle('mic-on',  on)
-        micIndicator.classList.toggle('mic-off', !on)
-        micLabel.textContent = on ? 'MIC ON' : 'MIC OFF'
-      } catch {
-        /* relay may be briefly unreachable — keep showing last state */
-      }
-    }
+        const form = new FormData()
+        form.append('audio', blob, 'recording.webm')
+        form.append('to', agent)
 
-    // ── MediaRecorder — tap Record ─────────────────────────────
-    recordBtn.addEventListener('click', async () => {
-      if (isRecording) return
+        try {
+          const res = await fetch('/transcribe', { method: 'POST', body: form })
+          const data = await res.json().catch(() => ({}))
 
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        audioChunks = []
-
-        // Prefer opus/webm (best compression), fall back to whatever browser supports
-        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-          ? 'audio/webm;codecs=opus'
-          : MediaRecorder.isTypeSupported('audio/webm')
-            ? 'audio/webm'
-            : ''
-
-        mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
-
-        mediaRecorder.addEventListener('dataavailable', e => {
-          if (e.data && e.data.size > 0) audioChunks.push(e.data)
-        })
-
-        mediaRecorder.addEventListener('stop', () => {
-          stream.getTracks().forEach(t => t.stop())
-          sendAudio()
-        })
-
-        mediaRecorder.start()
-        setRecordingUI(true)
-        setStatus('Recording…', 'recording')
-      } catch (err) {
-        setStatus('Microphone access denied: ' + err.message, 'error')
-        console.error('[voice-bridge] getUserMedia:', err)
-      }
-    })
-
-    // ── Stop recording — tap Stop ──────────────────────────────
-    stopBtn.addEventListener('click', () => {
-      if (!isRecording || !mediaRecorder) return
-      setRecordingUI(false)
-      mediaRecorder.stop()
-      setStatus('Transcribing…', 'transcribing')
-    })
-
-    // ── POST /transcribe — multipart FormData ──────────────────
-    // Sends the recorded audio blob + selected agent to the server.
-    async function sendAudio() {
-      const blob  = new Blob(audioChunks, { type: mediaRecorder?.mimeType || 'audio/webm' })
-      const agent = agentSelect.value || (agentSelect.options[0]?.value ?? '')
-
-      if (blob.size === 0) {
-        setStatus('No audio captured.', 'error')
-        return
-      }
-
-      const form = new FormData()
-      form.append('audio', blob, 'recording.webm')
-      form.append('to', agent)
-
-      try {
-        const res = await fetch('/transcribe', { method: 'POST', body: form })
-        const data = await res.json().catch(() => ({}))
-
-        if (res.ok) {
-          const transcript = data.transcript ?? data.text ?? '(no transcript)'
-          const target     = data.to ?? agent
-          setStatus(`Sent to ${target}: ${transcript}`, 'sent')
-          addHistoryItem(target, transcript)
-        } else {
-          const errMsg = data.error ?? `Server error ${res.status}`
-          setStatus('Error: ' + errMsg, 'error')
+          if (res.ok) {
+            const transcript = data.transcript ?? data.text ?? '(no transcript)'
+            const target = data.to ?? agent
+            setStatus(`Sent to ${target}: ${transcript}`, 'sent')
+            addHistoryItem(target, transcript)
+          } else {
+            const errMsg = data.error ?? `Server error ${res.status}`
+            setStatus('Error: ' + errMsg, 'error')
+          }
+        } catch (err) {
+          setStatus('Network error: ' + err.message + ' — check URL in settings', 'error')
+          console.error('[voice-bridge] sendAudio:', err)
         }
-      } catch (err) {
-        setStatus('Network error: ' + err.message, 'error')
-        console.error('[voice-bridge] sendAudio:', err)
       }
-    }
 
-    // ── Init ───────────────────────────────────────────────────
-    loadAgents()
-    pollMic()
-    setInterval(pollMic, 3000)
-  </script>
-</body>
+      // ── Init ───────────────────────────────────────────────────
+      loadAgents()
+      pollMic()
+      setInterval(pollMic, 3000)
+    </script>
+  </body>
 </html>

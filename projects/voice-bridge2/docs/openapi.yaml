@@ -38,7 +38,7 @@ components:
 
     MicState:
       type: string
-      enum: [on, "off"]
+      enum: [on, 'off']
 
     DaemonSettings:
       type: object
@@ -122,7 +122,7 @@ components:
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/ValidationError"
+            $ref: '#/components/schemas/ValidationError'
 
     ServiceUnavailable:
       description: Upstream service unavailable (relay, Ollama, etc.)
@@ -145,7 +145,7 @@ paths:
       summary: Liveness probe
       tags: [System]
       responses:
-        "200":
+        '200':
           description: Server is alive
           content:
             application/json:
@@ -165,13 +165,13 @@ paths:
       summary: Serve the mobile recording UI
       tags: [System]
       responses:
-        "200":
+        '200':
           description: HTML page for the iOS/macOS recording interface
           content:
             text/html:
               schema:
                 type: string
-        "404":
+        '404':
           description: index.html not found
 
   # ── Transcribe ────────────────────────────────────────────────────────────────
@@ -219,10 +219,10 @@ paths:
                   description: Explicit agent name to route to. Overridden by please-gate.
                 transcribe_only:
                   type: string
-                  enum: ["1"]
+                  enum: ['1']
                   description: Set to "1" to transcribe without delivering to relay
       responses:
-        "200":
+        '200':
           description: |
             Transcription result. Shape varies by outcome:
             - Delivered: transcript + to + message + delivered=true
@@ -235,10 +235,10 @@ paths:
             application/json:
               schema:
                 oneOf:
-                  - $ref: "#/components/schemas/TranscribeSuccess"
-                  - $ref: "#/components/schemas/TranscribeCancelled"
-                  - $ref: "#/components/schemas/TranscribeDeduplicated"
-        "400":
+                  - $ref: '#/components/schemas/TranscribeSuccess'
+                  - $ref: '#/components/schemas/TranscribeCancelled'
+                  - $ref: '#/components/schemas/TranscribeDeduplicated'
+        '400':
           description: Missing audio, invalid form data, or `to` field too long
           content:
             application/json:
@@ -248,7 +248,7 @@ paths:
                 properties:
                   error:
                     type: string
-        "409":
+        '409':
           description: Dedup conflict — original transcription still in progress
           content:
             application/json:
@@ -261,7 +261,7 @@ paths:
                   retryAfterMs:
                     type: integer
                     const: 2000
-        "413":
+        '413':
           description: Request body or audio file too large
           content:
             application/json:
@@ -271,7 +271,7 @@ paths:
                 properties:
                   error:
                     type: string
-        "415":
+        '415':
           description: Unsupported audio MIME type
           content:
             application/json:
@@ -282,8 +282,8 @@ paths:
                   error:
                     type: string
               example:
-                error: "Unsupported audio MIME: application/octet-stream"
-        "422":
+                error: 'Unsupported audio MIME: application/octet-stream'
+        '422':
           description: Empty transcription — no speech detected
           content:
             application/json:
@@ -293,7 +293,7 @@ paths:
                 properties:
                   error:
                     type: string
-        "500":
+        '500':
           description: Whisper transcription failed
           content:
             application/json:
@@ -303,7 +303,7 @@ paths:
                 properties:
                   error:
                     type: string
-        "502":
+        '502':
           description: Delivery to agent failed (both relay and cmux)
           content:
             application/json:
@@ -341,13 +341,13 @@ paths:
             default: command
           description: Agent name to fetch messages for
       responses:
-        "200":
+        '200':
           description: Messages from relay (shape determined by relay server)
           content:
             application/json:
               schema:
                 type: object
-        "400":
+        '400':
           description: Agent name too long
           content:
             application/json:
@@ -359,7 +359,7 @@ paths:
                     type: string
                   agent:
                     type: string
-        "502":
+        '502':
           description: Relay unavailable or returned invalid response
           content:
             application/json:
@@ -383,7 +383,7 @@ paths:
       summary: Get current mic state
       tags: [Mic]
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -391,7 +391,7 @@ paths:
                 required: [state]
                 properties:
                   state:
-                    $ref: "#/components/schemas/MicState"
+                    $ref: '#/components/schemas/MicState'
     post:
       summary: Set mic state
       tags: [Mic]
@@ -404,10 +404,10 @@ paths:
               required: [state]
               properties:
                 state:
-                  $ref: "#/components/schemas/MicState"
+                  $ref: '#/components/schemas/MicState'
               additionalProperties: false
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -415,9 +415,9 @@ paths:
                 required: [state]
                 properties:
                   state:
-                    $ref: "#/components/schemas/MicState"
-        "400":
-          $ref: "#/components/responses/ValidationFailed"
+                    $ref: '#/components/schemas/MicState'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
 
   # ── Agents ────────────────────────────────────────────────────────────────────
 
@@ -442,7 +442,7 @@ paths:
             default: auto
           description: Agent discovery source
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -452,12 +452,12 @@ paths:
                   agents:
                     type: array
                     items:
-                      $ref: "#/components/schemas/RelayAgentEntry"
+                      $ref: '#/components/schemas/RelayAgentEntry'
                   error:
                     type: string
                     description: Present when source=relay and relay is unavailable/invalid
-        "400":
-          $ref: "#/components/responses/ValidationFailed"
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
 
   # ── Status ────────────────────────────────────────────────────────────────────
 
@@ -466,7 +466,7 @@ paths:
       summary: Get current session state (target + mic)
       tags: [System]
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -477,7 +477,7 @@ paths:
                     type: string
                     description: Last-used relay target agent name
                   micState:
-                    $ref: "#/components/schemas/MicState"
+                    $ref: '#/components/schemas/MicState'
 
   # ── Target ────────────────────────────────────────────────────────────────────
 
@@ -503,7 +503,7 @@ paths:
                   maxLength: 128
               additionalProperties: false
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -512,8 +512,8 @@ paths:
                 properties:
                   target:
                     type: string
-        "400":
-          $ref: "#/components/responses/ValidationFailed"
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
 
   # ── Settings ──────────────────────────────────────────────────────────────────
 
@@ -525,13 +525,13 @@ paths:
         doesn't exist, 500 if the file exists but can't be read.
       tags: [Settings]
       responses:
-        "200":
+        '200':
           description: Raw settings JSON
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DaemonSettings"
-        "404":
+                $ref: '#/components/schemas/DaemonSettings'
+        '404':
           description: Settings file not found
           content:
             application/json:
@@ -541,7 +541,7 @@ paths:
                 properties:
                   error:
                     type: string
-        "500":
+        '500':
           description: Settings file exists but cannot be read or is corrupt
           content:
             application/json:
@@ -564,17 +564,17 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/DaemonSettings"
+              $ref: '#/components/schemas/DaemonSettings'
       responses:
-        "200":
+        '200':
           description: Merged settings after update
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DaemonSettings"
-        "400":
-          $ref: "#/components/responses/ValidationFailed"
-        "500":
+                $ref: '#/components/schemas/DaemonSettings'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
           description: Cannot read or write settings file
           content:
             application/json:
@@ -592,7 +592,7 @@ paths:
       summary: Check if wake_word.py is running
       tags: [Wake Word]
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -608,7 +608,7 @@ paths:
       description: Idempotent — no-op if not running.
       tags: [Wake Word]
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -618,7 +618,7 @@ paths:
                   running:
                     type: boolean
                     const: false
-        "500":
+        '500':
           description: Kill failed (permission denied, etc.)
           content:
             application/json:
@@ -641,7 +641,7 @@ paths:
         exits immediately (bad Python path, missing venv), returns 500.
       tags: [Wake Word]
       responses:
-        "200":
+        '200':
           content:
             application/json:
               schema:
@@ -651,7 +651,7 @@ paths:
                   running:
                     type: boolean
                     const: true
-        "500":
+        '500':
           description: Spawn failed or process exited immediately
           content:
             application/json:

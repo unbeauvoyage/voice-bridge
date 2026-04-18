@@ -1,5 +1,5 @@
 ---
-summary: "Reliability postmortem log for voice-bridge2. Each entry documents an incident, root cause, fix applied, and systemic improvement."
+summary: 'Reliability postmortem log for voice-bridge2. Each entry documents an incident, root cause, fix applied, and systemic improvement.'
 ---
 
 # PROBLEM-LOG — voice-bridge2
@@ -17,6 +17,7 @@ Entries in reverse chronological order. Format: ISO 8601 timestamp + incident su
 **Secondary finding:** `/tmp/wake-word-pause.d/manual` was a stale token left from a previous "turn off mic" command, permanently suppressing wake-word detection. Cleared manually.
 
 **Fix applied (commit 9d718d0):**
+
 - `daemon/wake_word.py`: timeout raised from 30 to 150 seconds (2x worst-case whisper inference time)
 - `daemon/test_wake_word_functions.py`: regression test added asserting `timeout >= 150` on every `requests.post` call
 
@@ -31,6 +32,7 @@ Entries in reverse chronological order. Format: ISO 8601 timestamp + incident su
 **Root cause:** The PostToolUse hook was wired to run `tsc` and `eslint` after every file edit, but it always exits 0. Agents observe the reported violations in output but receive no hard stop — so violations accumulate across sessions as each agent writes new code without first clearing the backlog. Generated API client files were also not excluded from lint, which inflated the count with unfixable noise.
 
 **Fix applied (commits fde238d → 3ef737b → e4d7091):**
+
 1. `eslint.config.mjs` updated to ignore all `*.gen.ts` generated files and tighten rule set.
 2. `server/relay-poller.ts` refactored: explicit type narrowing replaces unsafe casts; `relay-poller.test.ts` updated to match.
 3. `src/main/index.ts` — 2 explicit type assertions replaced with proper narrowing guards.

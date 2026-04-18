@@ -19,6 +19,7 @@ import { z } from 'zod'
 import { existsSync, unlinkSync, mkdirSync, writeFileSync } from 'node:fs'
 import { MIC_PAUSE_DIR } from '../config.ts'
 import { parseJsonBody } from './validation.ts'
+import { logger } from '../logger.ts'
 
 // ─── Mic business logic ───────────────────────────────────────────────────────
 // Mic control — writes/removes the "manual" token in MIC_PAUSE_DIR.
@@ -61,7 +62,7 @@ export function setMic(
       mkdirSync(pauseDir, { recursive: true })
       writeFileSync(manualToken, '')
     } catch (err) {
-      console.error('[mic] failed to write pause token:', err instanceof Error ? err.message : String(err))
+      logger.error('mic', 'pause_token_write_failed', { error: err })
     }
   }
 }
@@ -113,7 +114,7 @@ export async function handleMic(req: Request, ctx: MicContext): Promise<Response
     if (!parsed.ok) return parsed.response
     const on = parsed.data.state === 'on'
     ctx.setMic(on)
-    console.log(`[mic] ${on ? 'RESUMED' : 'PAUSED'} via API`)
+    logger.info('mic', on ? 'resumed_via_api' : 'paused_via_api', {})
     return Response.json({ state: on ? 'on' : 'off' }, { headers: CORS_HEADERS })
   }
   return null

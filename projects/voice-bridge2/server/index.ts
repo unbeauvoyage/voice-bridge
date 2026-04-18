@@ -23,7 +23,8 @@ import { transcribeAudio } from './whisper.ts'
 import { llmRoute } from './llmRouter.ts'
 import { startRelayPoller } from './relay-poller.ts'
 import { handleTranscribe, type TranscribeContext } from './routes/transcribe.ts'
-import { type DedupEntry } from './routes/dedup.ts'
+import { type DedupEntry, hashAudioBuffer, evictStaleHashes } from './routes/dedup.ts'
+import { createWakeWordOsContext } from './wakeWordController.ts'
 import { handleMessages, type MessagesContext } from './routes/messages.ts'
 import { handleMic, isMicOn, setMic, handleMicCommand, type MicContext } from './routes/mic.ts'
 import { handleStatus, type StatusContext } from './routes/status.ts'
@@ -35,15 +36,10 @@ import {
 } from './routes/target.ts'
 import { handleAgents, getKnownAgents, type AgentsContext } from './routes/agents.ts'
 import { handleSettings, type SettingsContext } from './routes/settings.ts'
-import { handleWakeWord, type WakeWordContext } from './routes/wakeWord.ts'
+import { handleWakeWord } from './routes/wakeWord.ts'
 import { handleHealth, handleIndexHtml, type IndexHtmlContext } from './routes/meta.ts'
-import { discoverPythonApp } from './pythonApp.ts'
-import {
-  SERVER_PORT,
-  RELAY_BASE_URL_DEFAULT,
-  OVERLAY_URL_DEFAULT,
-  DEDUP_WINDOW_MS
-} from './config.ts'
+import { SERVER_PORT, RELAY_BASE_URL_DEFAULT, OVERLAY_URL_DEFAULT } from './config.ts'
+import { logger } from './logger.ts'
 
 const PORT = Number(process.env.PORT ?? SERVER_PORT)
 const PUBLIC_DIR = join(import.meta.dir, '../public')
@@ -52,19 +48,6 @@ const RELAY_BASE_URL = process.env.RELAY_BASE_URL ?? RELAY_BASE_URL_DEFAULT
 // Audio dedup — WKWebView retries fetches when Whisper is slow, causing duplicate relay delivery.
 // We hash audio bytes on arrival and reject same hash within 30s.
 const recentAudioHashes = new Map<string, DedupEntry>()
-
-function hashAudioBuffer(buf: Buffer): string {
-  const hasher = new Bun.CryptoHasher('sha256')
-  hasher.update(buf)
-  return hasher.digest('hex').slice(0, 16)
-}
-
-function evictStaleHashes(): void {
-  const cutoff = Date.now() - DEDUP_WINDOW_MS
-  for (const [h, entry] of recentAudioHashes) {
-    if (entry.ts < cutoff) recentAudioHashes.delete(h)
-  }
-}
 
 // Chunk2-review HIGH2: Content-Length header is client-trusted. Bun.serve
 // maxRequestBodySize enforces at the parser level — Bun counts bytes as
@@ -129,7 +112,7 @@ const server = Bun.serve({
     if (req.method === 'POST' && url.pathname === '/transcribe') {
       const ctx: TranscribeContext = {
         recentAudioHashes,
-        evictStaleHashes,
+        evictStaleHashes: () => evictStaleHashes(recentAudioHashes),
         hashAudioBuffer,
         loadLastTarget: loadLastTargetBound,
         saveLastTarget: saveLastTargetBound,
@@ -144,10 +127,10 @@ const server = Bun.serve({
         deliverMessage: async (message, to) => {
           const relayResult = await deliverToAgent(message, to)
           if (relayResult.ok) {
-            console.log(`[relay] → ${to}: ${message}`)
+            logger.info('relay', 'message_sent', { to, message })
             return { ok: true }
           }
-          console.error('[voice-bridge] relay delivery failed:', relayResult.error)
+          logger.error('voice-bridge', 'relay_delivery_failed', { relayError: relayResult.error })
           return { ok: false, error: relayResult.error }
         }
       }
@@ -219,38 +202,11 @@ const server = Bun.serve({
     // ── Wake word process control ─────────────────────────────────────────────
     if (url.pathname === '/wake-word' || url.pathname.startsWith('/wake-word/')) {
       const daemonDir = join(import.meta.dir, '../daemon')
-      const wakeCtx: WakeWordContext = {
-        findPid: () => {
-          const result = spawnSync('pgrep', ['-f', 'wake_word.py'], { encoding: 'utf8' })
-          const pid = parseInt(result.stdout.trim().split('\n')[0] ?? '', 10)
-          return isNaN(pid) ? null : pid
-        },
-        stop: (pid: number) => {
-          const result = spawnSync('kill', [String(pid)])
-          if (result.status !== 0) {
-            // Non-zero exit means the PID was stale, already dead, or kill was
-            // refused. Throw so the route handler can return an error response
-            // instead of falsely reporting { running: false }.
-            throw new Error(`kill exited with status ${result.status ?? 'null'}`)
-          }
-        },
-        start: (target: string) => {
-          // Replicate run_daemon.sh: use Python.app (has mic entitlements) with venv PYTHONPATH
-          const pythonApp = discoverPythonApp({ spawnSync, env: process.env })
-          const script = join(daemonDir, 'wake_word.py')
-          const venvPackages = join(daemonDir, '.venv/lib/python3.14/site-packages')
-          const child = spawn(pythonApp, ['-u', script, '--target', target], {
-            cwd: join(daemonDir, '..'),
-            detached: true,
-            stdio: 'ignore',
-            env: { ...process.env, PYTHONPATH: venvPackages }
-          })
-          child.on('error', (err: Error) => console.error('[wake-word] spawn failed:', err.message))
-          child.unref()
-          console.log(`[wake-word] spawned (PID ${child.pid})`)
-        },
-        loadLastTarget: loadLastTargetBound
-      }
+      const wakeCtx = createWakeWordOsContext(daemonDir, loadLastTargetBound, {
+        spawnSync,
+        spawn,
+        env: process.env
+      })
       const res = handleWakeWord(req, wakeCtx)
       if (res) return res
     }
@@ -259,8 +215,10 @@ const server = Bun.serve({
   }
 })
 
-console.log(`voice-bridge server running at http://localhost:${server.port}`)
-console.log(`Mobile UI (HTTPS required): use mkcert for non-localhost access`)
+logger.info('server', 'listening', { port: server.port, url: `http://localhost:${server.port}` })
+logger.info('server', 'mobile_ui_note', {
+  note: 'HTTPS required for non-localhost access — use mkcert'
+})
 
 // Start relay response poller — agent replies appear as overlay message toasts
 const OVERLAY_URL = process.env.OVERLAY_URL ?? OVERLAY_URL_DEFAULT
@@ -270,6 +228,4 @@ startRelayPoller({
   overlayUrl: OVERLAY_URL,
   settingsPath: SETTINGS_PATH
 })
-console.log(
-  `[relay-poller] polling ${RELAY_BASE_URL}/queue/ceo every 3s → overlay at ${OVERLAY_URL}`
-)
+logger.info('relay-poller', 'started', { relayBaseUrl: RELAY_BASE_URL, overlayUrl: OVERLAY_URL })

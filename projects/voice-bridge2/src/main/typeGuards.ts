@@ -20,6 +20,15 @@ const OVERLAY_MODES: readonly string[] = [
   'hidden'
 ] as const
 
+// Narrows the daemon stdout state object to confirm it carries a boolean
+// recording field. Used to drive the tray recording indicator without a cast.
+export function isRecordingState(v: unknown): v is { recording: boolean } {
+  if (typeof v !== 'object' || v === null) return false
+  if (!('recording' in v)) return false
+  const obj: Record<string, unknown> = Object.fromEntries(Object.entries(v))
+  return typeof obj['recording'] === 'boolean'
+}
+
 export function isMicResponse(v: unknown): v is { state: 'on' | 'off' } {
   if (typeof v !== 'object' || v === null) return false
   if (!('state' in v)) return false
