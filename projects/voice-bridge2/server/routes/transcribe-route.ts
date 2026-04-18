@@ -63,7 +63,10 @@ export async function routeTranscript(
         .slice(pleaseIndex + 1)
         .join(' ')
         .trim()
-      logger.info('route', 'please_gate', { word: pleaseIndex + 1, routingPart, messagePart })
+      logger.info(
+        { component: 'route', word: pleaseIndex + 1, routingPart, messagePart },
+        'please_gate'
+      )
       const llmResult = await llmRoute(routingPart, await getKnownAgents(), '')
       const fallback = explicitTo || 'command'
       const to = llmResult.agent || fallback
@@ -71,16 +74,15 @@ export async function routeTranscript(
       if (llmResult.agentChanged) {
         saveLastTarget(to)
       }
-      logger.info('route', 'routed_please_gate', {
-        to,
-        agentChanged: llmResult.agentChanged,
-        message
-      })
+      logger.info(
+        { component: 'route', to, agentChanged: llmResult.agentChanged, message },
+        'routed_please_gate'
+      )
       return { to, message }
     } else {
       // Direct-address patterns ("tell X to Y", "ask X about Y", "message to X: Y").
       // Pass the full transcript to llmRoute — it extracts the agent fragment internally.
-      logger.info('route', 'direct_address_gate', { transcript })
+      logger.info({ component: 'route', transcript }, 'direct_address_gate')
       const llmResult = await llmRoute(transcript, await getKnownAgents(), '')
       const fallback = explicitTo || 'command'
       const to = llmResult.agent || fallback
@@ -88,11 +90,10 @@ export async function routeTranscript(
       if (llmResult.agentChanged) {
         saveLastTarget(to)
       }
-      logger.info('route', 'routed_direct_address', {
-        to,
-        agentChanged: llmResult.agentChanged,
-        message
-      })
+      logger.info(
+        { component: 'route', to, agentChanged: llmResult.agentChanged, message },
+        'routed_direct_address'
+      )
       return { to, message }
     }
   }
@@ -100,11 +101,11 @@ export async function routeTranscript(
   if (explicitTo) {
     // Case 2: Explicit UI selection, no addressing signal — honour it, full transcript.
     saveLastTarget(explicitTo)
-    logger.info('route', 'routed_explicit', { to: explicitTo, transcript })
+    logger.info({ component: 'route', to: explicitTo, transcript }, 'routed_explicit')
     return { to: explicitTo, message: transcript }
   }
 
   // Case 3: No addressing signal, no explicit `to` — deliver to "command".
-  logger.info('route', 'routed_command_direct', { transcript })
+  logger.info({ component: 'route', transcript }, 'routed_command_direct')
   return { to: 'command', message: transcript }
 }

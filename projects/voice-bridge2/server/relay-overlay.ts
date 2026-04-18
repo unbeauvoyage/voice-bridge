@@ -84,13 +84,13 @@ export async function dispatchOverlayMessages(
       })
       overlayOk = res.ok
       if (!res.ok) {
-        logger.error('relay-poller', 'overlay_post_failed_status', {
-          status: res.status,
-          msgId: msg.id
-        })
+        logger.error(
+          { component: 'relay-poller', status: res.status, msgId: msg.id },
+          'overlay_post_failed_status'
+        )
       }
     } catch (err) {
-      logger.error('relay-poller', 'overlay_post_failed', { msgId: msg.id, error: err })
+      logger.error({ component: 'relay-poller', msgId: msg.id, error: err }, 'overlay_post_failed')
     }
 
     if (overlayOk) {
@@ -102,7 +102,10 @@ export async function dispatchOverlayMessages(
       const failures = (state.overlayFailCount.get(msg.id) ?? 0) + 1
       state.overlayFailCount.set(msg.id, failures)
       if (failures >= OVERLAY_MAX_RETRIES) {
-        logger.warn('relay-poller', 'overlay_post_retry_cap_reached', { failures, msgId: msg.id })
+        logger.warn(
+          { component: 'relay-poller', failures, msgId: msg.id },
+          'overlay_post_retry_cap_reached'
+        )
         state.seenIds.set(msg.id, Date.now())
         state.overlayFailCount.delete(msg.id)
       }

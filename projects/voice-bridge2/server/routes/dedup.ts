@@ -122,7 +122,7 @@ export async function checkDedupEntry(
     if (outcome === 'cancelled' && resolved && 'cancelled' in resolved) {
       // Original detected hallucination — return cached cancelled result.
       // Do NOT re-run whisper; that would just hallucinate again.
-      logger.info('voice-bridge', 'duplicate_original_hallucination_cached', {})
+      logger.info({ component: 'voice-bridge' }, 'duplicate_original_hallucination_cached')
       return {
         kind: 'response',
         response: Response.json(
@@ -143,7 +143,7 @@ export async function checkDedupEntry(
       !('cancelled' in resolved) &&
       'to' in resolved
     ) {
-      logger.info('voice-bridge', 'duplicate_resolved_cached', {})
+      logger.info({ component: 'voice-bridge' }, 'duplicate_resolved_cached')
       return {
         kind: 'response',
         response: Response.json(
@@ -158,7 +158,7 @@ export async function checkDedupEntry(
       // transcript. 409 Conflict is the honest shape: "there is a
       // conflicting in-flight request for this exact audio; try
       // again shortly."
-      logger.info('voice-bridge', 'dedup_wait_deadline_exceeded', { hash: audioHash })
+      logger.info({ component: 'voice-bridge', hash: audioHash }, 'dedup_wait_deadline_exceeded')
       return {
         kind: 'response',
         response: Response.json(
@@ -171,11 +171,17 @@ export async function checkDedupEntry(
     // cleared its cache entry. Fall through and re-run transcription
     // + delivery for this duplicate so it gets a real attempt rather
     // than an empty 200.
-    logger.info('voice-bridge', 'duplicate_original_failed_reprocessing', { hash: audioHash })
+    logger.info(
+      { component: 'voice-bridge', hash: audioHash },
+      'duplicate_original_failed_reprocessing'
+    )
     return { kind: 'fallthrough' }
   } else if ('cancelled' in existing) {
     // Original was a hallucination — return cached cancelled result without re-running whisper.
-    logger.info('voice-bridge', 'duplicate_cached_hallucination_cancellation', { hash: audioHash })
+    logger.info(
+      { component: 'voice-bridge', hash: audioHash },
+      'duplicate_cached_hallucination_cancellation'
+    )
     return {
       kind: 'response',
       response: Response.json(

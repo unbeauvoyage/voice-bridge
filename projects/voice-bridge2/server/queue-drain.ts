@@ -46,29 +46,33 @@ export async function drainVoiceBridgeQueue(
       signal: AbortSignal.timeout(RELAY_POLL_TIMEOUT_MS)
     })
     if (!res.ok) {
-      logger.warn('queue-drain', 'relay_queue_fetch_failed', { status: res.status })
+      logger.warn({ component: 'queue-drain', status: res.status }, 'relay_queue_fetch_failed')
       return []
     }
     raw = await res.json()
   } catch (err) {
-    logger.warn('queue-drain', 'relay_unreachable', { error: err })
+    logger.warn({ component: 'queue-drain', error: err }, 'relay_unreachable')
     return []
   }
 
   const messages = parseQueueResponse(raw)
 
   for (const msg of messages) {
-    logger.info('queue-drain', 'processing_queued_message', {
-      id: msg.id,
-      from: msg.from,
-      type: msg.type,
-      body: msg.body
-    })
+    logger.info(
+      {
+        component: 'queue-drain',
+        id: msg.id,
+        from: msg.from,
+        type: msg.type,
+        body: msg.body
+      },
+      'processing_queued_message'
+    )
     onMessage(msg)
   }
 
   if (messages.length > 0) {
-    logger.info('queue-drain', 'drain_complete', { count: messages.length })
+    logger.info({ component: 'queue-drain', count: messages.length }, 'drain_complete')
   }
 
   return messages

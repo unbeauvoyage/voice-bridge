@@ -109,7 +109,7 @@ export async function llmRoute(
       return norm === spoken || norm.replace(/-/g, ' ') === spoken.replace(/-/g, ' ')
     })
     if (match) {
-      logger.info('llmRoute', 'fast_path_match', { spoken, match })
+      logger.info({ component: 'llmRoute', spoken, match }, 'fast_path_match')
       return { agent: match, message: transcript, agentChanged: match !== fallbackAgent }
     }
   }
@@ -152,7 +152,7 @@ export async function llmRoute(
     })
 
     if (!res.ok) {
-      logger.warn('llmRoute', 'ollama_non_ok_falling_back', { status: res.status })
+      logger.warn({ component: 'llmRoute', status: res.status }, 'ollama_non_ok_falling_back')
       return { agent: fallbackAgent, message: transcript, agentChanged: false }
     }
 
@@ -174,10 +174,10 @@ export async function llmRoute(
     }
 
     if (llmParsed.agent === null || llmParsed.agent === undefined || llmParsed.agent === '') {
-      logger.info('llmRoute', 'no_match_keeping_sticky', {
-        fragment: fragmentToMatch,
-        sticky: fallbackAgent
-      })
+      logger.info(
+        { component: 'llmRoute', fragment: fragmentToMatch, sticky: fallbackAgent },
+        'no_match_keeping_sticky'
+      )
       return { agent: fallbackAgent, message: transcript, agentChanged: false }
     }
 
@@ -192,7 +192,7 @@ export async function llmRoute(
 
     // Guard: never switch to "command" unless explicitly said
     if (agentNorm === 'command' && !/\bcommand\b/i.test(transcript)) {
-      logger.info('llmRoute', 'command_guard_keeping_sticky', { transcript })
+      logger.info({ component: 'llmRoute', transcript }, 'command_guard_keeping_sticky')
       return { agent: fallbackAgent, message: transcript, agentChanged: false }
     }
 
@@ -201,10 +201,13 @@ export async function llmRoute(
       knownNorm.length === 0 || knownNorm.includes(agentNorm) ? agentNorm : fallbackAgent
     const agentChanged = agent !== fallbackAgent
 
-    logger.info('llmRoute', 'agent_resolved', { fragment: fragmentToMatch, agent, agentChanged })
+    logger.info(
+      { component: 'llmRoute', fragment: fragmentToMatch, agent, agentChanged },
+      'agent_resolved'
+    )
     return { agent, message: messageBody, agentChanged }
   } catch (err) {
-    logger.warn('llmRoute', 'llm_error_falling_back', { error: err })
+    logger.warn({ component: 'llmRoute', error: err }, 'llm_error_falling_back')
     return { agent: fallbackAgent, message: transcript, agentChanged: false }
   }
 }

@@ -67,7 +67,7 @@ export async function summarizeForTts(text: string, wordLimit: number = 8): Prom
     }
     if (summary) return summary
   } catch (err) {
-    logger.error('tts', 'ollama_summarization_failed', { error: err })
+    logger.error({ component: 'tts', error: err }, 'ollama_summarization_failed')
   }
 
   // Fallback: first sentence of the input text, max 120 chars.
@@ -211,7 +211,7 @@ export async function playTts(
       afplayChild.kill()
     }
   } catch (err) {
-    logger.error('tts', 'tts_spawn_failed', { error: err })
+    logger.error({ component: 'tts', error: err }, 'tts_spawn_failed')
   } finally {
     guard.release()
     // Best-effort cleanup of the temp mp3

@@ -79,19 +79,21 @@ export function createWakeWordOsContext(
         stdio: 'ignore',
         env: { ...env, PYTHONPATH: venvPackages }
       })
-      child.on('error', (err: Error) => logger.error('wake-word', 'spawn_failed', { error: err }))
+      child.on('error', (err: Error) =>
+        logger.error({ component: 'wake-word', error: err }, 'spawn_failed')
+      )
       child.on('exit', (code: number | null) => {
         if (code !== 0) {
-          logger.error('wake-word', 'process_crashed', { code, target })
+          logger.error({ component: 'wake-word', code, target }, 'process_crashed')
           try {
             context.start(target)
           } catch (restartErr) {
-            logger.error('wake-word', 'restart_failed', { error: restartErr })
+            logger.error({ component: 'wake-word', error: restartErr }, 'restart_failed')
           }
         }
       })
       child.unref()
-      logger.info('wake-word', 'spawned', { pid: child.pid ?? null })
+      logger.info({ component: 'wake-word', pid: child.pid ?? null }, 'spawned')
     },
 
     loadLastTarget

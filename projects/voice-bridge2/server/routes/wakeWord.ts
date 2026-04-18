@@ -37,11 +37,11 @@ export function handleWakeWord(req: Request, ctx: WakeWordContext): Response | n
     if (pid) {
       try {
         ctx.stop(pid)
-        logger.info('wake-word', 'stopped', { pid })
+        logger.info({ component: 'wake-word', pid }, 'stopped')
       } catch (err) {
         // kill failed (e.g. permission denied) — process is still running
         const message = err instanceof Error ? err.message : String(err)
-        logger.error('wake-word', 'stop_failed', { pid, error: err })
+        logger.error({ component: 'wake-word', pid, error: err }, 'stop_failed')
         return Response.json(
           { running: true, error: message },
           { status: 500, headers: CORS_HEADERS }
@@ -61,11 +61,11 @@ export function handleWakeWord(req: Request, ctx: WakeWordContext): Response | n
       const target = ctx.loadLastTarget()
       try {
         ctx.start(target)
-        logger.info('wake-word', 'started', { target })
+        logger.info({ component: 'wake-word', target }, 'started')
       } catch (err) {
         // spawn failed (Python not found, path error, etc.)
         const message = err instanceof Error ? err.message : String(err)
-        logger.error('wake-word', 'start_failed', { error: err })
+        logger.error({ component: 'wake-word', error: err }, 'start_failed')
         return Response.json(
           { running: false, error: message },
           { status: 500, headers: CORS_HEADERS }
@@ -77,7 +77,7 @@ export function handleWakeWord(req: Request, ctx: WakeWordContext): Response | n
       const alive = ctx.findPid()
       if (!alive) {
         const message = 'Process exited immediately after spawn'
-        logger.error('wake-word', 'process_exited_immediately', {})
+        logger.error({ component: 'wake-word' }, 'process_exited_immediately')
         return Response.json(
           { running: false, error: message },
           { status: 500, headers: CORS_HEADERS }

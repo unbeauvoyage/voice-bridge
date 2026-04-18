@@ -44,7 +44,7 @@ export function loadLastTarget(filePath: string = DEFAULT_LAST_TARGET_FILE): str
     const parsed = LastTargetSchema.safeParse(raw)
     if (!parsed.success) return 'command'
     if (BLOCKED_TARGETS.has(parsed.data)) {
-      logger.warn('target', 'blocked_target_reset', { blocked: parsed.data })
+      logger.warn({ component: 'target', blocked: parsed.data }, 'blocked_target_reset')
       return 'command'
     }
     return parsed.data
@@ -61,7 +61,7 @@ export function saveLastTarget(target: string, filePath: string = DEFAULT_LAST_T
   try {
     atomicWriteFile(filePath, target)
   } catch (err) {
-    logger.error('target', 'persist_failed', { error: err })
+    logger.error({ component: 'target', error: err }, 'persist_failed')
   }
 }
 
@@ -87,6 +87,6 @@ export async function handleTarget(req: Request, ctx: TargetContext): Promise<Re
     return Response.json({ error: 'Missing target' }, { status: 400, headers: CORS_HEADERS })
   }
   ctx.saveLastTarget(target)
-  logger.info('target', 'updated', { target })
+  logger.info({ component: 'target', target }, 'updated')
   return Response.json({ target }, { headers: CORS_HEADERS })
 }

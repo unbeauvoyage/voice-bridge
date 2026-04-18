@@ -135,10 +135,13 @@ const server = Bun.serve({
         deliverMessage: async (message, to) => {
           const relayResult = await deliverToAgent(message, to)
           if (relayResult.ok) {
-            logger.info('relay', 'message_sent', { to, message })
+            logger.info({ component: 'relay', to, message }, 'message_sent')
             return { ok: true }
           }
-          logger.error('voice-bridge', 'relay_delivery_failed', { relayError: relayResult.error })
+          logger.error(
+            { component: 'voice-bridge', relayError: relayResult.error },
+            'relay_delivery_failed'
+          )
           return { ok: false, error: relayResult.error }
         }
       }
@@ -228,18 +231,26 @@ const server = Bun.serve({
 // a clean slate and voice pickup works immediately.
 cleanStaleTtsPauseTokens()
 
-logger.info('server', 'listening', { port: server.port, url: `http://localhost:${server.port}` })
-logger.info('server', 'mobile_ui_note', {
-  note: 'HTTPS required for non-localhost access — use mkcert'
-})
+logger.info(
+  { component: 'server', port: server.port, url: `http://localhost:${server.port}` },
+  'listening'
+)
+logger.info(
+  { component: 'server', note: 'HTTPS required for non-localhost access — use mkcert' },
+  'mobile_ui_note'
+)
 
 // Drain voice-bridge's own relay queue — messages sent while offline are not lost
 drainVoiceBridgeQueue(RELAY_BASE_URL, (msg) => {
-  logger.info('queue-drain', 'startup_message_received', {
-    from: msg.from,
-    type: msg.type,
-    body: msg.body
-  })
+  logger.info(
+    {
+      component: 'queue-drain',
+      from: msg.from,
+      type: msg.type,
+      body: msg.body
+    },
+    'startup_message_received'
+  )
 }).catch(() => {
   /* drain errors already logged inside drainVoiceBridgeQueue */
 })
@@ -252,4 +263,7 @@ startRelayPoller({
   overlayUrl: OVERLAY_URL,
   settingsPath: SETTINGS_PATH
 })
-logger.info('relay-poller', 'started', { relayBaseUrl: RELAY_BASE_URL, overlayUrl: OVERLAY_URL })
+logger.info(
+  { component: 'relay-poller', relayBaseUrl: RELAY_BASE_URL, overlayUrl: OVERLAY_URL },
+  'started'
+)

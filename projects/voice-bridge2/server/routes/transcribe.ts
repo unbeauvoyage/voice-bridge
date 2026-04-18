@@ -25,7 +25,10 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
   if (parseResult.kind === 'error') return parseResult.response
   const { audioBuffer, audioMime, explicitTo, transcribeOnly } = parseResult.parsed
 
-  logger.info('voice-bridge', 'audio_received', { bytes: audioBuffer.length, mime: audioMime })
+  logger.info(
+    { component: 'voice-bridge', bytes: audioBuffer.length, mime: audioMime },
+    'audio_received'
+  )
 
   // ── Audio dedup ────────────────────────────────────────────────────────────
   ctx.evictStaleHashes()
@@ -33,7 +36,7 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
   const existing = ctx.recentAudioHashes.get(audioHash)
   const waitDeadlineMs = ctx.dedupWaitDeadlineMs ?? DEDUP_WAIT_DEADLINE_MS
   if (existing) {
-    logger.info('voice-bridge', 'duplicate_audio_detected', { hash: audioHash })
+    logger.info({ component: 'voice-bridge', hash: audioHash }, 'duplicate_audio_detected')
     const dedupResult = await checkDedupEntry(
       existing,
       audioHash,
@@ -56,7 +59,7 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
     transcript = result.transcript
     audioRms = result.audioRms
   } catch (err) {
-    logger.error('whisper', 'transcription_failed', { error: err })
+    logger.error({ component: 'whisper', error: err }, 'transcription_failed')
     ctx.recentAudioHashes.delete(audioHash)
     return Response.json(
       { error: 'Transcription failed: ' + String(err) },
@@ -77,7 +80,10 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
   // Promote to cancelled entry (not delete) so concurrent duplicates get the
   // cached result without re-running Whisper and re-triggering the loop.
   if (isWhisperHallucination(transcript, audioRms)) {
-    logger.info('voice-bridge', 'hallucination_suppressed', { transcript, rms: audioRms })
+    logger.info(
+      { component: 'voice-bridge', transcript, rms: audioRms },
+      'hallucination_suppressed'
+    )
     ctx.recentAudioHashes.set(audioHash, { ts: Date.now(), cancelled: true, transcript })
     return Response.json(
       { transcript, cancelled: true, reason: 'whisper-hallucination' },
@@ -89,14 +95,14 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
   if (isCancelCommand(transcript)) {
     const tailText = transcript.trim().split(/\s+/).slice(-10).join(' ')
     const cancelCount = (tailText.match(/\bcancel\b/gi) ?? []).length
-    logger.info('voice-bridge', 'cancel_command_discarding', { cancelCount, transcript })
+    logger.info({ component: 'voice-bridge', cancelCount, transcript }, 'cancel_command_discarding')
     ctx.recentAudioHashes.delete(audioHash)
     return Response.json({ transcript, cancelled: true }, { headers: corsHeaders })
   }
 
   // ── Test mode ──────────────────────────────────────────────────────────────
   if (/^test\b/i.test(transcript)) {
-    logger.info('voice-bridge', 'test_mode_skip_relay', { transcript })
+    logger.info({ component: 'voice-bridge', transcript }, 'test_mode_skip_relay')
     ctx.recentAudioHashes.delete(audioHash)
     return Response.json({ transcript, test: true }, { headers: corsHeaders })
   }
@@ -104,9 +110,10 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
   // ── Mic control commands ───────────────────────────────────────────────────
   const micCmd = ctx.handleMicCommand(transcript)
   if (micCmd) {
-    logger.info('mic', micCmd.state === 'off' ? 'paused_via_voice' : 'resumed_via_voice', {
-      transcript
-    })
+    logger.info(
+      { component: 'mic', transcript },
+      micCmd.state === 'off' ? 'paused_via_voice' : 'resumed_via_voice'
+    )
     ctx.recentAudioHashes.delete(audioHash)
     return Response.json({ transcript, mic: micCmd.state, command: true }, { headers: corsHeaders })
   }
@@ -122,7 +129,7 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
 
   // ── transcribe_only mode ───────────────────────────────────────────────────
   if (transcribeOnly) {
-    logger.info('voice-bridge', 'transcribe_only_skip_relay', { target: to })
+    logger.info({ component: 'voice-bridge', target: to }, 'transcribe_only_skip_relay')
     ctx.recentAudioHashes.set(audioHash, { ts: Date.now(), transcript, to, message })
     return Response.json({ transcript, to }, { headers: corsHeaders })
   }
@@ -133,7 +140,7 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
   // On failure: delete so retries get a real delivery attempt (not 200 cached).
   const delivery = await ctx.deliverMessage(message, to)
   if (!delivery.ok) {
-    logger.error('voice-bridge', 'delivery_failed', { deliveryError: delivery.error })
+    logger.error({ component: 'voice-bridge', deliveryError: delivery.error }, 'delivery_failed')
     ctx.recentAudioHashes.delete(audioHash)
     return Response.json(
       { transcript, to, message, delivered: false, error: delivery.error },
@@ -141,6 +148,6 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
     )
   }
   ctx.recentAudioHashes.set(audioHash, { ts: Date.now(), transcript, to, message })
-  logger.info('delivery', 'message_delivered', { to, message })
+  logger.info({ component: 'delivery', to, message }, 'message_delivered')
   return Response.json({ transcript, to, message, delivered: true }, { headers: corsHeaders })
 }

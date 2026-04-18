@@ -64,7 +64,7 @@ export async function handleMessages(req: Request, ctx: MessagesContext): Promis
     // Validate relay response shape — must be an object or array.
     // Forwarding a bare string, number, or null blindly could mask relay bugs.
     if (typeof data !== 'object' || data === null) {
-      logger.warn('relay', 'unexpected_response_shape', { type: typeof data })
+      logger.warn({ component: 'relay', type: typeof data }, 'unexpected_response_shape')
       return Response.json(
         { error: 'unexpected relay response shape', agent },
         { status: 502, headers: CORS_HEADERS }
@@ -73,7 +73,7 @@ export async function handleMessages(req: Request, ctx: MessagesContext): Promis
 
     return Response.json(data, { headers: CORS_HEADERS })
   } catch (err) {
-    logger.warn('relay', 'messages_fetch_failed', { error: err })
+    logger.warn({ component: 'relay', error: err }, 'messages_fetch_failed')
     return Response.json(
       {
         error: 'Relay unavailable',

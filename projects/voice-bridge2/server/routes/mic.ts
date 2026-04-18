@@ -56,7 +56,7 @@ export function cleanStaleTtsPauseTokens(pauseDir: string = MIC_PAUSE_DIR): void
     if (!entry.startsWith('tts-')) continue
     try {
       unlinkSync(join(pauseDir, entry))
-      logger.info('mic', 'stale_tts_token_removed', { token: entry })
+      logger.info({ component: 'mic', token: entry }, 'stale_tts_token_removed')
     } catch {
       /* token may have already been removed */
     }
@@ -96,7 +96,7 @@ export function setMic(
       mkdirSync(pauseDir, { recursive: true })
       writeFileSync(manualToken, '')
     } catch (err) {
-      logger.error('mic', 'pause_token_write_failed', { error: err })
+      logger.error({ component: 'mic', error: err }, 'pause_token_write_failed')
     }
   }
 }
@@ -148,7 +148,7 @@ export async function handleMic(req: Request, ctx: MicContext): Promise<Response
     if (!parsed.ok) return parsed.response
     const on = parsed.data.state === 'on'
     ctx.setMic(on)
-    logger.info('mic', on ? 'resumed_via_api' : 'paused_via_api', {})
+    logger.info({ component: 'mic' }, on ? 'resumed_via_api' : 'paused_via_api')
     return Response.json({ state: on ? 'on' : 'off' }, { headers: CORS_HEADERS })
   }
   return null

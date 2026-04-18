@@ -23,7 +23,7 @@ function convertToWav(audioBuffer: Buffer, ext: string): Buffer {
   const wavPath = join(TMP_DIR, `${id}.wav`)
   try {
     writeFileSync(inputPath, audioBuffer)
-    logger.info('whisper', 'ffmpeg_input', { bytes: audioBuffer.length, ext })
+    logger.info({ component: 'whisper', bytes: audioBuffer.length, ext }, 'ffmpeg_input')
     const ffOut = execFileSync(
       'ffmpeg',
       ['-i', inputPath, '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', wavPath, '-y'],
@@ -34,14 +34,18 @@ function convertToWav(audioBuffer: Buffer, ext: string): Buffer {
       .split('\n')
       .filter((l) => l.includes('Duration') || l.includes('Output'))
       .join(' | ')
-    logger.info('whisper', 'ffmpeg_output', { summary: ffLines })
+    logger.info({ component: 'whisper', summary: ffLines }, 'ffmpeg_output')
     const wav = readFileSync(wavPath)
     const wavSamples = (wav.length - 44) / 2 // 16-bit samples
-    logger.info('whisper', 'wav_info', {
-      bytes: wav.length,
-      samples: wavSamples,
-      durationS: Number((wavSamples / 16000).toFixed(1))
-    })
+    logger.info(
+      {
+        component: 'whisper',
+        bytes: wav.length,
+        samples: wavSamples,
+        durationS: Number((wavSamples / 16000).toFixed(1))
+      },
+      'wav_info'
+    )
     return wav
   } finally {
     try {

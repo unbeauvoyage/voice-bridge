@@ -132,7 +132,7 @@ export async function handleSettings(req: Request, ctx: SettingsContext): Promis
     }
     const currentResult = parseCurrentSettings(rawForMerge)
     if (!currentResult.ok) {
-      logger.error('settings', 'refusing_overwrite', { reason: currentResult.error })
+      logger.error({ component: 'settings', reason: currentResult.error }, 'refusing_overwrite')
       return Response.json(
         { error: `Refusing to overwrite: ${currentResult.error}` },
         { status: 500, headers: CORS_HEADERS }
@@ -147,7 +147,7 @@ export async function handleSettings(req: Request, ctx: SettingsContext): Promis
         { status: 500, headers: CORS_HEADERS }
       )
     }
-    logger.info('settings', 'updated', { data: parsed.data })
+    logger.info({ component: 'settings', data: parsed.data }, 'updated')
     return Response.json(merged, { headers: CORS_HEADERS })
   }
 
