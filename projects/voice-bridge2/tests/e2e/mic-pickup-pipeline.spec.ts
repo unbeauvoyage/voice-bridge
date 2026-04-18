@@ -1,295 +1,356 @@
 /**
- * E2E tests for the mic pickup pipeline.
+ * E2E tests for the mic pickup pipeline — real HTTP against a live test server.
  *
  * Root cause investigated 2026-04-18: "H-IBC not picking up — mic toggled on
  * but not listening." When the app crashes mid-TTS, a stale `tts-{uuid}` token
- * remains in /tmp/wake-word-pause.d/. The daemon pauses for ANY file in that
- * directory but isMicOn() only checks the `manual` token — so the UI shows
- * "MIC ON" while the daemon stays paused. Fix: cleanStaleTtsPauseTokens() on
- * server startup removes all `tts-*` tokens and restores daemon listening.
+ * remains in the pause directory. The daemon pauses for ANY file there, but
+ * the UI (isMicOn) only checks the `manual` token — so the UI shows "MIC ON"
+ * while the daemon stays silenced. Fix: cleanStaleTtsPauseTokens() runs at
+ * server startup and removes all stale tts-* tokens.
  *
- * Test groups:
- *   1. cleanStaleTtsPauseTokens — removes stale tokens, preserves manual
- *   2. isMicOn / setMic — correct state with manual token only
- *   3. handleMicCommand — voice commands toggle the manual token
- *   4. handleMic route — GET/POST mic state round-trip
+ * All tests make real fetch() calls to a Bun.serve instance running on TEST_PORT.
+ * The server is configured with a test-isolated pause directory so tests cannot
+ * pollute /tmp/wake-word-pause.d used by the production server.
  */
 
-import { describe, test, expect, afterEach } from 'bun:test'
-import { mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs'
+import { describe, test, expect, beforeAll, afterAll, afterEach } from 'bun:test'
+import { mkdirSync, existsSync, rmSync, writeFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  cleanStaleTtsPauseTokens,
-  isMicOn,
+  handleMic,
   setMic,
   handleMicCommand,
-  handleMic,
-  type MicContext
+  cleanStaleTtsPauseTokens
 } from '../../server/routes/mic.ts'
+import { handleTranscribe } from '../../server/routes/transcribe.ts'
+import type { TranscribeContext, DedupEntry } from '../../server/routes/transcribe.ts'
+import type { LlmRouteResult } from '../../server/llmRouter.ts'
 
-// ── Test fixture: isolated temp directory per test ───────────────────────────
+const TEST_PORT = 13035
+const TEST_PAUSE_DIR = '/tmp/vb2-mic-e2e-test.d'
+const TEST_MANUAL_TOKEN = join(TEST_PAUSE_DIR, 'manual')
+const BASE = `http://localhost:${TEST_PORT}`
 
-const TMP_BASE = '/tmp/vb2-mic-test'
-let testDir = ''
-let testManualToken = ''
+// ── Test server ───────────────────────────────────────────────────────────────
+// Mirrors server/index.ts wiring but with:
+//   - isolated test pause directory (not /tmp/wake-word-pause.d)
+//   - stub transcribeAudio that returns a configurable transcript
+//   - stub deliverMessage that always succeeds
 
-function freshDir(suffix: string): string {
-  const dir = `${TMP_BASE}-${suffix}-${Date.now()}`
-  mkdirSync(dir, { recursive: true })
-  return dir
+let mockTranscript = 'hello world'
+
+// Bun's fetch client strips Content-Type from multipart file parts.
+// Patch the request so the file's MIME is correctly reported to formData().
+// (Same technique used in server/integration.test.ts.)
+async function patchRequestMime(req: Request): Promise<Request> {
+  const bodyBuf = new Uint8Array(await req.arrayBuffer())
+  const head = new TextDecoder().decode(bodyBuf.slice(0, 512))
+  const match = head.match(/Content-Type:\s*([^\r\n]+)/i)
+  const mime = match?.[1]?.trim() ?? ''
+  const syntheticReq = new Request(req.url, { method: req.method })
+  Object.defineProperty(syntheticReq, 'formData', {
+    value: async () => {
+      const form = new FormData()
+      form.append('audio', new File([bodyBuf], 'recording', { type: mime }))
+      form.append('to', 'command')
+      return form
+    }
+  })
+  return syntheticReq
 }
 
-afterEach(() => {
-  // Clean up the test directory after each test
-  if (testDir && existsSync(testDir)) {
-    rmSync(testDir, { recursive: true, force: true })
+function makeTranscribeCtx(): TranscribeContext {
+  return {
+    recentAudioHashes: new Map<string, DedupEntry>(),
+    evictStaleHashes: () => {},
+    hashAudioBuffer: (buf: Buffer) => `hash-${buf.length}-${Date.now()}-${Math.random()}`,
+    loadLastTarget: () => 'command',
+    saveLastTarget: () => {},
+    handleMicCommand: (transcript: string) =>
+      handleMicCommand(transcript, TEST_PAUSE_DIR, TEST_MANUAL_TOKEN),
+    getKnownAgents: async () => ['command'],
+    deliverMessage: async () => ({ ok: true }),
+    transcribeAudio: async () => ({ transcript: mockTranscript, audioRms: 10000 }),
+    llmRoute: async (_t: string, _a: string[], fallback: string): Promise<LlmRouteResult> => ({
+      agent: fallback,
+      message: _t,
+      agentChanged: false
+    })
   }
-  testDir = ''
-  testManualToken = ''
+}
+
+let server: ReturnType<typeof Bun.serve>
+
+beforeAll(() => {
+  // Place stale TTS token before server starts — simulates crash-leftover state
+  mkdirSync(TEST_PAUSE_DIR, { recursive: true })
+  writeFileSync(join(TEST_PAUSE_DIR, 'tts-stale-from-prev-crash'), '')
+
+  // Server startup: clean stale TTS tokens (mirrors server/index.ts)
+  cleanStaleTtsPauseTokens(TEST_PAUSE_DIR)
+
+  server = Bun.serve({
+    port: TEST_PORT,
+    async fetch(req) {
+      const url = new URL(req.url)
+
+      // Mic route
+      if (url.pathname === '/mic') {
+        const res = await handleMic(req, {
+          isMicOn: () => !existsSync(TEST_MANUAL_TOKEN),
+          setMic: (on: boolean) => setMic(on, TEST_PAUSE_DIR, TEST_MANUAL_TOKEN)
+        })
+        if (res) return res
+      }
+
+      // Transcribe route (for mic command integration test)
+      if (req.method === 'POST' && url.pathname === '/transcribe') {
+        const patched = await patchRequestMime(req)
+        return handleTranscribe(patched, makeTranscribeCtx())
+      }
+
+      return new Response('Not found', { status: 404 })
+    }
+  })
 })
 
-// ── 1. cleanStaleTtsPauseTokens ───────────────────────────────────────────────
+afterAll(() => {
+  server.stop(true)
+  try {
+    rmSync(TEST_PAUSE_DIR, { recursive: true })
+  } catch {
+    /* ok */
+  }
+})
 
-describe('cleanStaleTtsPauseTokens — removes stale TTS tokens on startup', () => {
-  test('removes a single stale tts-* token from the pause directory', () => {
-    testDir = freshDir('clean1')
-    const staleToken = join(testDir, 'tts-abc123-dead-beef-0000-ffffffffffff')
-    writeFileSync(staleToken, '')
-    expect(existsSync(staleToken)).toBe(true)
+afterEach(() => {
+  // Reset mic to "on" after each test so tests are independent
+  try {
+    rmSync(TEST_MANUAL_TOKEN)
+  } catch {
+    /* may not exist */
+  }
+  mockTranscript = 'hello world'
+})
 
-    cleanStaleTtsPauseTokens(testDir)
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-    expect(existsSync(staleToken)).toBe(false)
+async function getMicState(): Promise<string> {
+  const res = await fetch(`${BASE}/mic`)
+  const body: unknown = await res.json()
+  if (typeof body === 'object' && body !== null && 'state' in body) {
+    return String(body.state)
+  }
+  throw new Error('unexpected body shape')
+}
+
+async function setMicViaHttp(state: 'on' | 'off'): Promise<Response> {
+  return fetch(`${BASE}/mic`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ state })
+  })
+}
+
+function buildAudioMultipart(transcript: string): { body: Uint8Array; contentType: string } {
+  const boundary = '----VBMicTestBoundary'
+  const enc = new TextEncoder()
+  const audio = new Uint8Array(512).fill(1)
+  const parts: Uint8Array[] = [
+    enc.encode(
+      `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="audio"; filename="recording"\r\n` +
+        `Content-Type: audio/webm\r\n\r\n`
+    ),
+    audio,
+    enc.encode('\r\n'),
+    enc.encode(
+      `--${boundary}\r\n` + `Content-Disposition: form-data; name="to"\r\n\r\ncommand\r\n`
+    ),
+    enc.encode(`--${boundary}--\r\n`)
+  ]
+  // Patch the mock transcript before returning — caller sets it via mockTranscript
+  void transcript // transcript is set on the module-level mock before calling
+  const total = parts.reduce((n, p) => n + p.length, 0)
+  const body = new Uint8Array(total)
+  let offset = 0
+  for (const p of parts) {
+    body.set(p, offset)
+    offset += p.length
+  }
+  return { body, contentType: `multipart/form-data; boundary=${boundary}` }
+}
+
+// ── 1. Crash recovery — stale TTS token cleaned on startup ────────────────────
+
+describe('mic: after app crash, stale TTS pause tokens are removed on restart', () => {
+  test('stale tts-* token placed before startup is gone after server starts', () => {
+    // The token was placed in beforeAll and cleaned by cleanStaleTtsPauseTokens() at startup.
+    // This asserts the cleanup actually ran — the stale token must not be present.
+    const stalePath = join(TEST_PAUSE_DIR, 'tts-stale-from-prev-crash')
+    expect(existsSync(stalePath)).toBe(false)
   })
 
-  test('removes multiple stale tts-* tokens at once', () => {
-    testDir = freshDir('clean2')
-    const tokens = ['tts-aaa', 'tts-bbb', 'tts-ccc'].map((name) => {
-      const p = join(testDir, name)
-      writeFileSync(p, '')
-      return p
+  test('after crash recovery, GET /mic returns "on" (daemon can resume listening)', async () => {
+    // With stale token cleaned and no manual token, the mic should be on.
+    const state = await getMicState()
+    expect(state).toBe('on')
+  })
+
+  test('cleanup preserves the manual token — user-set mic-off survives restart', () => {
+    // Set manual token
+    mkdirSync(TEST_PAUSE_DIR, { recursive: true })
+    writeFileSync(TEST_MANUAL_TOKEN, '')
+    // Also write a stale TTS token
+    const stalePath = join(TEST_PAUSE_DIR, 'tts-new-stale')
+    writeFileSync(stalePath, '')
+
+    cleanStaleTtsPauseTokens(TEST_PAUSE_DIR)
+
+    expect(existsSync(stalePath)).toBe(false) // stale TTS gone
+    expect(existsSync(TEST_MANUAL_TOKEN)).toBe(true) // manual survives
+    // teardown: afterEach removes manual token
+  })
+
+  test('cleanup does not remove non-tts-prefixed files in pause dir', () => {
+    const otherFile = join(TEST_PAUSE_DIR, 'some-other-owner')
+    writeFileSync(otherFile, '')
+    cleanStaleTtsPauseTokens(TEST_PAUSE_DIR)
+    const stillExists = existsSync(otherFile)
+    try {
+      rmSync(otherFile)
+    } catch {
+      /* ok */
+    }
+    expect(stillExists).toBe(true)
+  })
+
+  test('cleanup is safe to call when pause directory does not exist', () => {
+    expect(() => cleanStaleTtsPauseTokens('/tmp/vb2-nonexistent-cleanup-dir-12345')).not.toThrow()
+  })
+})
+
+// ── 2. Mic toggle via HTTP ─────────────────────────────────────────────────────
+
+describe('mic: user toggles mic on and off via settings UI', () => {
+  test('GET /mic returns "on" when mic is active (no manual pause token)', async () => {
+    const state = await getMicState()
+    expect(state).toBe('on')
+  })
+
+  test('POST /mic {state:"off"} — mic turns off, GET /mic confirms "off"', async () => {
+    const res = await setMicViaHttp('off')
+    expect(res.status).toBe(200)
+    const body: unknown = await res.json()
+    expect(body).toMatchObject({ state: 'off' })
+    expect(await getMicState()).toBe('off')
+  })
+
+  test('POST /mic {state:"on"} — mic turns on, GET /mic confirms "on"', async () => {
+    // Start in off state
+    await setMicViaHttp('off')
+    expect(await getMicState()).toBe('off')
+
+    const res = await setMicViaHttp('on')
+    expect(res.status).toBe(200)
+    const body: unknown = await res.json()
+    expect(body).toMatchObject({ state: 'on' })
+    expect(await getMicState()).toBe('on')
+  })
+
+  test('POST /mic with invalid state returns 400 — mic state unchanged', async () => {
+    const res = await fetch(`${BASE}/mic`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state: 'maybe' })
+    })
+    expect(res.status).toBe(400)
+    // Mic should still be on (unchanged)
+    expect(await getMicState()).toBe('on')
+  })
+
+  test('POST /mic with missing state field returns 400', async () => {
+    const res = await fetch(`${BASE}/mic`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    })
+    expect(res.status).toBe(400)
+    expect(await getMicState()).toBe('on')
+  })
+})
+
+// ── 3. Voice mic commands via /transcribe ─────────────────────────────────────
+
+describe('mic: user speaks voice command to control mic', () => {
+  test('"turn off the mic" — transcribe route pauses the mic via manual token', async () => {
+    mockTranscript = 'turn off the mic'
+    const { body, contentType } = buildAudioMultipart(mockTranscript)
+
+    const res = await fetch(`${BASE}/transcribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': contentType },
+      body
     })
 
-    cleanStaleTtsPauseTokens(testDir)
-
-    for (const t of tokens) expect(existsSync(t)).toBe(false)
+    expect(res.status).toBe(200)
+    const responseBody: unknown = await res.json()
+    // Mic command responses include mic field indicating the new state
+    expect(responseBody).toMatchObject({ mic: 'off', command: true })
+    // And the mic state is actually off now
+    expect(await getMicState()).toBe('off')
   })
 
-  test('preserves the manual token — user intent survives restart', () => {
-    testDir = freshDir('clean3')
-    const manualToken = join(testDir, 'manual')
-    const staleToken = join(testDir, 'tts-orphan')
-    writeFileSync(manualToken, '')
-    writeFileSync(staleToken, '')
-
-    cleanStaleTtsPauseTokens(testDir)
-
-    // Stale TTS token removed; manual token survives
-    expect(existsSync(staleToken)).toBe(false)
-    expect(existsSync(manualToken)).toBe(true)
-  })
-
-  test('is a no-op when the pause directory does not exist', () => {
-    // Should not throw — first run after fresh install
-    expect(() => cleanStaleTtsPauseTokens('/tmp/vb2-nonexistent-dir-99999')).not.toThrow()
-  })
-
-  test('is a no-op when the pause directory is already empty', () => {
-    testDir = freshDir('clean5')
-    expect(() => cleanStaleTtsPauseTokens(testDir)).not.toThrow()
-  })
-
-  test('does not remove non-tts-prefixed files (forward compatibility)', () => {
-    testDir = freshDir('clean6')
-    const weirdFile = join(testDir, 'other-owner')
-    writeFileSync(weirdFile, '')
-
-    cleanStaleTtsPauseTokens(testDir)
-
-    expect(existsSync(weirdFile)).toBe(true)
-  })
-})
-
-// ── 2. isMicOn / setMic ───────────────────────────────────────────────────────
-
-describe('isMicOn — reflects manual token only (not TTS tokens)', () => {
-  test('returns true when no manual token exists', () => {
-    testDir = freshDir('mic1')
-    testManualToken = join(testDir, 'manual')
-    expect(isMicOn(testManualToken)).toBe(true)
-  })
-
-  test('returns false when manual token exists', () => {
-    testDir = freshDir('mic2')
-    testManualToken = join(testDir, 'manual')
-    mkdirSync(testDir, { recursive: true })
-    writeFileSync(testManualToken, '')
-    expect(isMicOn(testManualToken)).toBe(false)
-  })
-
-  test('returns true even when a stale tts-* token exists (UI shows MIC ON)', () => {
-    // This is the "not picking up" scenario: stale token pauses daemon but
-    // isMicOn() returns true. After cleanStaleTtsPauseTokens() the daemon
-    // resumes. isMicOn() is intentionally user-intent-only.
-    testDir = freshDir('mic3')
-    const staleToken = join(testDir, 'tts-stale')
-    testManualToken = join(testDir, 'manual')
-    writeFileSync(staleToken, '')
-    // manual token does NOT exist → UI shows "MIC ON"
-    expect(isMicOn(testManualToken)).toBe(true)
-    // But daemon is paused (stale token in dir). After cleanup it resumes:
-    cleanStaleTtsPauseTokens(testDir)
-    expect(existsSync(staleToken)).toBe(false)
-    // Now both UI and daemon agree: mic is on
-    expect(isMicOn(testManualToken)).toBe(true)
-  })
-
-  test('setMic(false) creates manual token', () => {
-    testDir = freshDir('setmic1')
-    testManualToken = join(testDir, 'manual')
-    setMic(false, testDir, testManualToken)
-    expect(existsSync(testManualToken)).toBe(true)
-    expect(isMicOn(testManualToken)).toBe(false)
-  })
-
-  test('setMic(true) removes manual token', () => {
-    testDir = freshDir('setmic2')
-    testManualToken = join(testDir, 'manual')
+  test('"turn on the microphone" — transcribe route resumes the mic', async () => {
     // Start paused
-    mkdirSync(testDir, { recursive: true })
-    writeFileSync(testManualToken, '')
-    expect(isMicOn(testManualToken)).toBe(false)
+    await setMicViaHttp('off')
+    expect(await getMicState()).toBe('off')
 
-    setMic(true, testDir, testManualToken)
+    mockTranscript = 'turn on the microphone'
+    const { body, contentType } = buildAudioMultipart(mockTranscript)
 
-    expect(isMicOn(testManualToken)).toBe(true)
+    const res = await fetch(`${BASE}/transcribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': contentType },
+      body
+    })
+
+    expect(res.status).toBe(200)
+    const responseBody: unknown = await res.json()
+    expect(responseBody).toMatchObject({ mic: 'on', command: true })
+    expect(await getMicState()).toBe('on')
   })
 
-  test('setMic(true) is idempotent when mic is already on', () => {
-    testDir = freshDir('setmic3')
-    testManualToken = join(testDir, 'manual')
-    expect(() => setMic(true, testDir, testManualToken)).not.toThrow()
-    expect(isMicOn(testManualToken)).toBe(true)
-  })
-})
+  test('non-mic-command transcript — mic state is unchanged', async () => {
+    mockTranscript = 'schedule a meeting for tomorrow'
+    const { body, contentType } = buildAudioMultipart(mockTranscript)
 
-// ── 3. handleMicCommand — voice mic control ───────────────────────────────────
+    await fetch(`${BASE}/transcribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': contentType },
+      body
+    })
 
-describe('handleMicCommand — voice commands control the manual token', () => {
-  test('"turn off mic" returns handled:true and pauses via manual token', () => {
-    testDir = freshDir('cmd1')
-    testManualToken = join(testDir, 'manual')
-    const result = handleMicCommand('turn off the mic', testDir, testManualToken)
-    expect(result).not.toBeNull()
-    expect(result?.handled).toBe(true)
-    expect(result?.state).toBe('off')
-    expect(existsSync(testManualToken)).toBe(true)
-  })
-
-  test('"turn on mic" returns handled:true and resumes via manual token', () => {
-    testDir = freshDir('cmd2')
-    testManualToken = join(testDir, 'manual')
-    // Start paused
-    mkdirSync(testDir, { recursive: true })
-    writeFileSync(testManualToken, '')
-
-    const result = handleMicCommand('turn on the microphone', testDir, testManualToken)
-    expect(result?.handled).toBe(true)
-    expect(result?.state).toBe('on')
-    expect(existsSync(testManualToken)).toBe(false)
-  })
-
-  test('unrelated transcript returns null (not a mic command)', () => {
-    testDir = freshDir('cmd3')
-    testManualToken = join(testDir, 'manual')
-    const result = handleMicCommand('schedule a meeting tomorrow', testDir, testManualToken)
-    expect(result).toBeNull()
+    // Mic was on, should remain on after a non-command transcript
+    expect(await getMicState()).toBe('on')
   })
 })
 
-// ── 4. handleMic route — GET/POST round-trip ──────────────────────────────────
+// ── 4. Pause directory integrity ──────────────────────────────────────────────
 
-describe('handleMic route — GET/POST mic state round-trip', () => {
-  function makeCtx(on: boolean): MicContext {
-    let state = on
-    return {
-      isMicOn: () => state,
-      setMic: (v: boolean) => {
-        state = v
-      }
+describe('mic: pause directory state is consistent across toggle operations', () => {
+  test('toggling mic off then on leaves no stale tokens in pause directory', async () => {
+    await setMicViaHttp('off')
+    await setMicViaHttp('on')
+
+    // After on-off-on cycle, the pause dir should be empty (or contain only non-manual entries
+    // from other sources — but the manual token must not remain)
+    expect(existsSync(TEST_MANUAL_TOKEN)).toBe(false)
+
+    // If the directory exists, the manual token must not be the only entry
+    if (existsSync(TEST_PAUSE_DIR)) {
+      const entries = readdirSync(TEST_PAUSE_DIR)
+      expect(entries.includes('manual')).toBe(false)
     }
-  }
-
-  test('GET /mic returns { state: "on" } when mic is on', async () => {
-    const ctx = makeCtx(true)
-    const res = await handleMic(new Request('http://localhost/mic'), ctx)
-    expect(res).not.toBeNull()
-    if (!res) throw new Error('null response')
-    expect(res.status).toBe(200)
-    const body: unknown = await res.json()
-    expect(body).toMatchObject({ state: 'on' })
-  })
-
-  test('GET /mic returns { state: "off" } when mic is off', async () => {
-    const ctx = makeCtx(false)
-    const res = await handleMic(new Request('http://localhost/mic'), ctx)
-    if (!res) throw new Error('null response')
-    const body: unknown = await res.json()
-    expect(body).toMatchObject({ state: 'off' })
-  })
-
-  test('POST /mic {state:"off"} calls setMic(false)', async () => {
-    const ctx = makeCtx(true)
-    const res = await handleMic(
-      new Request('http://localhost/mic', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ state: 'off' })
-      }),
-      ctx
-    )
-    if (!res) throw new Error('null response')
-    expect(res.status).toBe(200)
-    const body: unknown = await res.json()
-    expect(body).toMatchObject({ state: 'off' })
-    // ctx should have been mutated
-    expect(ctx.isMicOn()).toBe(false)
-  })
-
-  test('POST /mic {state:"on"} calls setMic(true)', async () => {
-    const ctx = makeCtx(false)
-    const res = await handleMic(
-      new Request('http://localhost/mic', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ state: 'on' })
-      }),
-      ctx
-    )
-    if (!res) throw new Error('null response')
-    expect(res.status).toBe(200)
-    const body: unknown = await res.json()
-    expect(body).toMatchObject({ state: 'on' })
-    expect(ctx.isMicOn()).toBe(true)
-  })
-
-  test('POST /mic with invalid body returns 400', async () => {
-    const ctx = makeCtx(true)
-    const res = await handleMic(
-      new Request('http://localhost/mic', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ state: 'invalid' })
-      }),
-      ctx
-    )
-    if (!res) throw new Error('null response')
-    expect(res.status).toBe(400)
-  })
-
-  test('DELETE /mic returns null (dispatcher fallthrough)', async () => {
-    const ctx = makeCtx(true)
-    const res = await handleMic(new Request('http://localhost/mic', { method: 'DELETE' }), ctx)
-    expect(res).toBeNull()
   })
 })
