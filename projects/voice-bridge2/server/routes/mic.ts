@@ -16,7 +16,8 @@
  */
 
 import { z } from 'zod'
-import { existsSync, unlinkSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, unlinkSync, mkdirSync, writeFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { MIC_PAUSE_DIR } from '../config.ts'
 import { parseJsonBody } from './validation.ts'
 import { logger } from '../logger.ts'
@@ -28,6 +29,39 @@ import { logger } from '../logger.ts'
 // clear the user's explicit mic-off — their tokens are independent.
 
 const DEFAULT_MANUAL_TOKEN = `${MIC_PAUSE_DIR}/manual`
+
+/**
+ * Removes stale TTS pause tokens (tts-* files) from the pause directory.
+ *
+ * TTS tokens are transient — they are created by `createTtsPauseGuard().acquire()`
+ * and removed by `.release()`. If the app crashes between acquire() and release(),
+ * the token is never cleaned up. The daemon treats ANY file in MIC_PAUSE_DIR as a
+ * pause signal, so stale tokens silently prevent voice pickup even when the UI shows
+ * "MIC ON". Call this once on server startup to recover from crash-leftover tokens.
+ *
+ * Only removes files whose names start with "tts-". The "manual" token (user-set
+ * mic-off) is intentionally preserved across restarts.
+ *
+ * @param pauseDir  Directory to scan (injectable for tests; defaults to MIC_PAUSE_DIR).
+ */
+export function cleanStaleTtsPauseTokens(pauseDir: string = MIC_PAUSE_DIR): void {
+  if (!existsSync(pauseDir)) return
+  let entries: string[]
+  try {
+    entries = readdirSync(pauseDir)
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    if (!entry.startsWith('tts-')) continue
+    try {
+      unlinkSync(join(pauseDir, entry))
+      logger.info('mic', 'stale_tts_token_removed', { token: entry })
+    } catch {
+      /* token may have already been removed */
+    }
+  }
+}
 
 /**
  * Returns true when the manual pause token does not exist (mic is active).

@@ -27,7 +27,14 @@ import { handleTranscribe, type TranscribeContext } from './routes/transcribe.ts
 import { type DedupEntry, hashAudioBuffer, evictStaleHashes } from './routes/dedup.ts'
 import { createWakeWordOsContext } from './wakeWordController.ts'
 import { handleMessages, type MessagesContext } from './routes/messages.ts'
-import { handleMic, isMicOn, setMic, handleMicCommand, type MicContext } from './routes/mic.ts'
+import {
+  handleMic,
+  isMicOn,
+  setMic,
+  handleMicCommand,
+  cleanStaleTtsPauseTokens,
+  type MicContext
+} from './routes/mic.ts'
 import { handleStatus, type StatusContext } from './routes/status.ts'
 import {
   handleTarget,
@@ -215,6 +222,11 @@ const server = Bun.serve({
     return new Response('Not found', { status: 404 })
   }
 })
+
+// Clean up stale TTS pause tokens left by a previous crash. Must run before the
+// relay poller or any TTS cycle can create new tokens, so the daemon starts with
+// a clean slate and voice pickup works immediately.
+cleanStaleTtsPauseTokens()
 
 logger.info('server', 'listening', { port: server.port, url: `http://localhost:${server.port}` })
 logger.info('server', 'mobile_ui_note', {
