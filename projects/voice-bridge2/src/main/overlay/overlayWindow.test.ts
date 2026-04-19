@@ -3,15 +3,17 @@ import { EventEmitter } from 'node:events'
 import {
   overlayBoundsForMode,
   createOverlayManager,
+  createToastManager,
   type OverlayWindowLike,
-  type OverlayManagerConfig
+  type OverlayManagerConfig,
+  type ToastManagerConfig
 } from './overlayWindow.ts'
 import type { OverlayPayload } from '../typeGuards.ts'
 
 describe('overlayBoundsForMode', () => {
-  test('message mode is right-anchored with 480x80', () => {
+  test('message mode falls through to default 360x52 (toast window is positioned by its factory)', () => {
     const b = overlayBoundsForMode('message', 1920)
-    expect(b).toEqual({ x: 1920 - 480 - 18, y: 30, width: 480, height: 80 })
+    expect(b).toEqual({ x: 18, y: 30, width: 360, height: 52 })
   })
   test('recording mode is left-anchored 420x54', () => {
     expect(overlayBoundsForMode('recording', 1920)).toEqual({
@@ -161,15 +163,110 @@ describe('createOverlayManager.show', () => {
     expect(h.windows).toHaveLength(2)
   })
 
-  test('bounds match overlayBoundsForMode with injected screen width', () => {
+  test('bounds match overlayBoundsForMode with injected screen width (recording mode)', () => {
+    // In production, 'message' mode is routed to createToastManager (separate window).
+    // createOverlayManager handles recording/status only; test with recording here.
     const h = makeHarness()
     h.cfg.getScreenWidth = () => 1440
     const mgr = createOverlayManager(h.cfg)
-    mgr.show({ mode: 'message', text: 'x' })
+    mgr.show({ mode: 'recording', text: 'x' })
     const w = h.windows[0]
     if (!w) throw new Error('no window')
     w.webContents.triggerFinishLoad()
     const setBoundsCall = w.calls.find((c) => c.name === 'setBounds')
-    expect(setBoundsCall?.args).toEqual({ x: 1440 - 480 - 18, y: 30, width: 480, height: 80 })
+    expect(setBoundsCall?.args).toEqual({ x: 18, y: 30, width: 420, height: 54 })
+  })
+})
+
+describe('createOverlayManager.prewarm', () => {
+  test('prewarm creates the window without showing it', () => {
+    const h = makeHarness()
+    const mgr = createOverlayManager(h.cfg)
+    mgr.prewarm()
+    expect(h.windows).toHaveLength(1)
+    const w = h.windows[0]
+    if (!w) throw new Error('no window')
+    expect(w.visible).toBe(false)
+    expect(w.webContents.sends).toHaveLength(0)
+  })
+
+  test('show after prewarm+load uses direct path (no extra window created)', () => {
+    const h = makeHarness()
+    const mgr = createOverlayManager(h.cfg)
+    mgr.prewarm()
+    const w = h.windows[0]
+    if (!w) throw new Error('no window')
+    w.webContents.triggerFinishLoad() // simulate page ready
+    w.calls.length = 0
+
+    const payload: OverlayPayload = { mode: 'recording', text: 'atlas' }
+    mgr.show(payload)
+    expect(h.windows).toHaveLength(1) // no new window
+    expect(w.calls.some((c) => c.name === 'setBounds')).toBe(true)
+    expect(w.visible).toBe(true)
+    expect(w.webContents.sends).toEqual([{ channel: 'overlay-show', payload }])
+  })
+
+  test('show before load completes (prewarm then show before did-finish-load) queues correctly', () => {
+    const h = makeHarness()
+    const mgr = createOverlayManager(h.cfg)
+    mgr.prewarm()
+    const w = h.windows[0]
+    if (!w) throw new Error('no window')
+
+    const payload: OverlayPayload = { mode: 'recording', text: 'atlas' }
+    mgr.show(payload) // called before load
+    expect(w.webContents.sends).toHaveLength(0) // not yet sent
+
+    w.webContents.triggerFinishLoad()
+    // prewarm's listener sets loaded=true, show's listener fires setBounds+show+send
+    expect(w.visible).toBe(true)
+    expect(w.webContents.sends).toEqual([{ channel: 'overlay-show', payload }])
+  })
+
+  test('prewarm is idempotent — second call reuses existing window', () => {
+    const h = makeHarness()
+    const mgr = createOverlayManager(h.cfg)
+    mgr.prewarm()
+    mgr.prewarm()
+    expect(h.windows).toHaveLength(1)
+  })
+})
+
+describe('createToastManager.prewarm', () => {
+  function makeToastHarness(): { cfg: ToastManagerConfig; windows: FakeOverlayWindow[] } {
+    const windows: FakeOverlayWindow[] = []
+    const cfg: ToastManagerConfig = {
+      createWindow: () => {
+        const w = new FakeOverlayWindow()
+        windows.push(w)
+        return w
+      }
+    }
+    return { cfg, windows }
+  }
+
+  test('prewarm creates toast window without showing it', () => {
+    const h = makeToastHarness()
+    const mgr = createToastManager(h.cfg)
+    mgr.prewarm()
+    expect(h.windows).toHaveLength(1)
+    expect(h.windows[0]?.visible).toBe(false)
+    expect(h.windows[0]?.webContents.sends).toHaveLength(0)
+  })
+
+  test('show after prewarm+load sends to existing window', () => {
+    const h = makeToastHarness()
+    const mgr = createToastManager(h.cfg)
+    mgr.prewarm()
+    const w = h.windows[0]
+    if (!w) throw new Error('no window')
+    w.webContents.triggerFinishLoad()
+
+    const payload: OverlayPayload = { mode: 'message', text: 'atlas:hello' }
+    mgr.show(payload)
+    expect(h.windows).toHaveLength(1) // no new window created during "recording"
+    expect(w.visible).toBe(true)
+    expect(w.webContents.sends).toEqual([{ channel: 'overlay-show', payload }])
   })
 })

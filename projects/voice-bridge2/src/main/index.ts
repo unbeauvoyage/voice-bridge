@@ -5,8 +5,11 @@ import { createTargetStore } from './state/targetStore'
 import { createDaemonController } from './processes/daemon'
 import { createBackendServerController } from './processes/backendServer'
 import { createOverlayServerController } from './overlay/overlayServer'
-import { createOverlayManager } from './overlay/overlayWindow'
-import { createOverlayBrowserWindow } from './overlay/overlayBrowserWindow'
+import { createOverlayManager, createToastManager } from './overlay/overlayWindow'
+import {
+  createOverlayBrowserWindow,
+  createToastBrowserWindow
+} from './overlay/overlayBrowserWindow'
 import { createMainWindowManager } from './windows/mainWindow'
 import { createMainBrowserWindow } from './windows/mainBrowserWindow'
 import { registerIpcHandlers } from './ipc'
@@ -98,9 +101,18 @@ function buildMenu(): Electron.Menu {
 
 // ── Overlay ───────────────────────────────────────────────────────────────────
 
+// Recording/status overlay — left side, small pill, repositions between recording and status modes.
 const overlayManager = createOverlayManager({
   getScreenWidth: () => screen.getPrimaryDisplay().workAreaSize.width,
   createWindow: () => createOverlayBrowserWindow(__dirname)
+})
+
+// Message toast overlay — RIGHT side, separate window that never moves.
+// Keeping this independent means incoming relay messages don't reposition
+// the recording pill (the original bug: one shared window moved right on message).
+const toastManager = createToastManager({
+  createWindow: () =>
+    createToastBrowserWindow(__dirname, screen.getPrimaryDisplay().workAreaSize.width)
 })
 
 function showOverlay(payload: OverlayPayload): void {
@@ -109,7 +121,11 @@ function showOverlay(payload: OverlayPayload): void {
   // recording; if that overlay called setRecordingState it would flip the tray back
   // to green, lying about mic state. Recording state is driven exclusively by
   // daemon stdout JSON events in onStateChange above.
-  overlayManager.show(payload)
+  if (payload.mode === 'message') {
+    toastManager.show(payload)
+  } else {
+    overlayManager.show(payload)
+  }
 }
 
 // ── IPC handlers ─────────────────────────────────────────────────────────────
@@ -158,6 +174,12 @@ app.whenReady().then(() => {
     normalIcon,
     recordingIcon
   })
+
+  // Pre-warm both overlay windows now, before any recording starts.
+  // Creating a new BrowserWindow while recording was active caused macOS window-manager
+  // cascading that repositioned the recording overlay and could disrupt the audio session.
+  overlayManager.prewarm()
+  toastManager.prewarm()
 
   overlayServerController.start()
   backendServerController.start()
