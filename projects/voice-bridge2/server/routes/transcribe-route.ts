@@ -28,6 +28,7 @@ export interface RouteTranscriptOptions {
     knownAgents: string[],
     fallbackAgent: string
   ) => Promise<LlmRouteResult>
+  loadLastTarget: () => string
   saveLastTarget: (target: string) => void
 }
 
@@ -44,7 +45,7 @@ export interface RouteTranscriptResult {
 export async function routeTranscript(
   opts: RouteTranscriptOptions
 ): Promise<RouteTranscriptResult> {
-  const { transcript, explicitTo, getKnownAgents, llmRoute, saveLastTarget } = opts
+  const { transcript, explicitTo, getKnownAgents, llmRoute, loadLastTarget, saveLastTarget } = opts
 
   const words = transcript.trimStart().split(/\s+/)
   const pleaseIndex = words.slice(0, 7).findIndex((w) => /^please$/i.test(w))
@@ -68,7 +69,7 @@ export async function routeTranscript(
         'please_gate'
       )
       const llmResult = await llmRoute(routingPart, await getKnownAgents(), '')
-      const fallback = explicitTo || 'command'
+      const fallback = explicitTo || loadLastTarget()
       const to = llmResult.agent || fallback
       const message = messagePart || transcript
       if (llmResult.agentChanged) {
@@ -84,7 +85,7 @@ export async function routeTranscript(
       // Pass the full transcript to llmRoute — it extracts the agent fragment internally.
       logger.info({ component: 'route', transcript }, 'direct_address_gate')
       const llmResult = await llmRoute(transcript, await getKnownAgents(), '')
-      const fallback = explicitTo || 'command'
+      const fallback = explicitTo || loadLastTarget()
       const to = llmResult.agent || fallback
       const message = llmResult.message || transcript
       if (llmResult.agentChanged) {
@@ -105,7 +106,10 @@ export async function routeTranscript(
     return { to: explicitTo, message: transcript }
   }
 
-  // Case 3: No addressing signal, no explicit `to` — deliver to "command".
-  logger.info({ component: 'route', transcript }, 'routed_command_direct')
-  return { to: 'command', message: transcript }
+  // Case 3: No addressing signal, no explicit `to` — use the persisted last target.
+  // This handles the common case where the UI dropdown hasn't loaded yet (iOS timing)
+  // or localStorage was cleared. loadLastTarget() itself falls back to 'command'.
+  const lastTarget = loadLastTarget()
+  logger.info({ component: 'route', to: lastTarget, transcript }, 'routed_last_target')
+  return { to: lastTarget, message: transcript }
 }

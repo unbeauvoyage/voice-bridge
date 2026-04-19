@@ -110,10 +110,9 @@ def send_to_server(wav_bytes: bytes, server_url: str, target: str) -> None:
         res = requests.post(
             f"{server_url}/transcribe",
             files={"audio": ("recording.wav", wav_bytes, "audio/wav")},
-            data={"to": target},
-            # 150s: whisper.cpp medium model on CPU takes 60-90s for long recordings.
-            # The previous 30s value caused systematic timeout failures, silently
-            # discarding voice commands. 150s gives 2× headroom over the worst case.
+            # No `to` field — server uses its persisted last-target so voice routing
+            # ("to productivitesse please...") sticks across subsequent requests.
+            # Sending a hardcoded startup target here overwrote the sticky every time.
             timeout=150,
         )
         if res.ok:
