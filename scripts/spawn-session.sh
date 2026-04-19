@@ -86,7 +86,7 @@ echo "  UUID:      $UUID"
 echo "  SessionID: $SESSION_ID"
 echo ""
 
-# --- Duplicate Prevention (Level 1) ---
+# --- Duplicate Prevention ---
 # Check workspace
 EXISTING=$(cmux list-workspaces 2>/dev/null | grep -w "$NAME" | head -1 || true)
 if [ -n "$EXISTING" ]; then
@@ -95,28 +95,9 @@ if [ -n "$EXISTING" ]; then
   exit 1
 fi
 
-# Check http-plugin port file (new architecture — port file = presence)
-PORT_FILE="$HOME/.claude/relay-channel/${NAME}.port"
-if [ -f "$PORT_FILE" ]; then
-  PLUGIN_PORT=$(python3 -c "import json; d=json.load(open('$PORT_FILE')); print(d.get('port',''))" 2>/dev/null)
-  if [ -n "$PLUGIN_PORT" ]; then
-    HEALTH=$(curl -s --max-time 2 "http://127.0.0.1:${PLUGIN_PORT}/health" 2>/dev/null || true)
-    if echo "$HEALTH" | grep -q "alive"; then
-      echo "ERROR: Agent '$NAME' already has a live HTTP plugin on port $PLUGIN_PORT."
-      echo "  Kill the existing session first, or pick a different name."
-      exit 1
-    else
-      echo "WARNING: Stale port file for '$NAME' (port $PLUGIN_PORT dead). Removing..."
-      rm -f "$PORT_FILE"
-    fi
-  fi
-fi
-
-# --- Duplicate Prevention (Level 2) ---
 # Kill any existing Claude sessions with the same --name before launching.
-# This is structural: one name = one session, enforced at spawn time.
-# Stopped (T state) and active sessions alike are terminated so their
-# channel plugins can't fight over the WebSocket slot.
+# One name = one session, enforced at spawn time.
+# The plugin handles its own PID-file stale-kill on startup.
 EXISTING_CLAUDE_PIDS=$(ps aux | grep -- "--name $NAME" | grep -v grep | awk '{print $2}')
 if [ -n "$EXISTING_CLAUDE_PIDS" ]; then
   echo "WARNING: Existing Claude session(s) for '$NAME' detected. Terminating before spawn..."
@@ -126,10 +107,6 @@ if [ -n "$EXISTING_CLAUDE_PIDS" ]; then
   done
   sleep 2  # Wait for child processes (bun plugins) to die
 fi
-
-# Clean up any stale port files for this agent (http-plugin architecture)
-# The old /tmp/relay-channel-*.pid files are no longer used; port files are in ~/.claude/relay-channel/
-rm -f "/tmp/relay-channel-${NAME}.pid" 2>/dev/null || true
 
 # Ensure agent definition is accessible from session's CWD
 # Claude Code resolves --agent relative to the session's working directory
