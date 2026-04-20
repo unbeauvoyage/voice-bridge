@@ -2,37 +2,59 @@
 # spawn-session.sh — Universal session launcher
 # Ensures: agent type loaded, three names aligned, channel plugin, remote-control, bypass permissions
 #
-# Usage: spawn-session.sh <type> <name> [cwd] [model] [uuid]
+# Usage: spawn-session.sh <name> [type] [cwd] [model] [--resume]
 #
 # Arguments:
-#   type  — agent definition name (e.g. project-manager, team-lead, system-lead)
-#   name  — instance name (e.g. command, atlas, productivitesse, matrix)
+#   name  — instance name (e.g. command, atlas, productivitesse, matrix) [REQUIRED]
+#   type  — agent definition name (default: team-lead). E.g. project-manager, system-lead, ux-lead
 #   cwd   — working directory (default: ~/environment)
 #   model — model override (default: from agent def). Use "haiku", "sonnet", "opus"
-#   uuid  — session UUID to resume (default: generate new)
+#   --resume — resume existing session (optional, can appear anywhere after name)
 #
 # Examples:
-#   spawn-session.sh project-manager command                              # PM named "command", default model
-#   spawn-session.sh project-manager atlas ~/environment haiku            # Haiku PM named "atlas"
-#   spawn-session.sh project-manager command ~/environment sonnet         # Sonnet PM (chief of staff)
-#   spawn-session.sh team-lead productivitesse ~/environment/projects/productivitesse
-#   spawn-session.sh system-lead matrix ~/environment sonnet
-#   spawn-session.sh team-lead voice-bridge ~/environment/projects/voice-bridge sonnet $UUID
+#   spawn-session.sh command                                    # Team-lead named "command"
+#   spawn-session.sh command project-manager                    # PM named "command"
+#   spawn-session.sh atlas project-manager ~/environment haiku  # Haiku PM named "atlas"
+#   spawn-session.sh productivitesse team-lead ~/environment/projects/productivitesse
+#   spawn-session.sh command --resume                           # Resume existing "command" session
+#   spawn-session.sh command project-manager --resume
 
 set -e
 
-TYPE=$1
-NAME=$2
-CWD=${3:-~/environment}
-MODEL=$4
-UUID=${5:-$(python3 -c "import uuid; print(uuid.uuid4())")}
+NAME=$1
+TYPE=${2:-team-lead}
+RESUME_FLAG=""
+CWD=~/environment
+MODEL=""
 
-if [ -z "$TYPE" ] || [ -z "$NAME" ]; then
-  echo "Usage: spawn-session.sh <type> <name> [cwd] [model] [uuid]"
+# Parse remaining arguments (cwd, model, --resume)
+shift 2 2>/dev/null || shift || true
+for arg in "$@"; do
+  if [ "$arg" = "--resume" ]; then
+    RESUME_FLAG="--resume"
+  elif [ -z "$CWD" ] || [[ "$CWD" == "~/environment" ]] && [[ "$arg" == /* ]] || [[ "$arg" == ~* ]]; then
+    # First path-like arg becomes cwd
+    CWD="$arg"
+  elif [ -z "$MODEL" ] && { [ "$arg" = "haiku" ] || [ "$arg" = "sonnet" ] || [ "$arg" = "opus" ]; }; then
+    MODEL="$arg"
+  fi
+done
+
+if [ -z "$NAME" ]; then
+  echo "Usage: spawn-session.sh <name> [type] [cwd] [model] [--resume]"
   echo ""
-  echo "Types: project-manager, team-lead, system-lead, ux-lead, agency-lead, etc."
-  echo "Name:  instance name (command, atlas, productivitesse, matrix, etc.)"
-  echo "Model: haiku, sonnet, opus (optional — defaults to agent def)"
+  echo "Arguments:"
+  echo "  name  — instance name (command, atlas, productivitesse, matrix, etc.) [REQUIRED]"
+  echo "  type  — agent type (default: team-lead)"
+  echo "          E.g. project-manager, system-lead, ux-lead, agency-lead"
+  echo "  cwd   — working directory (default: ~/environment)"
+  echo "  model — haiku, sonnet, opus (optional)"
+  echo "  --resume — resume existing session"
+  echo ""
+  echo "Examples:"
+  echo "  spawn-session.sh command"
+  echo "  spawn-session.sh command project-manager"
+  echo "  spawn-session.sh atlas project-manager ~/environment haiku"
   exit 1
 fi
 
@@ -54,6 +76,9 @@ if [ -n "$CALLER" ]; then
   fi
 fi
 
+# Generate UUID (for --resume flag, allows resuming a previous session)
+UUID=$(python3 -c "import uuid; print(uuid.uuid4())")
+
 # Expand ~ in CWD
 CWD=$(eval echo "$CWD")
 
@@ -74,16 +99,12 @@ if [ -n "$MODEL" ]; then
   MODEL_FLAG="--model $MODEL"
 fi
 
-# Generate a unique session ID for this launch
-SESSION_ID=$(python3 -c "import uuid; print(uuid.uuid4())")
-
-echo "=== Launching Session ==="
-echo "  Type:      $TYPE"
-echo "  Name:      $NAME"
-echo "  CWD:       $CWD"
-echo "  Model:     ${MODEL:-from agent def}"
-echo "  UUID:      $UUID"
-echo "  SessionID: $SESSION_ID"
+echo "=== Spawning Session ==="
+echo "  Name:  $NAME"
+echo "  Type:  $TYPE"
+echo "  CWD:   $CWD"
+echo "  Model: ${MODEL:-from agent def}"
+echo "  UUID:  $UUID"
 echo ""
 
 # --- Duplicate Prevention ---
@@ -125,7 +146,7 @@ fi
 
 # Launch in cmux workspace
 WS=$(cmux new-workspace --cwd "$CWD" \
-  --command "RELAY_AGENT_NAME=$NAME RELAY_SESSION_ID=$SESSION_ID claude --agent $TYPE $MODEL_FLAG --dangerously-load-development-channels plugin:relay-channel@relay-plugins --permission-mode bypassPermissions --resume $UUID --name $NAME --remote-control" \
+  --command "RELAY_AGENT_NAME=$NAME claude --agent $TYPE $MODEL_FLAG --dangerously-load-development-channels plugin:relay-channel@relay-plugins --permission-mode bypassPermissions $RESUME_FLAG $UUID --name $NAME --remote-control" \
   2>/dev/null | sed 's/OK //')
 
 # Rename workspace to match instance name
@@ -139,12 +160,10 @@ sleep 5
 cmux send --workspace "$WS" "1" 2>/dev/null && cmux send-key --workspace "$WS" Enter 2>/dev/null
 
 echo ""
-echo "=== Session '$NAME' launched ==="
-echo "  Relay:     RELAY_AGENT_NAME=$NAME"
-echo "  Session:   --name $NAME"
+echo "=== Session '$NAME' started ==="
+echo "  RELAY_AGENT_NAME=$NAME"
+echo "  --name $NAME"
 echo "  Workspace: $NAME"
-echo "  UUID:      $UUID"
-echo "  SessionID: $SESSION_ID"
+echo "  UUID: $UUID"
 echo ""
-echo "All three names aligned. Channel approval sent."
-echo "Session ID passed to channel plugin via RELAY_SESSION_ID env var."
+echo "Channel approval sent automatically."
