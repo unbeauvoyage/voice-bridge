@@ -120,13 +120,8 @@ if [ -n "$EXISTING_CLAUDE_PIDS" ]; then
   sleep 1  # Wait for child processes (bun plugins) to die
 fi
 
-# If workspace still exists after killing the session, delete it and recreate fresh
+# Check if workspace already exists
 EXISTING=$(cmux list-workspaces 2>/dev/null | grep -w "$NAME" | head -1 || true)
-if [ -n "$EXISTING" ]; then
-  echo "Cleaning up existing workspace..."
-  cmux kill-workspace --workspace "$NAME" 2>/dev/null || true
-  sleep 1
-fi
 
 # Ensure agent definition is accessible from session's CWD
 # Claude Code resolves --agent relative to the session's working directory
@@ -143,20 +138,34 @@ if [ ! -f "$PROJECT_AGENT_FILE" ]; then
   fi
 fi
 
-# Launch in cmux workspace
-WS=$(cmux new-workspace --cwd "$CWD" \
-  --command "RELAY_AGENT_NAME=$NAME claude --agent $TYPE $MODEL_FLAG --dangerously-load-development-channels plugin:relay-channel@relay-plugins --permission-mode bypassPermissions $RESUME_FLAG $UUID --name $NAME --remote-control" \
-  2>/dev/null | sed 's/OK //')
+# Build the Claude command
+CLAUDE_CMD="RELAY_AGENT_NAME=$NAME claude --agent $TYPE $MODEL_FLAG --dangerously-load-development-channels plugin:relay-channel@relay-plugins --permission-mode bypassPermissions $RESUME_FLAG $UUID --name $NAME --remote-control"
 
-# Rename workspace to match instance name
-cmux rename-workspace --workspace "$WS" "$NAME" 2>/dev/null
+if [ -n "$EXISTING" ]; then
+  # Workspace already exists — reuse it
+  WS=$(echo "$EXISTING" | awk '{print $1}')
+  echo "  Reusing existing workspace: $NAME"
 
-echo "  Workspace: $WS (renamed to $NAME)"
+  # Kill old Claude process, then send new command to same workspace
+  cmux send-key --workspace "$WS" C-c 2>/dev/null || true
+  sleep 1
+  cmux send --workspace "$WS" "$CLAUDE_CMD" Enter 2>/dev/null
+  sleep 3
+  cmux send --workspace "$WS" "1" 2>/dev/null && cmux send-key --workspace "$WS" Enter 2>/dev/null
+else
+  # Create new workspace
+  WS=$(cmux new-workspace --cwd "$CWD" \
+    --command "$CLAUDE_CMD" \
+    2>/dev/null | sed 's/OK //')
 
-# Auto-approve the "local development" channel prompt
-# Wait for Claude to start and show the prompt
-sleep 5
-cmux send --workspace "$WS" "1" 2>/dev/null && cmux send-key --workspace "$WS" Enter 2>/dev/null
+  # Rename workspace to match instance name
+  cmux rename-workspace --workspace "$WS" "$NAME" 2>/dev/null
+  echo "  Workspace: $WS (renamed to $NAME)"
+
+  # Auto-approve the "local development" channel prompt
+  sleep 5
+  cmux send --workspace "$WS" "1" 2>/dev/null && cmux send-key --workspace "$WS" Enter 2>/dev/null
+fi
 
 echo ""
 echo "=== Session '$NAME' started ==="
