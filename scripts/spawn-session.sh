@@ -107,26 +107,25 @@ echo "  Model: ${MODEL:-from agent def}"
 echo "  UUID:  $UUID"
 echo ""
 
-# --- Duplicate Prevention ---
-# Check workspace
-EXISTING=$(cmux list-workspaces 2>/dev/null | grep -w "$NAME" | head -1 || true)
-if [ -n "$EXISTING" ]; then
-  echo "ERROR: Workspace '$NAME' already exists. Close it first or pick a different name."
-  echo "  $EXISTING"
-  exit 1
-fi
-
+# --- Cleanup & Restart ---
 # Kill any existing Claude sessions with the same --name before launching.
 # One name = one session, enforced at spawn time.
 # The plugin handles its own PID-file stale-kill on startup.
 EXISTING_CLAUDE_PIDS=$(ps aux | grep -- "--name $NAME" | grep -v grep | awk '{print $2}')
 if [ -n "$EXISTING_CLAUDE_PIDS" ]; then
-  echo "WARNING: Existing Claude session(s) for '$NAME' detected. Terminating before spawn..."
+  echo "Terminating existing session(s) for '$NAME'..."
   for PID in $EXISTING_CLAUDE_PIDS; do
-    echo "  Killing PID $PID"
     kill "$PID" 2>/dev/null || true
   done
-  sleep 2  # Wait for child processes (bun plugins) to die
+  sleep 1  # Wait for child processes (bun plugins) to die
+fi
+
+# If workspace still exists after killing the session, delete it and recreate fresh
+EXISTING=$(cmux list-workspaces 2>/dev/null | grep -w "$NAME" | head -1 || true)
+if [ -n "$EXISTING" ]; then
+  echo "Cleaning up existing workspace..."
+  cmux kill-workspace --workspace "$NAME" 2>/dev/null || true
+  sleep 1
 fi
 
 # Ensure agent definition is accessible from session's CWD
