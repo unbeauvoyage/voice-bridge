@@ -7,7 +7,7 @@
 # Arguments:
 #   name  — instance name (e.g. command, atlas, productivitesse, matrix) [REQUIRED]
 #   type  — agent definition name (default: team-lead). E.g. project-manager, system-lead, ux-lead
-#   cwd   — working directory (default: ~/environment)
+#   cwd   — working directory (default: current directory)
 #   model — model override (default: from agent def). Use "haiku", "sonnet", "opus"
 #   --resume — resume existing session (optional, can appear anywhere after name)
 #
@@ -24,7 +24,7 @@ set -e
 NAME=$1
 TYPE=${2:-team-lead}
 RESUME_FLAG=""
-CWD=~/environment
+CWD=$(pwd)
 MODEL=""
 
 # Parse remaining arguments (cwd, model, --resume)
@@ -47,7 +47,7 @@ if [ -z "$NAME" ]; then
   echo "  name  — instance name (command, atlas, productivitesse, matrix, etc.) [REQUIRED]"
   echo "  type  — agent type (default: team-lead)"
   echo "          E.g. project-manager, system-lead, ux-lead, agency-lead"
-  echo "  cwd   — working directory (default: ~/environment)"
+  echo "  cwd   — working directory (default: current directory)"
   echo "  model — haiku, sonnet, opus (optional)"
   echo "  --resume — resume existing session"
   echo ""

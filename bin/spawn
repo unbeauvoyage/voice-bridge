@@ -1,0 +1,5 @@
+#!/bin/bash
+# spawn — shorthand for spawn-session.sh
+# Usage: spawn <name> [type] [cwd] [model] [--resume]
+
+exec bash "$HOME/environment/scripts/spawn-session.sh" "$@"
