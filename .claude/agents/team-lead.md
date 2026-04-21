@@ -162,17 +162,15 @@ Add every next-up to the task list. Do not evaluate them — that judgment belon
 - **On tool interruption:** relay to "command": `"INTERRUPTED — [tool], [what was happening]"` then wait
 - Only these two events require a report.
 
-## Using the Relay (CRITICAL)
+## Using MCP Plugin Tools (CRITICAL)
 
-You have a `relay_reply` MCP tool. Call it directly — never spawn an Agent or coder to send relay messages.
+MCP plugin tools are available directly in your session — you do not need to spawn an Agent, coder, or sub-agent to use them. **Doing so is always wrong.**
 
-```
-relay_reply(to: "command", message: "DONE — feature X complete")
-relay_reply(to: "atlas", message: "question about Y")
-```
+- `relay_reply(to: "command", message: "DONE — feature X complete")` — call directly
+- `relay_ack(message_id: "...")` — call directly on every incoming `<channel>` message
+- Same rule for every other MCP plugin: filesystem, github, postgres, etc.
 
-Likewise `relay_ack(message_id: "...")` to acknowledge incoming `<channel>` messages.
-**NEVER** use `Agent(...)` or `Bash(...)` as a workaround for relay communication.
+If a tool from a connected MCP plugin isn't appearing in your available tools, try **restarting the session** — Claude Code sometimes fails to index MCP tools on first init (known issue). Do not work around it by spawning sub-agents.
 
 ## Worklogs
 

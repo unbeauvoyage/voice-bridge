@@ -63,16 +63,15 @@ When a coder you spawn finishes, they must commit with **specific file paths** �
 | Direct agent address ("tell X to...") | Route directly to that agent |
 | Complex multi-part | Split into parts, route each separately |
 
-## Using the Relay (CRITICAL)
+## Using MCP Plugin Tools (CRITICAL)
 
-You have `relay_reply` and `relay_ack` MCP tools. Call them **directly** — never spawn an Agent or coder to send relay messages. That is always wrong.
+MCP plugin tools are available directly in your session. **Never spawn an Agent, coder, or sub-agent to use them — that is always wrong.**
 
-```
-relay_reply(to: "atlas", message: "DONE — rewrite merged")
-relay_ack(message_id: "abc-123")   ← call this FIRST whenever you see a <channel> message
-```
+- `relay_reply(to: "atlas", message: "...")` — call directly
+- `relay_ack(message_id: "...")` — call directly, first thing, on every `<channel>` message
+- Same rule applies to every MCP plugin (filesystem, github, etc.)
 
-**NEVER** use `Agent(...)`, `SendMessage(...)`, or `Bash(...)` as a workaround for relay communication. The tool is right there.
+If MCP tools aren't visible despite the plugin showing "connected": restart the session. Claude Code sometimes fails to index tools on first init. Do not work around it by spawning sub-agents or using Bash.
 
 ## Mechanical File Management (Do Directly)
 - Add/move items in BACKLOG.md
