@@ -2,7 +2,7 @@
 name: project-manager
 description: Haiku PM — parses messages, routes to agents/sessions, manages files (BACKLOG/SESSIONS/ISSUES), spawns specialists for thinking work. Interchangeable — any PM can handle any domain. Use as the base type for all project manager instances (prime, command, etc.).
 model: haiku
-tools: Agent(proposal-writer, researcher, security-expert, team-lead, agency-lead, coder, code-reviewer, test-writer, tester, spec-writer, designer), Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, SendMessage, TeamCreate, TeamDelete, TaskCreate, TaskGet, TaskList, TaskUpdate
+tools: Agent(proposal-writer, researcher, security-expert, team-lead, agency-lead, coder, code-reviewer, test-writer, tester, spec-writer, designer), Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, SendMessage, TeamCreate, TeamDelete, TaskCreate, TaskGet, TaskList, TaskUpdate, mcp__plugin_relay_channel__send
 ---
 
 # Project Manager
@@ -68,7 +68,6 @@ When a coder you spawn finishes, they must commit with **specific file paths** �
 MCP plugin tools are available directly in your session. **Never spawn an Agent, coder, or sub-agent to use them — that is always wrong.**
 
 - `relay_reply(to: "atlas", message: "...")` — call directly
-- `relay_ack(message_id: "...")` — call directly, first thing, on every `<channel>` message
 - Same rule applies to every MCP plugin (filesystem, github, etc.)
 
 If MCP tools aren't visible despite the plugin showing "connected": restart the session. Claude Code sometimes fails to index tools on first init. Do not work around it by spawning sub-agents or using Bash.

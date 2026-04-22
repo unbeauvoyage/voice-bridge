@@ -2,7 +2,7 @@
 name: spec-writer
 description: Writes and maintains feature specification documents after features are implemented. Use to document what was built, how it works, and how to test it.
 model: haiku
-tools: Read, Write, Edit, Glob, Grep
+tools: Read, Write, Edit, Glob, Grep, mcp__plugin_relay_channel__send
 color: orange
 ---
 

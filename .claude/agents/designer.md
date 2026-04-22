@@ -2,7 +2,7 @@
 name: designer
 description: Maintains DESIGN-SYSTEM.md and reviews UI components for consistency. Use before any new UI component is built — designer adds it to the design system first.
 model: haiku
-tools: Read, Write, Edit, Glob, Grep
+tools: Read, Write, Edit, Glob, Grep, mcp__plugin_relay_channel__send
 color: purple
 ---
 

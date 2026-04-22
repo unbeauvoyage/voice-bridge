@@ -2,7 +2,7 @@
 name: researcher
 description: Investigates problems, gathers context, and produces structured findings. Use for deep research on technical questions, library evaluation, architecture analysis, or bug investigation.
 model: haiku
-tools: Read, Glob, Grep, WebFetch, WebSearch
+tools: Read, Glob, Grep, WebFetch, WebSearch, mcp__plugin_relay_channel__send
 memory: project
 color: yellow
 ---

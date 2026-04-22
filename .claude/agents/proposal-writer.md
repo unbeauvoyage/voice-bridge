@@ -2,7 +2,7 @@
 name: proposal-writer
 description: Writes structured proposals for CEO approval. Use when a manager needs to turn an idea, problem, or backlog item into a concrete plan with tradeoffs and recommendations. Spawned by managers who are Haiku and cannot do deep writing themselves.
 model: sonnet
-tools: Read, Write, Edit, Glob, Grep, WebFetch, WebSearch
+tools: Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, mcp__plugin_relay_channel__send
 color: cyan
 ---
 

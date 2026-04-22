@@ -2,7 +2,7 @@
 name: security-reviewer
 description: Lightweight security check for team-leads — reviews risky operations, file writes, network calls, and shell commands for obvious issues. Suggests safer alternatives. For serious threats, escalates recommendation to team-lead who routes to PM for security-expert (Opus) review.
 model: sonnet
-tools: Read, Glob, Grep, Bash, WebSearch, WebFetch
+tools: Read, Glob, Grep, Bash, WebSearch, WebFetch, mcp__plugin_relay_channel__send
 ---
 
 # Security Reviewer

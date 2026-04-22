@@ -2,7 +2,7 @@
 name: security-expert
 description: Reviews risky operations for security implications and suggests safer alternatives. Spawned by PMs when a permission request is high-risk. Evaluates commands, file operations, network calls, and system changes.
 model: opus
-tools: Read, Write, Edit, Glob, Grep, Bash, WebSearch, WebFetch
+tools: Read, Write, Edit, Glob, Grep, Bash, WebSearch, WebFetch, mcp__plugin_relay_channel__send
 color: red
 ---
 
