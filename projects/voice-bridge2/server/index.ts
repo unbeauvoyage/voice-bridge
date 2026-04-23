@@ -49,9 +49,9 @@ import { handleHealth, handleIndexHtml, type IndexHtmlContext } from './routes/m
 import { SERVER_PORT, RELAY_BASE_URL_DEFAULT, OVERLAY_URL_DEFAULT } from './config.ts'
 import { logger } from './logger.ts'
 
-const PORT = Number(process.env.PORT ?? SERVER_PORT)
+const PORT = Number(process.env['PORT'] ?? SERVER_PORT)
 const PUBLIC_DIR = join(import.meta.dir, '../public')
-const RELAY_BASE_URL = process.env.RELAY_BASE_URL ?? RELAY_BASE_URL_DEFAULT
+const RELAY_BASE_URL = process.env['RELAY_BASE_URL'] ?? RELAY_BASE_URL_DEFAULT
 
 // Audio dedup — WKWebView retries fetches when Whisper is slow, causing duplicate relay delivery.
 // We hash audio bytes on arrival and reject same hash within 30s.
@@ -94,7 +94,8 @@ const server = Bun.serve({
       const indexCtx: IndexHtmlContext = {
         loadIndexHtml: async () => {
           try {
-            return await readFile(join(PUBLIC_DIR, 'index.html'))
+            const buf = await readFile(join(PUBLIC_DIR, 'index.html'))
+            return buf.toString('utf8')
           } catch {
             return null
           }
@@ -215,7 +216,7 @@ const server = Bun.serve({
       const daemonDir = join(import.meta.dir, '../daemon')
       const wakeCtx = createWakeWordOsContext(daemonDir, loadLastTargetBound, {
         spawnSync,
-        spawn,
+        spawn: (cmd, args, opts) => spawn(cmd, [...args], opts),
         env: process.env
       })
       const res = handleWakeWord(req, wakeCtx)
@@ -256,7 +257,7 @@ drainVoiceBridgeQueue(RELAY_BASE_URL, (msg) => {
 })
 
 // Start relay response poller — agent replies appear as overlay message toasts
-const OVERLAY_URL = process.env.OVERLAY_URL ?? OVERLAY_URL_DEFAULT
+const OVERLAY_URL = process.env['OVERLAY_URL'] ?? OVERLAY_URL_DEFAULT
 const SETTINGS_PATH = join(import.meta.dir, '../daemon/settings.json')
 startRelayPoller({
   relayBaseUrl: RELAY_BASE_URL,

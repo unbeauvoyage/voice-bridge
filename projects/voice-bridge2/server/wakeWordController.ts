@@ -28,7 +28,7 @@ type SpawnLike = (
     env: NodeJS.ProcessEnv
   }
 ) => {
-  pid?: number
+  pid?: number | undefined
   on: (event: string, cb: ((err: Error) => void) | ((code: number | null) => void)) => void
   unref: () => void
 }

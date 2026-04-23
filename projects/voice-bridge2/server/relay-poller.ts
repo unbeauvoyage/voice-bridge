@@ -138,13 +138,13 @@ export function createRelayPoller(options: RelayPollerOptions): RelayPoller {
     // Set inFlight BEFORE the eager fire so interval ticks while TTS is running
     // are dropped by the inFlight guard.
     inFlight = true
-    pollOnce().finally(() => {
+    void pollOnce().finally(() => {
       inFlight = false
     })
     intervalHandle = setInterval(() => {
       if (inFlight) return
       inFlight = true
-      pollOnce().finally(() => {
+      void pollOnce().finally(() => {
         inFlight = false
       })
     }, POLL_INTERVAL_MS)

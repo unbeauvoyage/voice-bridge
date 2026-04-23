@@ -34,7 +34,7 @@ export function handleWakeWord(req: Request, ctx: WakeWordContext): Response | n
 
   if (req.method === 'POST' && url.pathname === '/wake-word/stop') {
     const pid = ctx.findPid()
-    if (pid) {
+    if (pid !== null) {
       try {
         ctx.stop(pid)
         logger.info({ component: 'wake-word', pid }, 'stopped')
@@ -57,7 +57,7 @@ export function handleWakeWord(req: Request, ctx: WakeWordContext): Response | n
     }
 
     const existing = ctx.findPid()
-    if (!existing) {
+    if (existing === null) {
       const target = ctx.loadLastTarget()
       try {
         ctx.start(target)
@@ -75,7 +75,7 @@ export function handleWakeWord(req: Request, ctx: WakeWordContext): Response | n
       // have exited immediately (bad Python path, missing venv, script crash).
       // pgrep is fast enough that an immediately-crashing process won't be found.
       const alive = ctx.findPid()
-      if (!alive) {
+      if (alive === null) {
         const message = 'Process exited immediately after spawn'
         logger.error({ component: 'wake-word' }, 'process_exited_immediately')
         return Response.json(

@@ -31,7 +31,7 @@ function isRelayResponse(value: unknown): value is { status: RelayStatus } {
 const RELAY_TIMEOUT_MS = RELAY_SEND_TIMEOUT_MS
 
 function relayUrl(): string {
-  const base = process.env.RELAY_BASE_URL ?? RELAY_BASE_URL_DEFAULT
+  const base = process.env['RELAY_BASE_URL'] ?? RELAY_BASE_URL_DEFAULT
   return `${base}/send`
 }
 

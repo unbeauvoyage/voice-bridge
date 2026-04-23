@@ -21,10 +21,8 @@ import { Writable } from 'node:stream'
 
 function serializeError(err: unknown): { message: string; stack?: string; code?: string } {
   if (err instanceof Error) {
-    const s: { message: string; stack?: string; code?: string } = {
-      message: err.message,
-      stack: err.stack
-    }
+    const s: { message: string; stack?: string; code?: string } = { message: err.message }
+    if (err.stack !== undefined) s.stack = err.stack
     if ('code' in err && typeof err.code === 'string') s.code = err.code
     return s
   }
@@ -39,7 +37,7 @@ function serializeError(err: unknown): { message: string; stack?: string; code?:
 // - serializers.error    → serializes the `error` field consistently
 
 function pinoOptions(): pino.LoggerOptions {
-  const isDev = process.env.NODE_ENV === 'development'
+  const isDev = process.env['NODE_ENV'] === 'development'
   return {
     level: isDev ? 'debug' : 'info',
     messageKey: 'event' as const,

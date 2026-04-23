@@ -26,7 +26,7 @@ const CORS_HEADERS = { 'Access-Control-Allow-Origin': '*' } as const
 
 export async function handleMessages(req: Request, ctx: MessagesContext): Promise<Response> {
   const url = new URL(req.url)
-  const agent = url.searchParams.get('agent') || 'command'
+  const agent = url.searchParams.get('agent') ?? 'command'
 
   // Cap agent name length to prevent relay URL bloat and match MAX_TO_LEN.
   if (agent.length > MAX_AGENT_LEN) {

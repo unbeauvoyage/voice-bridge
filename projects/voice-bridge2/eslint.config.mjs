@@ -1,5 +1,7 @@
 import { defineConfig } from 'eslint/config'
 import tseslint from '@electron-toolkit/eslint-config-ts'
+import tsPlugin from '@typescript-eslint/eslint-plugin'
+import tsParser from '@typescript-eslint/parser'
 import eslintConfigPrettier from '@electron-toolkit/eslint-config-prettier'
 import eslintPluginReact from 'eslint-plugin-react'
 import eslintPluginReactHooks from 'eslint-plugin-react-hooks'
@@ -128,6 +130,38 @@ export default defineConfig(
           ]
         }
       ]
+    }
+  },
+  // Global non-type-aware rules for all TS/TSX files
+  {
+    files: ['**/*.{ts,tsx}'],
+    rules: {
+      // no-console: warn — main process should use logger, not console
+      'no-console': 'warn',
+      // prefer-const: error — immutable bindings where possible
+      'prefer-const': 'error'
+    }
+  },
+  // Server-only type-aware rules — requires tsconfig.server.json for type info.
+  // Already on (CEO LAW 2.0): no-explicit-any, no-non-null-assertion,
+  //   explicit-function-return-type, consistent-type-assertions, ban-ts-comment.
+  {
+    files: ['server/**/*.ts'],
+    ignores: ['server/**/*.test.ts', 'server/**/*.spec.ts'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        project: './tsconfig.server.json',
+        tsconfigRootDir: import.meta.dirname
+      }
+    },
+    plugins: { '@typescript-eslint': tsPlugin },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/require-await': 'error',
+      '@typescript-eslint/strict-boolean-expressions': 'warn',
+      'no-implicit-coercion': 'warn'
     }
   },
   eslintConfigPrettier

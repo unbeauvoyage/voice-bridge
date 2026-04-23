@@ -47,7 +47,7 @@ export function startRelayPoller(opts: {
     relayBaseUrl: opts.relayBaseUrl,
     overlayUrl: opts.overlayUrl,
     getSettings: () => {
-      if (!opts.settingsPath) return { ttsEnabled: false, ttsWordLimit: 50 }
+      if (opts.settingsPath === undefined) return { ttsEnabled: false, ttsWordLimit: 50 }
       try {
         const raw: string = readFileSync(opts.settingsPath, 'utf8')
         const parsed: unknown = JSON.parse(raw)

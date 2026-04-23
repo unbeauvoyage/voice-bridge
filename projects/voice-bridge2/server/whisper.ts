@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { WHISPER_BASE_URL_DEFAULT, WHISPER_TIMEOUT_MS } from './config.ts'
 import { logger } from './logger.ts'
 
-const WHISPER_URL = process.env.WHISPER_URL ?? WHISPER_BASE_URL_DEFAULT
+const WHISPER_URL = process.env['WHISPER_URL'] ?? WHISPER_BASE_URL_DEFAULT
 // WHISPER_TIMEOUT_MS: 2 min — medium model on CPU can take 60-90s for longer messages
 const TMP_DIR = join(import.meta.dir, '..', 'tmp')
 mkdirSync(TMP_DIR, { recursive: true })
@@ -158,21 +158,23 @@ export async function transcribeAudio(
   // WHISPER_SKIP_CONVERT=1 bypasses ffmpeg — for test environments with fake audio bytes.
   // In this mode, treat the buffer as-is and compute RMS over it (assumed WAV in tests).
   const wavBuffer =
-    process.env.WHISPER_SKIP_CONVERT === '1' ? audioBuffer : convertToWav(audioBuffer, ext)
+    process.env['WHISPER_SKIP_CONVERT'] === '1' ? audioBuffer : convertToWav(audioBuffer, ext)
 
   // Compute RMS from the converted pcm_s16le WAV — this is the ground truth signal
   // level, regardless of the original upload format (webm, ogg, mp4, etc.).
   const audioRms = computeWavRms(wavBuffer)
 
   const boundary = `----FormBoundary${randomUUID().replace(/-/g, '')}`
-  const body = buildWhisperBody(wavBuffer, boundary)
+  const bodyBuf = buildWhisperBody(wavBuffer, boundary)
+  const bodyBuffer = new ArrayBuffer(bodyBuf.byteLength)
+  new Uint8Array(bodyBuffer).set(bodyBuf)
 
   const response = await fetch(WHISPER_URL, {
     method: 'POST',
     headers: {
       'Content-Type': `multipart/form-data; boundary=${boundary}`
     },
-    body,
+    body: bodyBuffer,
     signal: AbortSignal.timeout(WHISPER_TIMEOUT_MS)
   })
 

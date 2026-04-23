@@ -52,7 +52,7 @@ export async function getKnownAgents(deps: GetKnownAgentsDeps): Promise<string[]
       if (typeof data === 'object' && data !== null && 'agents' in data) {
         const obj: Record<string, unknown> = Object.fromEntries(Object.entries(data))
         const agents = obj['agents']
-        if (agents && typeof agents === 'object') {
+        if (typeof agents === 'object' && agents !== null) {
           names.push(...Object.keys(agents).map((a) => a.toLowerCase()))
         }
       }

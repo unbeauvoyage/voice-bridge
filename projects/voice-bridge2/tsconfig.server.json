@@ -10,16 +10,23 @@
     "skipLibCheck": true,
     "noImplicitAny": true,
     "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "useUnknownInCatchVariables": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "allowUnusedLabels": false,
     "allowUnreachableCode": false,
+    "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
       "@env/domain": ["../../shared/domain/index.ts"],
       "@env/domain/*": ["../../shared/domain/*.ts"]
     }
   },
-  "include": ["server/**/*"]
+  "include": ["server/**/*"],
+  "exclude": ["server/**/*.test.ts", "server/**/*.spec.ts"]
 }

@@ -73,7 +73,7 @@ export function shouldLlmRoute(transcript: string): boolean {
 function preParseTranscript(transcript: string): { fragment: string; message: string } | null {
   for (const pattern of ADDRESSING_PATTERNS) {
     const m = transcript.match(pattern)
-    if (m && m[1] && m[2]) {
+    if (m !== null && m[1] !== undefined && m[2] !== undefined) {
       const fragment = m[1].trim()
       const message = m[2].trim()
       // Only return if fragment is reasonably short (1-5 words — agent names)
@@ -102,13 +102,13 @@ export async function llmRoute(
   // Fast path: "to X please" — match agent name directly against known agents.
   // This handles the common case without requiring Ollama to be running.
   const toXMatch = transcript.match(/^(?:to\s+)?(.+?)\s+please\b/is)
-  if (toXMatch && toXMatch[1]) {
+  if (toXMatch !== null && toXMatch[1] !== undefined) {
     const spoken = toXMatch[1].trim().toLowerCase().replace(/\s+/g, '-')
     const match = knownAgents.find((a) => {
       const norm = a.toLowerCase().replace(/\s+/g, '-')
       return norm === spoken || norm.replace(/-/g, ' ') === spoken.replace(/-/g, ' ')
     })
-    if (match) {
+    if (match !== undefined) {
       logger.info({ component: 'llmRoute', spoken, match }, 'fast_path_match')
       return { agent: match, message: transcript, agentChanged: match !== fallbackAgent }
     }
@@ -137,7 +137,7 @@ export async function llmRoute(
     `Respond with JSON {"agent": string | null}`
 
   try {
-    const ollamaUrl = process.env.OLLAMA_URL ?? DEFAULT_OLLAMA_URL
+    const ollamaUrl = process.env['OLLAMA_URL'] ?? DEFAULT_OLLAMA_URL
     const res = await fetch(ollamaUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -186,7 +186,7 @@ export async function llmRoute(
         ? llmParsed.agent.trim().toLowerCase().replace(/\s+/g, '-')
         : null
 
-    if (!agentNorm) {
+    if (agentNorm === null) {
       return { agent: fallbackAgent, message: transcript, agentChanged: false }
     }
 

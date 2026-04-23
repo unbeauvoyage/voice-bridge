@@ -154,7 +154,7 @@ export async function parseTranscribeRequest(req: Request): Promise<ParseTranscr
   }
 
   const audioFile = formData.get('audio')
-  if (!audioFile || !(audioFile instanceof File)) {
+  if (audioFile === null || !(audioFile instanceof File)) {
     return {
       kind: 'error',
       status: 400,

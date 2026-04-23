@@ -11,8 +11,8 @@ export function handleHealth(): Response {
 }
 
 export type IndexHtmlContext = {
-  /** Load the index.html bytes. Return null if the file is missing. Throws are caught. */
-  loadIndexHtml: () => Promise<string | Uint8Array | null>
+  /** Load the index.html content. Return null if the file is missing. Throws are caught. */
+  loadIndexHtml: () => Promise<string | null>
 }
 
 const HTML_HEADERS = { 'Content-Type': 'text/html; charset=utf-8' } as const
