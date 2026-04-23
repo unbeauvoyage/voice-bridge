@@ -57,6 +57,12 @@ export async function routeTranscript(
   const needsLlmRoute = shouldLlmRoute(transcript)
 
   if (needsLlmRoute) {
+    // Load sticky before routing so we can compute agentChanged against the real
+    // previous target — not against '' (the llmRoute fallback). Passing '' to llmRoute
+    // meant llmResult.agentChanged was true for any non-empty agent, regardless of
+    // whether the routing actually changed from the user's perspective.
+    const previousSticky = loadLastTarget()
+
     // Case 1: addressing signal — llmRoute OVERRIDES explicit `to`.
     if (pleaseInFirst7) {
       // "please"-gated: split routing fragment from message body at "please".
@@ -70,32 +76,30 @@ export async function routeTranscript(
         'please_gate'
       )
       const llmResult = await llmRoute(routingPart, await getKnownAgents(), '')
-      const fallback = explicitTo || loadLastTarget()
+      const fallback = explicitTo || previousSticky
       const to = llmResult.agent || fallback
       const message = messagePart || transcript
-      if (llmResult.agentChanged) {
+      // agentChanged = previous sticky was set AND new agent differs from it.
+      // Empty previousSticky means this is first routing — not a "change".
+      const agentChanged = previousSticky !== '' && to !== previousSticky
+      if (agentChanged) {
         saveLastTarget(to)
       }
-      logger.info(
-        { component: 'route', to, agentChanged: llmResult.agentChanged, message },
-        'routed_please_gate'
-      )
+      logger.info({ component: 'route', to, agentChanged, message }, 'routed_please_gate')
       return { to, message }
     } else {
       // Direct-address patterns ("tell X to Y", "ask X about Y", "message to X: Y").
       // Pass the full transcript to llmRoute — it extracts the agent fragment internally.
       logger.info({ component: 'route', transcript }, 'direct_address_gate')
       const llmResult = await llmRoute(transcript, await getKnownAgents(), '')
-      const fallback = explicitTo || loadLastTarget()
+      const fallback = explicitTo || previousSticky
       const to = llmResult.agent || fallback
       const message = llmResult.message || transcript
-      if (llmResult.agentChanged) {
+      const agentChanged = previousSticky !== '' && to !== previousSticky
+      if (agentChanged) {
         saveLastTarget(to)
       }
-      logger.info(
-        { component: 'route', to, agentChanged: llmResult.agentChanged, message },
-        'routed_direct_address'
-      )
+      logger.info({ component: 'route', to, agentChanged, message }, 'routed_direct_address')
       return { to, message }
     }
   }
