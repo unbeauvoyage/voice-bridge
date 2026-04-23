@@ -5,6 +5,7 @@
  *   GET  /           — mobile recording UI
  *   POST /transcribe — receives audio, transcribes via Whisper, delivers to relay
  *   GET  /health     — liveness check
+ *   GET  /api/health — diagnostic: whisper/ollama/relay probes, uptime, version
  *   GET  /mic        — { state: "on"|"off" }
  *   POST /mic        — { state: "on"|"off" } → set mic state
  *
@@ -42,13 +43,69 @@ import {
 import { handleAgents, getKnownAgents, type AgentsContext } from './routes/agents.ts'
 import { handleSettings, type SettingsContext } from './routes/settings.ts'
 import { handleWakeWord } from './routes/wakeWord.ts'
-import { handleHealth, handleIndexHtml, type IndexHtmlContext } from './routes/meta.ts'
-import { SERVER_PORT, RELAY_BASE_URL_DEFAULT } from './config.ts'
+import {
+  handleHealth,
+  handleApiHealth,
+  handleIndexHtml,
+  type IndexHtmlContext,
+  type ApiHealthContext,
+  type WhisperState,
+  type OllamaState,
+  type RelayState
+} from './routes/meta.ts'
+import {
+  SERVER_PORT,
+  RELAY_BASE_URL_DEFAULT,
+  WHISPER_BASE_URL_DEFAULT,
+  OLLAMA_BASE_URL_DEFAULT
+} from './config.ts'
 import { logger } from './logger.ts'
 
 const PORT = Number(process.env.PORT ?? SERVER_PORT)
 const PUBLIC_DIR = join(import.meta.dir, '../public')
 const RELAY_BASE_URL = process.env.RELAY_BASE_URL ?? RELAY_BASE_URL_DEFAULT
+const WHISPER_BASE_URL = process.env.WHISPER_URL ?? WHISPER_BASE_URL_DEFAULT
+const OLLAMA_BASE_URL = process.env.OLLAMA_URL ?? OLLAMA_BASE_URL_DEFAULT
+
+const BOOT_MS = Date.now()
+const HEALTH_PROBE_TIMEOUT_MS = 200
+
+// Git commit SHA baked in at startup. Falls back to 'unknown' in dev/test.
+const VERSION: string = process.env['COMMIT_SHA'] ?? 'unknown'
+
+async function probeWhisper(): Promise<WhisperState> {
+  try {
+    // Whisper inference server returns 200 on GET /health when loaded.
+    // Uses the same base URL, swap /inference suffix for /health.
+    const healthUrl = WHISPER_BASE_URL.replace(/\/inference$/, '/health')
+    const res = await fetch(healthUrl, { signal: AbortSignal.timeout(HEALTH_PROBE_TIMEOUT_MS) })
+    return res.ok ? 'ready' : 'error'
+  } catch {
+    return 'error'
+  }
+}
+
+async function probeOllama(): Promise<OllamaState> {
+  try {
+    // Ollama exposes GET / with 200 "Ollama is running" when available.
+    const base = OLLAMA_BASE_URL.replace(/\/api\/generate$/, '')
+    const res = await fetch(base, { signal: AbortSignal.timeout(HEALTH_PROBE_TIMEOUT_MS) })
+    return res.ok ? 'reachable' : 'unreachable'
+  } catch {
+    return 'unreachable'
+  }
+}
+
+async function probeRelay(): Promise<RelayState> {
+  try {
+    const res = await fetch(`${RELAY_BASE_URL}/health`, {
+      signal: AbortSignal.timeout(HEALTH_PROBE_TIMEOUT_MS)
+    })
+    return res.ok ? 'connected' : 'disconnected'
+  } catch {
+    return 'disconnected'
+  }
+}
 
 // Audio dedup — WKWebView retries fetches when Whisper is slow, causing duplicate relay delivery.
 // We hash audio bytes on arrival and reject same hash within 30s.
@@ -84,6 +141,19 @@ const server = Bun.serve({
     // ── Health ────────────────────────────────────────────────────────────────
     if (url.pathname === '/health') {
       return handleHealth()
+    }
+
+    // ── Diagnostic health ─────────────────────────────────────────────────────
+    if (req.method === 'GET' && url.pathname === '/api/health') {
+      const ctx: ApiHealthContext = {
+        bootMs: BOOT_MS,
+        version: VERSION,
+        lastTarget: loadLastTargetBound,
+        probeWhisper,
+        probeOllama,
+        probeRelay
+      }
+      return handleApiHealth(ctx)
     }
 
     // ── Mobile UI ─────────────────────────────────────────────────────────────

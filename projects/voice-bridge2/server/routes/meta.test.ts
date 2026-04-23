@@ -1,5 +1,11 @@
 import { describe, test, expect } from 'bun:test'
-import { handleHealth, handleIndexHtml, type IndexHtmlContext } from './meta.ts'
+import {
+  handleHealth,
+  handleApiHealth,
+  handleIndexHtml,
+  type IndexHtmlContext,
+  type ApiHealthContext
+} from './meta.ts'
 
 async function readJsonObject(res: Response): Promise<Record<string, unknown>> {
   const raw: unknown = await res.json()
@@ -27,6 +33,66 @@ describe('handleHealth', () => {
     if (typeof ts !== 'number') throw new Error('ts not number')
     expect(ts).toBeGreaterThanOrEqual(before)
     expect(ts).toBeLessThanOrEqual(after)
+  })
+})
+
+describe('handleApiHealth', () => {
+  const BOOT_MS = Date.now() - 5000 // simulate server started 5s ago
+
+  function makeCtx(overrides: Partial<ApiHealthContext> = {}): ApiHealthContext {
+    return {
+      bootMs: BOOT_MS,
+      version: 'abc1234',
+      lastTarget: () => 'test-agent',
+      probeWhisper: async () => 'ready',
+      probeOllama: async () => 'reachable',
+      probeRelay: async () => 'connected',
+      ...overrides
+    }
+  }
+
+  test('handleApiHealth — returns 200 with all required diagnostic fields', async () => {
+    const res = await handleApiHealth(makeCtx())
+    expect(res.status).toBe(200)
+    const body = await readJsonObject(res)
+    expect(body['ok']).toBe(true)
+    expect(body['whisper']).toBe('ready')
+    expect(body['ollama']).toBe('reachable')
+    expect(body['relay']).toBe('connected')
+    expect(body['lastTarget']).toBe('test-agent')
+    expect(typeof body['uptimeSec']).toBe('number')
+    expect(body['version']).toBe('abc1234')
+  })
+
+  test('handleApiHealth — uptimeSec is approximately correct', async () => {
+    const res = await handleApiHealth(makeCtx())
+    const body = await readJsonObject(res)
+    const uptime = body['uptimeSec']
+    if (typeof uptime !== 'number') throw new Error('uptimeSec not a number')
+    expect(uptime).toBeGreaterThanOrEqual(4)
+    expect(uptime).toBeLessThan(10)
+  })
+
+  test('handleApiHealth — reports degraded state when probes fail', async () => {
+    const res = await handleApiHealth(
+      makeCtx({
+        probeWhisper: async () => 'error',
+        probeOllama: async () => 'unreachable',
+        probeRelay: async () => 'disconnected'
+      })
+    )
+    expect(res.status).toBe(200)
+    const body = await readJsonObject(res)
+    expect(body['ok']).toBe(true) // health always returns 200
+    expect(body['whisper']).toBe('error')
+    expect(body['ollama']).toBe('unreachable')
+    expect(body['relay']).toBe('disconnected')
+  })
+
+  test('handleApiHealth — lastTarget is null when no target set', async () => {
+    const res = await handleApiHealth(makeCtx({ lastTarget: () => '' }))
+    const body = await readJsonObject(res)
+    expect(body['lastTarget']).toBeNull()
   })
 })
 

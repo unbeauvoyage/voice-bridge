@@ -236,13 +236,24 @@ def main() -> None:
     print()
 
     def start_recording_overlay() -> None:
-        # Read current sticky target for display
-        last_target_file = str(Path(__file__).parent.parent / "tmp" / "last-target.txt")
+        # Query backend for the current sticky target instead of reading the tmp file.
+        # The tmp file path depends on CWD at daemon spawn time; backend and daemon
+        # can run from different worktrees and see different files, causing stale data.
+        current_target = args.target
         try:
-            with open(last_target_file) as _f:
-                current_target = _f.read().strip() or args.target
+            status_res = requests.get(f"{args.server}/status", timeout=0.5)
+            if status_res.ok:
+                current_target = status_res.json().get("target") or args.target
         except Exception:
-            current_target = args.target
+            # Backend offline at overlay time — fall back to startup default.
+            # The sticky routing itself will still work because the transcribe
+            # endpoint uses the backend's own loadLastTarget on the server side.
+            last_target_file = str(Path(__file__).parent.parent / "tmp" / "last-target.txt")
+            try:
+                with open(last_target_file) as _f:
+                    current_target = _f.read().strip() or args.target
+            except Exception:
+                pass
         show_overlay("recording", current_target)
 
     def hide_recording_overlay() -> None:
