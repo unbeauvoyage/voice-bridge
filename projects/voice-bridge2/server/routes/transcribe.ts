@@ -124,6 +124,7 @@ export async function handleTranscribe(req: Request, ctx: TranscribeContext): Pr
     explicitTo,
     getKnownAgents: ctx.getKnownAgents,
     llmRoute: ctx.llmRoute,
+    loadLastTarget: ctx.loadLastTarget,
     saveLastTarget: ctx.saveLastTarget
   })
 

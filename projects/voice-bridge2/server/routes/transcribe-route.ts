@@ -48,7 +48,8 @@ export async function routeTranscript(
   const { transcript, explicitTo, getKnownAgents, llmRoute, loadLastTarget, saveLastTarget } = opts
 
   const words = transcript.trimStart().split(/\s+/)
-  const pleaseIndex = words.slice(0, 7).findIndex((w) => /^please$/i.test(w))
+  // Strip trailing punctuation so "please." and "please," still trigger the please-gate.
+  const pleaseIndex = words.slice(0, 7).findIndex((w) => /^please[.,!?;:]*$/i.test(w))
   const pleaseInFirst7 = pleaseIndex !== -1
 
   // shouldLlmRoute is the authoritative gate — covers both "please" (any position)
