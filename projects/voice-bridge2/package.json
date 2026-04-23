@@ -6,7 +6,7 @@
   "author": "example.com",
   "homepage": "https://electron-vite.org",
   "scripts": {
-    "test": "npm run typecheck && npm run lint",
+    "test": "bun test && npm run typecheck && npm run lint",
     "format": "prettier --write .",
     "lint": "eslint --cache .",
     "codegen": "openapi-ts",
