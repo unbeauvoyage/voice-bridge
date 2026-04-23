@@ -21,12 +21,9 @@ import { listWorkspaceNames } from './cmux.ts'
 import { deliverToAgent } from './relay.ts'
 import { transcribeAudio } from './whisper.ts'
 import { llmRoute } from './llmRouter.ts'
-import { startRelayPoller } from './relay-poller.ts'
-import { drainVoiceBridgeQueue } from './queue-drain.ts'
 import { handleTranscribe, type TranscribeContext } from './routes/transcribe.ts'
 import { type DedupEntry, hashAudioBuffer, evictStaleHashes } from './routes/dedup.ts'
 import { createWakeWordOsContext } from './wakeWordController.ts'
-import { handleMessages, type MessagesContext } from './routes/messages.ts'
 import {
   handleMic,
   isMicOn,
@@ -46,7 +43,7 @@ import { handleAgents, getKnownAgents, type AgentsContext } from './routes/agent
 import { handleSettings, type SettingsContext } from './routes/settings.ts'
 import { handleWakeWord } from './routes/wakeWord.ts'
 import { handleHealth, handleIndexHtml, type IndexHtmlContext } from './routes/meta.ts'
-import { SERVER_PORT, RELAY_BASE_URL_DEFAULT, OVERLAY_URL_DEFAULT } from './config.ts'
+import { SERVER_PORT, RELAY_BASE_URL_DEFAULT } from './config.ts'
 import { logger } from './logger.ts'
 
 const PORT = Number(process.env.PORT ?? SERVER_PORT)
@@ -148,12 +145,6 @@ const server = Bun.serve({
       return handleTranscribe(req, ctx)
     }
 
-    // ── Messages proxy ────────────────────────────────────────────────────────
-    if (req.method === 'GET' && url.pathname === '/messages') {
-      const ctx: MessagesContext = { relayBaseUrl: RELAY_BASE_URL }
-      return handleMessages(req, ctx)
-    }
-
     // ── Mic control ──────────────────────────────────────────────────────────
     // GET  /mic         — { state: "on"|"off" }
     // POST /mic         — { state: "on"|"off" } → toggle
@@ -238,32 +229,4 @@ logger.info(
 logger.info(
   { component: 'server', note: 'HTTPS required for non-localhost access — use mkcert' },
   'mobile_ui_note'
-)
-
-// Drain voice-bridge's own relay queue — messages sent while offline are not lost
-drainVoiceBridgeQueue(RELAY_BASE_URL, (msg) => {
-  logger.info(
-    {
-      component: 'queue-drain',
-      from: msg.from,
-      type: msg.type,
-      body: msg.body
-    },
-    'startup_message_received'
-  )
-}).catch(() => {
-  /* drain errors already logged inside drainVoiceBridgeQueue */
-})
-
-// Start relay response poller — agent replies appear as overlay message toasts
-const OVERLAY_URL = process.env.OVERLAY_URL ?? OVERLAY_URL_DEFAULT
-const SETTINGS_PATH = join(import.meta.dir, '../daemon/settings.json')
-startRelayPoller({
-  relayBaseUrl: RELAY_BASE_URL,
-  overlayUrl: OVERLAY_URL,
-  settingsPath: SETTINGS_PATH
-})
-logger.info(
-  { component: 'relay-poller', relayBaseUrl: RELAY_BASE_URL, overlayUrl: OVERLAY_URL },
-  'started'
 )

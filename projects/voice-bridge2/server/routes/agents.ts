@@ -26,6 +26,13 @@ import { z } from 'zod'
 import { RELAY_TIMEOUT_MS } from '../config.ts'
 import { validationError } from './validation.ts'
 
+// Relay /agents payload: an object with an `agents` array whose entries are
+// either plain strings (canonical agent names) or objects carrying at least
+// a `name` field. Anything else is treated as relay-broken.
+const RelayAgentsSchema = z.object({
+  agents: z.array(z.union([z.string(), z.object({ name: z.string() }).passthrough()]))
+})
+
 // ─── getKnownAgents business logic ────────────────────────────────────────────
 
 export type GetKnownAgentsDeps = {
@@ -36,7 +43,7 @@ export type GetKnownAgentsDeps = {
 
 /**
  * Returns all known agent/workspace names, normalized to lowercase.
- * Queries relay /status first, then merges cmux workspace names.
+ * Queries relay /api/agents first, then merges cmux workspace names.
  * Deduplicates and filters out test/probe names.
  *
  * Accepts injectable deps for testability (avoids network + cmux in tests).
@@ -44,16 +51,18 @@ export type GetKnownAgentsDeps = {
 export async function getKnownAgents(deps: GetKnownAgentsDeps): Promise<string[]> {
   const { relayBaseUrl, fetchFn, listWorkspaceNames } = deps
   const names: string[] = []
-  // Relay uses /status which returns {agents: {name: {workspace}, ...}}
+  // New relay returns {agents: [{name, backend, state:'online'}]}
   try {
-    const res = await fetchFn(`${relayBaseUrl}/status`, { signal: AbortSignal.timeout(2000) })
+    const res = await fetchFn(`${relayBaseUrl}/api/agents`, { signal: AbortSignal.timeout(2000) })
     if (res.ok) {
-      const data: unknown = await res.json()
-      if (typeof data === 'object' && data !== null && 'agents' in data) {
-        const obj: Record<string, unknown> = Object.fromEntries(Object.entries(data))
-        const agents = obj['agents']
-        if (agents && typeof agents === 'object') {
-          names.push(...Object.keys(agents).map((a) => a.toLowerCase()))
+      const parsed = RelayAgentsSchema.safeParse(await res.json())
+      if (parsed.success) {
+        for (const entry of parsed.data.agents) {
+          if (typeof entry === 'string') {
+            names.push(entry.toLowerCase())
+          } else {
+            names.push(entry.name.toLowerCase())
+          }
         }
       }
     }
@@ -83,13 +92,6 @@ const CORS_HEADERS = { 'Access-Control-Allow-Origin': '*' } as const
 
 const SourceSchema = z.enum(['relay', 'workspaces', 'auto'])
 
-// Relay /agents payload: an object with an `agents` array whose entries are
-// either plain strings (canonical agent names) or objects carrying at least
-// a `name` field. Anything else is treated as relay-broken.
-const RelayAgentsSchema = z.object({
-  agents: z.array(z.union([z.string(), z.object({ name: z.string() }).passthrough()]))
-})
-
 export async function handleAgents(req: Request, ctx: AgentsContext): Promise<Response> {
   const url = new URL(req.url)
   const sourceParam = url.searchParams.get('source') ?? 'auto'
@@ -99,7 +101,7 @@ export async function handleAgents(req: Request, ctx: AgentsContext): Promise<Re
 
   if (source !== 'workspaces') {
     try {
-      const relayRes = await ctx.fetchFn(`${ctx.relayBaseUrl}/agents`, {
+      const relayRes = await ctx.fetchFn(`${ctx.relayBaseUrl}/api/agents`, {
         signal: AbortSignal.timeout(RELAY_TIMEOUT_MS)
       })
       if (relayRes.ok) {
