@@ -2,7 +2,7 @@
 # Direct launcher for wake-word daemon.
 # Used by the LaunchAgent (com.riseof.wake-word) instead of pm2.
 # LaunchAgents run in the user's GUI/Aqua session and have CoreAudio access.
-DAEMON_DIR="/Users/riseof/environment/projects/voice-bridge/daemon"
+DAEMON_DIR="/Users/riseof/environment/projects/voice-bridge2/daemon"
 PYTHON_APP="/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
 
 # Kill any existing instance before starting — prevents duplicate daemons
