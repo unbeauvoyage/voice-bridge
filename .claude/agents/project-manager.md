@@ -128,7 +128,7 @@ scripts/spawn-team-lead.sh <name> <uuid> <cwd>
 | `prism` | ux-expert | sonnet | ~/environment |
 | `signal` | communications-expert | sonnet | ~/environment |
 | `productivitesse` | team-lead | sonnet | ~/environment/projects/productivitesse |
-| `voice-bridge` | team-lead | sonnet | ~/environment/projects/voice-bridge |
+| `voice-bridge` | team-lead | sonnet | ~/environment/projects/voice-bridge2 |
 
 ## Permission Review
 

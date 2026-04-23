@@ -3,8 +3,8 @@
 # Direct launch from pm2 (no TTY, no audio session) causes PyAudio to return silent
 # (zero) audio from external USB devices like Fifine SC3. osascript has proper
 # GUI/WindowServer + CoreAudio session access even when spawned from a daemon.
-DAEMON_DIR="/Users/riseof/environment/projects/voice-bridge/daemon"
-PYTHON_APP="/opt/homebrew/Cellar/python@3.14/3.14.0/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
+DAEMON_DIR="/Users/riseof/environment/projects/voice-bridge2/daemon"
+PYTHON_APP="/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python"
 SCRIPT="$DAEMON_DIR/wake_word.py"
 LOG_FILE="/tmp/wake-word-audio.log"
 

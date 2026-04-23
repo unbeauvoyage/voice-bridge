@@ -10,7 +10,7 @@ Complete reconstruction guide for the multi-agent Claude Code environment at `~/
 2. [ ] Clone the environment repo to `~/environment/`
 3. [ ] Clone `message-relay` as a submodule and build it: `cd ~/environment/message-relay && npm install && npm run build`
 4. [ ] Install relay dependencies: `cd ~/environment/message-relay && npm install`
-5. [ ] Install voice-bridge dependencies: `cd ~/environment/projects/voice-bridge && bun install && pip install -r daemon/requirements.txt` in a Python 3.14 venv
+5. [ ] Install voice-bridge dependencies: `cd ~/environment/projects/voice-bridge2 && bun install && pip install -r daemon/requirements.txt` in a Python 3.14 venv
 6. [ ] Create the `~/.claude/relay-channel/` directory for channel port files
 7. [ ] Copy `~/.claude/settings.json` (see Section 2) — contains all hooks and plugin config
 8. [ ] Install pm2 processes: `cd ~/environment/message-relay && pm2 start ecosystem.config.js && pm2 save`
@@ -381,7 +381,7 @@ All definitions live in `~/environment/.claude/agents/`. Each file has YAML fron
 | `prism` | ux-expert | sonnet | ~/environment |
 | `signal` | communications-expert | sonnet | ~/environment |
 | `productivitesse` | team-lead | sonnet | ~/environment/projects/productivitesse |
-| `voice-bridge` | team-lead | sonnet | ~/environment/projects/voice-bridge |
+| `voice-bridge` | team-lead | sonnet | ~/environment/projects/voice-bridge2 |
 
 ---
 
@@ -417,17 +417,17 @@ The voice bridge stack lets the CEO speak commands that are transcribed and rout
 
 whisper.cpp is installed via the voice-bridge `nodejs-whisper` npm package — the binary lives at:
 ```
-~/environment/projects/voice-bridge/node_modules/nodejs-whisper/cpp/whisper.cpp/build/bin/whisper-server
+~/environment/projects/voice-bridge2/node_modules/nodejs-whisper/cpp/whisper.cpp/build/bin/whisper-server
 ```
 Model: `ggml-medium.bin` in the same path.
 
 pm2 launch command:
 ```bash
 pm2 start \
-  ~/environment/projects/voice-bridge/node_modules/nodejs-whisper/cpp/whisper.cpp/build/bin/whisper-server \
+  ~/environment/projects/voice-bridge2/node_modules/nodejs-whisper/cpp/whisper.cpp/build/bin/whisper-server \
   --name whisper-server \
   --interpreter none \
-  -- --model ~/environment/projects/voice-bridge/node_modules/nodejs-whisper/cpp/whisper.cpp/models/ggml-medium.bin \
+  -- --model ~/environment/projects/voice-bridge2/node_modules/nodejs-whisper/cpp/whisper.cpp/models/ggml-medium.bin \
      --host 127.0.0.1 --port 8766 --language auto --translate
 ```
 
@@ -436,7 +436,7 @@ pm2 start \
 ```bash
 pm2 start "bun run server/index.ts" \
   --name voice-bridge-server \
-  --cwd ~/environment/projects/voice-bridge
+  --cwd ~/environment/projects/voice-bridge2
 ```
 
 Audio pipeline: raw audio buffer → ffmpeg (convert to 16kHz mono WAV) → whisper-server `/inference` → text → relay `/send` (from: `ceo`, to: `command`).
@@ -446,9 +446,9 @@ Audio pipeline: raw audio buffer → ffmpeg (convert to 16kHz mono WAV) → whis
 **LaunchAgent:** `~/Library/LaunchAgents/com.riseof.wake-word.plist`
 
 - `RunAtLoad: true`, `KeepAlive: true` — starts on login and restarts on crash
-- Calls `~/environment/projects/voice-bridge/daemon/run_wake.sh`
+- Calls `~/environment/projects/voice-bridge2/daemon/run_wake.sh`
 - Python 3.14 required; uses `openwakeword` library
-- PYTHONPATH: `~/environment/projects/voice-bridge/daemon/.venv/lib/python3.14/site-packages`
+- PYTHONPATH: `~/environment/projects/voice-bridge2/daemon/.venv/lib/python3.14/site-packages`
 
 **`run_wake.sh` behaviour:**
 - Kills any existing `wake_word.py` instance and overlay helpers
@@ -468,10 +468,10 @@ pip install openwakeword pyaudio requests numpy
 
 **voice-bridge-indicator (menu bar):**
 ```bash
-pm2 start ~/environment/projects/voice-bridge/daemon/.venv/bin/python \
+pm2 start ~/environment/projects/voice-bridge2/daemon/.venv/bin/python \
   --name voice-bridge-indicator \
   --interpreter none \
-  --cwd ~/environment/projects/voice-bridge \
+  --cwd ~/environment/projects/voice-bridge2 \
   -- -u daemon/menubar.py
 ```
 
@@ -479,7 +479,7 @@ pm2 start ~/environment/projects/voice-bridge/daemon/.venv/bin/python \
 
 The voice-bridge uses self-signed certs trusted by the iPhone. Generate with mkcert:
 ```bash
-cd ~/environment/projects/voice-bridge
+cd ~/environment/projects/voice-bridge2
 mkcert -install
 mkcert -cert-file certs/dev.pem -key-file certs/dev-key.pem 127.0.0.1 localhost 100.x.x.x
 ```
@@ -564,7 +564,7 @@ mkdir -p logs
 ### Install voice-bridge dependencies
 
 ```bash
-cd ~/environment/projects/voice-bridge
+cd ~/environment/projects/voice-bridge2
 bun install
 
 # Python venv for wake-word daemon
@@ -578,7 +578,7 @@ deactivate
 ### Build whisper.cpp model (inside nodejs-whisper)
 
 ```bash
-cd ~/environment/projects/voice-bridge
+cd ~/environment/projects/voice-bridge2
 bun install    # installs nodejs-whisper which contains whisper.cpp
 # The build binary will be at: node_modules/nodejs-whisper/cpp/whisper.cpp/build/bin/whisper-server
 # The medium model must be downloaded:
@@ -611,22 +611,22 @@ pm2 start ecosystem.config.js
 
 # Whisper server
 pm2 start \
-  ~/environment/projects/voice-bridge/node_modules/nodejs-whisper/cpp/whisper.cpp/build/bin/whisper-server \
+  ~/environment/projects/voice-bridge2/node_modules/nodejs-whisper/cpp/whisper.cpp/build/bin/whisper-server \
   --name whisper-server \
   --interpreter none \
-  -- --model ~/environment/projects/voice-bridge/node_modules/nodejs-whisper/cpp/whisper.cpp/models/ggml-medium.bin \
+  -- --model ~/environment/projects/voice-bridge2/node_modules/nodejs-whisper/cpp/whisper.cpp/models/ggml-medium.bin \
      --host 127.0.0.1 --port 8766 --language auto --translate
 
 # Voice bridge server
 pm2 start "bun run server/index.ts" \
   --name voice-bridge-server \
-  --cwd ~/environment/projects/voice-bridge
+  --cwd ~/environment/projects/voice-bridge2
 
 # Voice bridge indicator
-pm2 start ~/environment/projects/voice-bridge/daemon/.venv/bin/python \
+pm2 start ~/environment/projects/voice-bridge2/daemon/.venv/bin/python \
   --name voice-bridge-indicator \
   --interpreter none \
-  --cwd ~/environment/projects/voice-bridge \
+  --cwd ~/environment/projects/voice-bridge2 \
   -- -u daemon/menubar.py
 
 # Save process list for LaunchAgent resurrection
@@ -665,14 +665,14 @@ pm2 save
   <key>Label</key><string>com.riseof.wake-word</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/riseof/environment/projects/voice-bridge/daemon/run_wake.sh</string>
+    <string>/Users/riseof/environment/projects/voice-bridge2/daemon/run_wake.sh</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PYTHONPATH</key>
-    <string>/Users/riseof/environment/projects/voice-bridge/daemon/.venv/lib/python3.14/site-packages</string>
+    <string>/Users/riseof/environment/projects/voice-bridge2/daemon/.venv/lib/python3.14/site-packages</string>
   </dict>
-  <key>WorkingDirectory</key><string>/Users/riseof/environment/projects/voice-bridge</string>
+  <key>WorkingDirectory</key><string>/Users/riseof/environment/projects/voice-bridge2</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>StandardOutPath</key><string>/tmp/wake-word-launchd.log</string>

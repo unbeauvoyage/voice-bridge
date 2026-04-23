@@ -31,7 +31,7 @@ command|project-manager|f54b472b-25d0-4e29-a7fd-a400ce91b754|~/environment|sonne
 consul|project-manager|a87a7ce9-987e-45da-a392-fc3cebbd1962|~/environment|sonnet
 chief-of-staff|chief-of-staff|d27b5433-2f32-4273-b783-aefee1654f37|~/environment|sonnet
 productivitesse|team-lead|5ff9b28e-d6d4-4529-90d3-d3df8bee30d3|~/environment/projects/productivitesse|sonnet
-voice-bridge|team-lead|2bde1283-e5bc-416d-936d-8fc116f2d4a9|~/environment/projects/voice-bridge|sonnet
+voice-bridge|team-lead|2bde1283-e5bc-416d-936d-8fc116f2d4a9|~/environment/projects/voice-bridge2|sonnet
 knowledge-base|team-lead|3d844227-46b1-49e2-a872-8a3834beb639|~/environment/projects/knowledge-base|sonnet
 hq|project-manager|d1d8eace-b3bd-4e49-bf9f-71c7987428e1|~/environment/hq|sonnet
 agency-bicycles|agency-lead|3e1a569b-117f-4d2e-a893-a289d0ec6df1|~/environment/agency/bicycles|sonnet
