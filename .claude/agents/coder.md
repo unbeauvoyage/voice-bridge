@@ -82,6 +82,25 @@ If a coder finds themselves typing `as Foo`, they STOP and find the right approa
 
 If existing code requires casts because the upstream type is wrong, the right fix is to **fix the upstream type**, not cast around it.
 
+## Real-only testing — no mocks, no fakes, no synthetic data (NEW — CEO directive 2026-04-26)
+
+E2E tests prove user-facing behavior with real services. They do NOT:
+- Mock the relay, the database, the LLM, or any backend
+- Use MSW, vi.mock, sinon, or any test-double library
+- Seed data into Zustand stores, React Query cache, or localStorage to "set up"
+- Stub the system under test
+
+E2E tests DO:
+- Spin up the real backend (`bun run src/index.ts` for relay)
+- Spin up the real frontend (`npm run dev`)
+- Use the real database (separate dev instance)
+- Drive real Playwright browser sessions with real clicks/keys
+- Assert on literals that originated from the real backend during the test run
+
+Preconditions missing (relay down, no agents, no test user) → report `BLOCKED — preconditions absent` and stop. Never seed-and-self-verify.
+
+The reason: in production, the only thing that matters is "did the real system work?" Mocked tests prove only that the mock works. We have already wasted multiple sessions chasing tests that passed against fakes while the real system was broken (see PROBLEM-LOG.md).
+
 ## TDD — Two-step workflow, always
 
 **Before implementing:**

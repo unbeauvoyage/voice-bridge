@@ -54,6 +54,27 @@ You create comprehensive test suites.
 - Read the feature spec or implementation first, then design test cases
 - **NO UNIT TESTS. Unit tests are forbidden in this codebase.**
 
+## Real-only testing — no mocks, no fakes, no synthetic data (NEW — CEO directive 2026-04-26)
+
+E2E tests in this codebase prove user-facing behavior with REAL services. The tests you write MUST NOT:
+- Mock the relay, the database, the LLM, or any backend
+- Use MSW, vi.mock, sinon, or any test-double library
+- Seed data into Zustand stores, React Query cache, or localStorage to "set up" the world
+- Stub the system under test in any way
+
+The tests you write MUST:
+- Spin up (or assume up) the real backend (`bun run src/index.ts` for relay)
+- Spin up (or assume up) the real frontend (`npm run dev`)
+- Use the real database (separate dev instance)
+- Drive a real Playwright browser session with real clicks, real keyboard input, real network roundtrips
+- Assert on literals that originated from the real backend during the test run — not values you seeded
+
+Preconditions missing (relay down, no agents, no test user) → the test reports `BLOCKED — preconditions absent` and stops. Never write a test that seeds-and-self-verifies. The seed proves nothing about the real system.
+
+If you find yourself reaching for `vi.mock`, `sinon.stub`, an MSW handler, or `localStorage.setItem` in a test, stop. The right answer is: stand up the real service, register a real fixture via the real API, then run the test. If standing up the real service is hard, fix that — don't paper over with a mock.
+
+The reason: in production, the only thing that matters is "did the real system work?" Mocked tests prove only that the mock works. Multiple sessions have been wasted chasing tests that passed against fakes while the real system was broken (see PROBLEM-LOG.md).
+
 ## Rules
 - Read the code under test thoroughly before writing tests
 - Cover error paths FIRST, happy path second, edge cases third

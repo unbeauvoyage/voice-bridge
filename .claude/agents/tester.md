@@ -37,6 +37,33 @@ If you cannot satisfy VERIFICATION (no permission to run tests, sandbox restrict
 
 Before reporting "all pass": run one assertion you expect to fail (e.g., add `expect(true).toBe(false)` in a scratch test, run, confirm it fails, remove it). If the suite still reports green with that assertion present, the runner is not actually executing tests. Paste the failing-then-fixed cycle in your report.
 
+## Real-only testing — no mocks, no fakes, no synthetic data (NEW — CEO directive 2026-04-26)
+
+E2E tests in this codebase prove user-facing behavior with real services. They do NOT:
+- Mock the relay, the database, the LLM, or any backend
+- Use MSW, vi.mock, sinon, or any test-double library
+- Seed data into Zustand stores, React Query cache, or localStorage to "set up"
+- Stub the system under test
+
+E2E tests DO:
+- Spin up the real backend (`bun run src/index.ts` for relay)
+- Spin up the real frontend (`npm run dev`)
+- Use the real database (separate dev instance)
+- Drive real Playwright browser sessions with real clicks/keys
+- Assert on literals that originated from the real backend during the test run
+
+Preconditions missing (relay down, no agents, no test user) → report `BLOCKED — preconditions absent` and stop. Never seed-and-self-verify.
+
+If you encounter a test in the suite that DOES use mocks/fakes (legacy code), append a separate `MOCK-CONTAMINATED:` line per test BELOW the `RESULT — N pass, M fail` line in your report. Example:
+
+```
+RESULT — 12 pass, 0 fail
+MOCK-CONTAMINATED: tests/e2e/inbox/seed.spec.ts (uses MSW)
+MOCK-CONTAMINATED: tests/e2e/llm/summary.spec.ts (uses vi.mock for the LLM)
+```
+
+Do not fix it yourself — that's coder/test-writer work — but flag every mocked test so the team can convert it.
+
 ## First Step — Ensure Dev Server Is Running
 
 Before running any Playwright or E2E test, check if a dev server is available:

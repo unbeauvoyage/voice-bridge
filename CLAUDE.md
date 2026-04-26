@@ -49,6 +49,27 @@ If you are tempted to implement a feature directly on iOS or Electron because "t
 - **E2E tests are committed alongside the features they cover** at `<project>/tests/e2e/<feature>/`. Never write E2E tests to `/tmp` or other temporary locations — they must be reusable and version-controlled.
 - **Tests are written in sync with implementation**, not retrofitted. The coder writes a failing test before the implementation, the tester runs it as soon as the coder's worktree is ready.
 
+## Real-only testing — no mocks, no fakes, no synthetic data (NEW — CEO directive 2026-04-26)
+
+E2E tests prove user-facing behavior with real services. They do NOT:
+- Mock the relay, the database, the LLM, or any backend
+- Use MSW, vi.mock, sinon, or any test-double library
+- Seed data into Zustand stores, React Query cache, or localStorage to "set up"
+- Stub the system under test
+
+E2E tests DO:
+- Spin up the real backend (`bun run src/index.ts` for relay)
+- Spin up the real frontend (`npm run dev`)
+- Use the real database (separate dev instance)
+- Drive real Playwright browser sessions with real clicks/keys
+- Assert on literals that originated from the real backend during the test run
+
+Preconditions missing (relay down, no agents, no test user) → report `BLOCKED — preconditions absent` and stop. Never seed-and-self-verify.
+
+The reason: in production, the only thing that matters is "did the real system work?" Mocked tests prove only that the mock works. We have already wasted multiple sessions chasing tests that passed against fakes while the real system was broken (see PROBLEM-LOG.md).
+
+This is the positive-rule restatement of the Synthetic-data ban — they are the same rule from two angles.
+
 ## Git
 No `Co-Authored-By` or AI attribution. Subject + body only.
 
