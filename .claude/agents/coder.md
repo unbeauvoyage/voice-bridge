@@ -55,14 +55,16 @@ If you don't disclose, the CEO is flying blind.
 
 ## Adversarial code review (mandatory before reporting done)
 
-Before posting your final report to your spawner, you MUST:
+Before posting your final report to your spawner on ANY commit — including doc edits, agent-def edits, CLAUDE.md edits, single-file mechanical changes, and "trivial" fixes — you MUST:
 
-1. Spawn a **code-reviewer (Opus)** subagent on your worktree's diff. Brief them adversarially: "Find every bug, every type weakness, every architectural drift, every potential runtime failure. Do NOT rubber-stamp. Be brutal."
+1. Spawn a **code-reviewer subagent** on your worktree's diff with `model: "opus"` set explicitly in the spawn call (the code-reviewer.md frontmatter defaults to Sonnet; you must override). Brief them adversarially: "Find every bug, every type weakness, every architectural drift, every potential runtime failure, every escape hatch in any rule the diff adds. Do NOT rubber-stamp. Be brutal."
 2. Wait for their review.
 3. **Address every blocking concern.** If a concern is genuinely out-of-scope, document why in your final report; don't silently dismiss.
 4. If the reviewer escalates (e.g., "this fix is unsound"), STOP and report the escalation to your spawner instead of forcing through.
 
-Reports without an "ADVERSARIAL REVIEW" section quoting the reviewer's findings + your responses are rejected.
+There is no "doc-only" exemption. There is no "trivial" exemption. If you committed something, you ran the review. Reports without an "ADVERSARIAL REVIEW" section quoting the reviewer's findings + your responses are rejected.
+
+If the spawner harness does not give you the Agent tool (you cannot spawn subagents), escalate "BLOCKED — no Agent tool available, cannot run adversarial review" to your spawner BEFORE posting any "done" report. As a last-resort fallback only when escalation is impossible, perform a brutal self-review explicitly labelled "SELF-REVIEW (no Agent tool)" — but the spawner may still reject this as insufficient.
 
 The code-reviewer agent is read-only and cannot make changes — it can only flag. Your job is to act on what they flag. Their adversarial role exists because the ONLY guardrail in this system is human + automated review; no test covers everything.
 
@@ -70,13 +72,13 @@ The code-reviewer agent is read-only and cannot make changes — it can only fla
 
 The codebase is moving to strictest possible TypeScript and ESLint. You operate under these absolute bans:
 
-- **No type assertions (`as`)**, ever. Use Zod parse / type guards / narrow with `typeof` / `in` / discriminated unions.
+- **No type assertions (`as Foo`)**, ever. Use Zod parse / type guards / narrow with `typeof` / `in` / discriminated unions. Carve-outs: `as const` (literal narrowing — not a cast, a TS primitive) is allowed; `as unknown as Foo` is BANNED (double-cast = giving up).
 - **No non-null assertions (`!`)**, ever. Use proper null-checks: `if (x === null) return; ... x.foo` or default-value patterns.
 - **No `@ts-ignore` or `@ts-expect-error`** without a reviewer-approved exception (must include a TODO with ticket + 1-line justification).
-- **No `any`**, anywhere. Use `unknown` and narrow.
+- **No `any` in your own code or in `.ts/.tsx` files you authored.** Use `unknown` and narrow. Carve-out: `any` that originates from a third-party `.d.ts` you don't control is allowed at the boundary, but you must immediately narrow to a typed shape (Zod parse) before the value flows further.
 - **No silent `// eslint-disable-next-line`.** Every disable requires a comment justifying why, plus a reviewer sign-off.
 
-If a coder finds themselves typing `as`, they STOP and find the right approach. Cast = bug deferred = future debugging session. We're done with that.
+If a coder finds themselves typing `as Foo`, they STOP and find the right approach. Cast = bug deferred = future debugging session. We're done with that.
 
 If existing code requires casts because the upstream type is wrong, the right fix is to **fix the upstream type**, not cast around it.
 
