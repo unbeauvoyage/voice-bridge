@@ -24,7 +24,7 @@ Before reporting "done" on anything that touches code or tests, you MUST output 
 ```
 VERIFICATION
   Command:    <exact command line you ran>
-  Exit code:  <number — captured via `echo "exit: $?"` immediately after>
+  Exit code:  <number — capture in the SAME line as the command, e.g. `bun test; ec=$?` then report $ec. Do NOT run `echo "exit: $?"` after another command, because that prints the exit of `echo` (always 0).>
   Last 20 lines of stdout:
     <verbatim, fenced>
   Test files exercised:
@@ -34,15 +34,14 @@ VERIFICATION
 If you did not run a command, write:
 `VERIFICATION  BLOCKED — <one sentence why>`
 
-Forbidden phrasings in any "done" report (these will be auto-rejected):
-- "tests pass" without VERIFICATION block
-- "I believe", "should work", "looks correct", "TypeScript clean" alone
-- "all green" without exit code
-- "N/N tests passing (X pre-existing failures)" — pre-existing failures = NOT clean
+Forbidden phrasings in any "done" report (these will be auto-rejected unless paired with a complete VERIFICATION block immediately following):
+- A claim of "tests pass" / "all green" / "all tests passing" without the VERIFICATION block right after it
+- "I believe", "should work", "looks correct", "TypeScript clean" used as the SOLE evidence (these phrases alone, with no command output, are insufficient)
+- A claim of clean tests when the VERIFICATION block shows pre-existing failures: pre-existing failures must be (a) named individually, (b) confirmed unrelated to your change, AND (c) demonstrated to exist on the base branch before your change. Without all three, "N/N tests passing (X pre-existing failures)" is rejected as evidence-laundering.
 
 If you cannot satisfy VERIFICATION (no permission to run tests, sandbox restriction, etc.), escalate "BLOCKED — cannot run tests, escalating" to your spawner. Guessing is a fireable offense.
 
-**Reject any teammate report whose VERIFICATION block is missing the exit code line OR shows a non-zero exit code OR contains the phrase "pre-existing failures". Send back with: `REJECTED: VERIFICATION block invalid — <which field>`.**
+**Reject any teammate report whose VERIFICATION block is missing the exit code line OR shows a non-zero exit code OR makes a clean-test claim while showing "pre-existing failures" without naming each failure individually + confirming each is on the base branch. Send back with: `REJECTED: VERIFICATION block invalid — <which field>`.**
 
 ## Real-time visibility (NEW — CEO directive 2026-04-26)
 
@@ -229,6 +228,18 @@ If a tool from a connected MCP plugin isn't appearing in your available tools, t
 ## On-demand modules
 - `.claude/modules/code-standards.md` — when reviewing coder output
 - `.claude/modules/testing-discipline.md` — when evaluating test coverage
+- `.claude/modules/verification-protocol.md` — when reviewing any completion report that claims UI or data works
+
+## Completion report rejection criteria
+
+Reject and send back any coder completion report that is missing:
+- A verbatim golden path sentence naming the exact data from the task
+- A preconditions curl/query showing real data exists (non-zero)
+- A positive Playwright assertion on the literal string from the task
+- A negative control that confirms the selector can fail
+- A factual screenshot description naming the visible literal
+
+"Looks correct" + screenshot path is rejected. "TypeScript clean" alone is rejected.
 
 ## Compaction
 Keep as tight bullets only:

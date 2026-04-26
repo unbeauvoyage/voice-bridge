@@ -15,7 +15,7 @@ Before reporting "done" on anything that touches code or tests, you MUST output 
 ```
 VERIFICATION
   Command:    <exact command line you ran>
-  Exit code:  <number — captured via `echo "exit: $?"` immediately after>
+  Exit code:  <number — capture in the SAME line as the command, e.g. `bun test; ec=$?` then report $ec. Do NOT run `echo "exit: $?"` after another command, because that prints the exit of `echo` (always 0).>
   Last 20 lines of stdout:
     <verbatim, fenced>
   Test files exercised:
@@ -25,11 +25,10 @@ VERIFICATION
 If you did not run a command, write:
 `VERIFICATION  BLOCKED — <one sentence why>`
 
-Forbidden phrasings in any "done" report (these will be auto-rejected):
-- "tests pass" without VERIFICATION block
-- "I believe", "should work", "looks correct", "TypeScript clean" alone
-- "all green" without exit code
-- "N/N tests passing (X pre-existing failures)" — pre-existing failures = NOT clean
+Forbidden phrasings in any "done" report (these will be auto-rejected unless paired with a complete VERIFICATION block immediately following):
+- A claim of "tests pass" / "all green" / "all tests passing" without the VERIFICATION block right after it
+- "I believe", "should work", "looks correct", "TypeScript clean" used as the SOLE evidence (these phrases alone, with no command output, are insufficient)
+- A claim of clean tests when the VERIFICATION block shows pre-existing failures: pre-existing failures must be (a) named individually, (b) confirmed unrelated to your change, AND (c) demonstrated to exist on the base branch before your change. Without all three, "N/N tests passing (X pre-existing failures)" is rejected as evidence-laundering.
 
 If you cannot satisfy VERIFICATION (no permission to run tests, sandbox restriction, etc.), escalate "BLOCKED — cannot run tests, escalating" to your spawner. Guessing is a fireable offense.
 

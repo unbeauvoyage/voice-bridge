@@ -14,7 +14,7 @@ Before reporting "done" on anything that touches code or tests, you MUST output 
 ```
 VERIFICATION
   Command:    <exact command line you ran>
-  Exit code:  <number — captured via `echo "exit: $?"` immediately after>
+  Exit code:  <number — capture in the SAME line as the command, e.g. `bun test; ec=$?` then report $ec. Do NOT run `echo "exit: $?"` after another command, because that prints the exit of `echo` (always 0).>
   Last 20 lines of stdout:
     <verbatim, fenced>
   Test files exercised:
@@ -24,11 +24,10 @@ VERIFICATION
 If you did not run a command, write:
 `VERIFICATION  BLOCKED — <one sentence why>`
 
-Forbidden phrasings in any "done" report (these will be auto-rejected):
-- "tests pass" without VERIFICATION block
-- "I believe", "should work", "looks correct", "TypeScript clean" alone
-- "all green" without exit code
-- "N/N tests passing (X pre-existing failures)" — pre-existing failures = NOT clean
+Forbidden phrasings in any "done" report (these will be auto-rejected unless paired with a complete VERIFICATION block immediately following):
+- A claim of "tests pass" / "all green" / "all tests passing" without the VERIFICATION block right after it
+- "I believe", "should work", "looks correct", "TypeScript clean" used as the SOLE evidence (these phrases alone, with no command output, are insufficient)
+- A claim of clean tests when the VERIFICATION block shows pre-existing failures: pre-existing failures must be (a) named individually, (b) confirmed unrelated to your change, AND (c) demonstrated to exist on the base branch before your change. Without all three, "N/N tests passing (X pre-existing failures)" is rejected as evidence-laundering.
 
 If you cannot satisfy VERIFICATION (no permission to run tests, sandbox restriction, etc.), escalate "BLOCKED — cannot run tests, escalating" to your spawner. Guessing is a fireable offense.
 
@@ -36,7 +35,7 @@ If you cannot satisfy VERIFICATION (no permission to run tests, sandbox restrict
 
 Every progress message you send (mid-work, end-of-task, escalation) MUST include:
 
-- **Files I'm currently editing**: absolute paths, one per line. The CEO opens these in VSCode to follow along live.
+- **Files I'm currently editing**: absolute paths, one per line. List the cumulative set of files you have modified in THIS task so far (not just the single file you're typing into right now). The CEO opens these in VSCode to follow along live.
 - **Worktree path**: absolute path to the git worktree. (If editing the live tree directly because no worktree, say so explicitly.)
 - **Merge status**: one of `worktree-only` | `committed-not-pushed` | `pushed-not-merged` | `merged-to-dev` | `merged-to-main`.
 - **Branch name**: explicitly named.
@@ -63,6 +62,8 @@ Before posting your final report to your spawner on ANY commit — including doc
 4. If the reviewer escalates (e.g., "this fix is unsound"), STOP and report the escalation to your spawner instead of forcing through.
 
 There is no "doc-only" exemption. There is no "trivial" exemption. If you committed something, you ran the review. Reports without an "ADVERSARIAL REVIEW" section quoting the reviewer's findings + your responses are rejected.
+
+**Blast-radius rule (the WHY):** Adversarial review applies to (a) code, (b) tests, (c) agent defs, (d) CLAUDE.md edits — anything whose blast radius is non-local. Agent-def files are uniquely high-blast-radius: a single ambiguous sentence becomes the rule for hundreds of future spawned agents. A subtly wrong rule in coder.md is worse than a subtly wrong runtime check, because it propagates silently across every future task. When you cannot tell whether your change is non-local in blast radius, treat it as if it is.
 
 If the spawner harness does not give you the Agent tool (you cannot spawn subagents), escalate "BLOCKED — no Agent tool available, cannot run adversarial review" to your spawner BEFORE posting any "done" report. As a last-resort fallback only when escalation is impossible, perform a brutal self-review explicitly labelled "SELF-REVIEW (no Agent tool)" — but the spawner may still reject this as insufficient.
 
