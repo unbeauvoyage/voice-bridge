@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# PostToolUse hook — runs tsc + matching unit test on every TypeScript file edit
+# PostToolUse hook — runs tsc + matching unit test on every TypeScript file edit,
+# and marks the session "dirty" for any source-code file so stop-gate.sh can block.
 # Input: JSON on stdin with tool_name, tool_input, session_id
 # Exit 0 always — never block the edit, just report errors
 
 INPUT=$(cat)
+SESSION=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('session_id','unknown'))" 2>/dev/null)
 
 # Extract the file path using python3 (already a dependency in the system)
 FILE=$(echo "$INPUT" | python3 -c "
@@ -18,16 +20,24 @@ if [[ -z "$FILE" ]]; then
   exit 0
 fi
 
-# Skip if not a .ts or .tsx file
-if [[ ! "$FILE" =~ \.(ts|tsx)$ ]]; then
-  exit 0
-fi
-
 # Skip ignored directories (NOT worktrees — coders work there and need error feedback)
 if [[ "$FILE" =~ /node_modules/ ]] || \
    [[ "$FILE" =~ /dist/ ]] || \
    [[ "$FILE" =~ /build/ ]] || \
    [[ "$FILE" =~ /out/ ]]; then
+  exit 0
+fi
+
+# Mark session dirty for any source-code file so the Stop gate can block until
+# tests run. Match what stop-gate.sh / on-bash.sh expect: /tmp/tg-dirty-{session}-{cwd-hash}
+if [[ "$FILE" =~ \.(ts|tsx|js|jsx|py|swift|go|rs|mjs|cjs)$ ]]; then
+  CWD_HASH=$(echo "$PWD" | md5sum | cut -c1-8)
+  DIRTY_FILE="/tmp/tg-dirty-${SESSION}-${CWD_HASH}"
+  echo "$(date +%s) $FILE" >> "$DIRTY_FILE"
+fi
+
+# Skip the rest (tsc/eslint/test) if not a .ts or .tsx file
+if [[ ! "$FILE" =~ \.(ts|tsx)$ ]]; then
   exit 0
 fi
 
