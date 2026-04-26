@@ -1,0 +1,23 @@
+#!/usr/bin/env sh
+
+# Pre-commit hook for the environment monorepo.
+# Routes checks to each sub-project based on what files are staged.
+
+# ── voice-bridge2 ──────────────────────────────────────────────────────────────
+VB2_STAGED=$(git diff --cached --name-only -- 'projects/voice-bridge2/src/**' 'projects/voice-bridge2/server/**' 2>/dev/null | head -1)
+
+if [ -n "$VB2_STAGED" ]; then
+  echo "--- voice-bridge2: TypeScript check ---"
+  (cd projects/voice-bridge2 && npm run typecheck)
+  if [ $? -ne 0 ]; then
+    echo "BLOCKED: voice-bridge2 TypeScript errors. Fix before committing."
+    exit 1
+  fi
+
+  echo "--- voice-bridge2: ESLint check ---"
+  (cd projects/voice-bridge2 && npx lint-staged)
+  if [ $? -ne 0 ]; then
+    echo "BLOCKED: voice-bridge2 ESLint errors. Fix before committing."
+    exit 1
+  fi
+fi

@@ -53,7 +53,7 @@ get_worklog_dir() {
     knowledge-base)  echo "$HOME/environment/projects/knowledge-base/.worklog" ;;
     productivitesse) echo "$HOME/environment/projects/productivitesse/.worklog" ;;
     message-relay)   echo "$HOME/environment/message-relay/.worklog" ;;
-    voice-bridge)    echo "$HOME/environment/projects/voice-bridge/.worklog" ;;
+    voice-bridge)    echo "$HOME/environment/projects/voice-bridge2/.worklog" ;;
     myenglishbook)   echo "$HOME/environment/projects/myenglishbook/.worklog" ;;
     *)               echo "$HOME/environment/projects/$team/.worklog" ;;
   esac

@@ -145,7 +145,7 @@ See `FORMATS.md` for schemas of all files in these directories.
 | Path | Session | Purpose |
 |------|---------|---------|
 | `projects/productivitesse/` | productivitesse | CEO dashboard (React Three Fiber + Electron + Capacitor) |
-| `projects/voice-bridge/` | voice-bridge | Voice I/O (Bun + Electron + Whisper) |
+| `projects/voice-bridge2/` | voice-bridge | Voice I/O (Bun + Electron + Whisper) |
 | `projects/knowledge-base/` | knowledge-base | Video/web transcript analyzer |
 | `jarvis/` | jarvis | Voice router — CEO voice → correct agent |
 | `agency/` | various | Market research (routers, biz, bicycles, etc.) |

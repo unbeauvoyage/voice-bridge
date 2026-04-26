@@ -15,6 +15,24 @@
 import { describe, test, expect } from 'bun:test'
 import { checkDedupEntry, isWhisperHallucination, type DedupEntry } from './dedup.ts'
 
+/** Type predicate: narrows unknown to a plain JSON object. */
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v)
+}
+
+/** Parses a response body as a Record for test assertions. Throws if not an object. */
+async function jsonBody(res: Response): Promise<Record<string, unknown>> {
+  const v: unknown = await res.json()
+  if (!isRecord(v)) throw new Error(`Expected JSON object, got: ${JSON.stringify(v)}`)
+  return v
+}
+
+/** Asserts a value is defined, throws otherwise. */
+function assertDefined<T>(x: T | undefined | null, msg: string): T {
+  if (x === undefined || x === null) throw new Error(msg)
+  return x
+}
+
 const CORS = { 'Access-Control-Allow-Origin': '*' }
 
 // ---------------------------------------------------------------------------
@@ -39,8 +57,7 @@ describe('checkDedupEntry — already-resolved entry (no wait needed)', () => {
     expect(result.kind).toBe('response')
     if (result.kind !== 'response') return
     expect(result.response.status).toBe(200)
-    const body: unknown = await result.response.json()
-    const obj = body as Record<string, unknown>
+    const obj = await jsonBody(result.response)
     expect(obj['transcript']).toBe('hello world')
     expect(obj['to']).toBe('command')
     expect(obj['deduplicated']).toBe(true)
@@ -49,7 +66,12 @@ describe('checkDedupEntry — already-resolved entry (no wait needed)', () => {
   })
 
   test('returned response includes CORS headers', async () => {
-    const existing: DedupEntry = { ts: Date.now(), transcript: 'test', to: 'atlas', message: 'test' }
+    const existing: DedupEntry = {
+      ts: Date.now(),
+      transcript: 'test',
+      to: 'atlas',
+      message: 'test'
+    }
     const map = new Map<string, DedupEntry>([['h', existing]])
     const result = await checkDedupEntry(existing, 'h', map, 1000, CORS)
     if (result.kind !== 'response') throw new Error('expected response')
@@ -73,7 +95,7 @@ describe('checkDedupEntry — already-cancelled entry (hallucination cached)', (
 
     expect(result.kind).toBe('response')
     if (result.kind !== 'response') return
-    const body = await result.response.json() as Record<string, unknown>
+    const body = await jsonBody(result.response)
     expect(body['cancelled']).toBe(true)
     expect(body['reason']).toBe('whisper-hallucination')
     expect(body['deduplicated']).toBe(true)
@@ -92,10 +114,8 @@ describe('checkDedupEntry — already-cancelled entry (hallucination cached)', (
 
 describe('checkDedupEntry — inProgress wait: original becomes cancelled', () => {
   test('returns cached cancelled when original upgrades entry to cancelled mid-wait', async () => {
-    const map = new Map<string, DedupEntry>([
-      ['h3', { ts: Date.now(), inProgress: true }]
-    ])
-    const existing = map.get('h3')!
+    const map = new Map<string, DedupEntry>([['h3', { ts: Date.now(), inProgress: true }]])
+    const existing = assertDefined(map.get('h3'), 'expected h3 entry in map')
 
     // After ~350ms (> one 300ms poll), upgrade the entry to cancelled
     setTimeout(() => {
@@ -106,7 +126,7 @@ describe('checkDedupEntry — inProgress wait: original becomes cancelled', () =
 
     expect(result.kind).toBe('response')
     if (result.kind !== 'response') return
-    const body = await result.response.json() as Record<string, unknown>
+    const body = await jsonBody(result.response)
     expect(body['cancelled']).toBe(true)
     expect(body['reason']).toBe('whisper-hallucination')
     expect(body['deduplicated']).toBe(true)
@@ -124,21 +144,24 @@ describe('checkDedupEntry — inProgress wait: original becomes cancelled', () =
 
 describe('checkDedupEntry — inProgress wait: original resolves successfully', () => {
   test('returns cached resolved result when original completes mid-wait', async () => {
-    const map = new Map<string, DedupEntry>([
-      ['h4', { ts: Date.now(), inProgress: true }]
-    ])
-    const existing = map.get('h4')!
+    const map = new Map<string, DedupEntry>([['h4', { ts: Date.now(), inProgress: true }]])
+    const existing = assertDefined(map.get('h4'), 'expected h4 entry in map')
 
     // After ~350ms, simulate the original completing delivery
     setTimeout(() => {
-      map.set('h4', { ts: Date.now(), transcript: 'fix the bug', to: 'atlas', message: 'fix the bug' })
+      map.set('h4', {
+        ts: Date.now(),
+        transcript: 'fix the bug',
+        to: 'atlas',
+        message: 'fix the bug'
+      })
     }, 350)
 
     const result = await checkDedupEntry(existing, 'h4', map, 2000, CORS)
 
     expect(result.kind).toBe('response')
     if (result.kind !== 'response') return
-    const body = await result.response.json() as Record<string, unknown>
+    const body = await jsonBody(result.response)
     expect(body['transcript']).toBe('fix the bug')
     expect(body['to']).toBe('atlas')
     expect(body['deduplicated']).toBe(true)
@@ -157,10 +180,8 @@ describe('checkDedupEntry — inProgress wait: original resolves successfully', 
 
 describe('checkDedupEntry — inProgress wait: original fails (entry deleted)', () => {
   test('returns fallthrough when entry is deleted mid-wait (original failed)', async () => {
-    const map = new Map<string, DedupEntry>([
-      ['h5', { ts: Date.now(), inProgress: true }]
-    ])
-    const existing = map.get('h5')!
+    const map = new Map<string, DedupEntry>([['h5', { ts: Date.now(), inProgress: true }]])
+    const existing = assertDefined(map.get('h5'), 'expected h5 entry in map')
 
     // After ~350ms, simulate the original failing and deleting its entry
     setTimeout(() => {

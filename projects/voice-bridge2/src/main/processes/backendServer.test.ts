@@ -124,6 +124,73 @@ describe('createBackendServerController', () => {
     expect(ctrl.isRunning()).toBe(false)
   })
 
+  test('auto-restarts after non-zero exit', async () => {
+    const h = makeHarness()
+    const ctrl = createBackendServerController(h.cfg)
+    ctrl.start()
+    expect(h.calls).toHaveLength(1)
+    const first = h.procs[0]
+    if (!first) throw new Error('expected proc')
+    // Simulate crash (non-zero exit)
+    first.emit('exit', 1)
+    expect(ctrl.isRunning()).toBe(false)
+    // Wait for the 2s auto-restart timer
+    await new Promise((r) => setTimeout(r, 2100))
+    expect(h.calls).toHaveLength(2)
+    expect(ctrl.isRunning()).toBe(true)
+  })
+
+  test('does not auto-restart after clean exit (code 0)', async () => {
+    const h = makeHarness()
+    const ctrl = createBackendServerController(h.cfg)
+    ctrl.start()
+    const first = h.procs[0]
+    if (!first) throw new Error('expected proc')
+    first.emit('exit', 0)
+    await new Promise((r) => setTimeout(r, 2500))
+    // Should still be just 1 spawn call — no auto-restart
+    expect(h.calls).toHaveLength(1)
+  })
+
+  // stop() sets the intentionalStop flag before sending SIGTERM. When the process
+  // exits with null code (signal kill), the flag prevents auto-restart — the stop
+  // was deliberate.
+  test('does not auto-restart after intentional stop() (exit code null)', async () => {
+    const h = makeHarness()
+    const ctrl = createBackendServerController(h.cfg)
+    ctrl.start()
+    expect(h.calls).toHaveLength(1)
+    const first = h.procs[0]
+    if (!first) throw new Error('expected proc')
+    ctrl.stop() // intentionalStop = true
+    // Simulate SIGTERM: node child_process emits exit with null code when killed by signal
+    first.emit('exit', null)
+    expect(ctrl.isRunning()).toBe(false)
+    // Wait past the 2s auto-restart window
+    await new Promise((r) => setTimeout(r, 2500))
+    // Must remain at 1 spawn — intentional stop must NOT trigger auto-restart
+    expect(h.calls).toHaveLength(1)
+  })
+
+  // An external kill (not via stop()) sends SIGTERM and exits with null code.
+  // Without the intentionalStop flag, the controller should auto-restart because
+  // the server going down unexpectedly is a crash, not a planned stop.
+  test('auto-restarts after external kill (exit code null, stop() not called)', async () => {
+    const h = makeHarness()
+    const ctrl = createBackendServerController(h.cfg)
+    ctrl.start()
+    expect(h.calls).toHaveLength(1)
+    const first = h.procs[0]
+    if (!first) throw new Error('expected proc')
+    // Simulate external kill: null code, but stop() was never called
+    first.emit('exit', null)
+    expect(ctrl.isRunning()).toBe(false)
+    // Wait for the 2s auto-restart timer
+    await new Promise((r) => setTimeout(r, 2100))
+    expect(h.calls).toHaveLength(2)
+    expect(ctrl.isRunning()).toBe(true)
+  })
+
   // After stop() sends SIGTERM, the OS process is still alive until it emits 'exit'.
   // isRunning() must return true between the SIGTERM and the exit event — it must NOT
   // return false prematurely because stop() nulled proc before exit fired.

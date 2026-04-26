@@ -6,6 +6,7 @@
  */
 
 import { OLLAMA_BASE_URL_DEFAULT, OLLAMA_TIMEOUT_MS } from './config.ts'
+import { logger } from './logger.ts'
 
 const DEFAULT_OLLAMA_URL = OLLAMA_BASE_URL_DEFAULT
 const OLLAMA_MODEL = 'llama3.2:latest'
@@ -72,7 +73,7 @@ export function shouldLlmRoute(transcript: string): boolean {
 function preParseTranscript(transcript: string): { fragment: string; message: string } | null {
   for (const pattern of ADDRESSING_PATTERNS) {
     const m = transcript.match(pattern)
-    if (m && m[1] && m[2]) {
+    if (m !== null && m[1] !== undefined && m[2] !== undefined) {
       const fragment = m[1].trim()
       const message = m[2].trim()
       // Only return if fragment is reasonably short (1-5 words — agent names)
@@ -101,14 +102,14 @@ export async function llmRoute(
   // Fast path: "to X please" — match agent name directly against known agents.
   // This handles the common case without requiring Ollama to be running.
   const toXMatch = transcript.match(/^(?:to\s+)?(.+?)\s+please\b/is)
-  if (toXMatch && toXMatch[1]) {
+  if (toXMatch !== null && toXMatch[1] !== undefined) {
     const spoken = toXMatch[1].trim().toLowerCase().replace(/\s+/g, '-')
     const match = knownAgents.find((a) => {
       const norm = a.toLowerCase().replace(/\s+/g, '-')
       return norm === spoken || norm.replace(/-/g, ' ') === spoken.replace(/-/g, ' ')
     })
-    if (match) {
-      console.log(`[llmRoute] fast-path: "${spoken}" → "${match}"`)
+    if (match !== undefined) {
+      logger.info({ component: 'llmRoute', spoken, match }, 'fast_path_match')
       return { agent: match, message: transcript, agentChanged: match !== fallbackAgent }
     }
   }
@@ -136,7 +137,7 @@ export async function llmRoute(
     `Respond with JSON {"agent": string | null}`
 
   try {
-    const ollamaUrl = process.env.OLLAMA_URL ?? DEFAULT_OLLAMA_URL
+    const ollamaUrl = process.env['OLLAMA_URL'] ?? DEFAULT_OLLAMA_URL
     const res = await fetch(ollamaUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -151,7 +152,7 @@ export async function llmRoute(
     })
 
     if (!res.ok) {
-      console.warn(`[llmRoute] Ollama returned ${res.status} — falling back`)
+      logger.warn({ component: 'llmRoute', status: res.status }, 'ollama_non_ok_falling_back')
       return { agent: fallbackAgent, message: transcript, agentChanged: false }
     }
 
@@ -173,7 +174,10 @@ export async function llmRoute(
     }
 
     if (llmParsed.agent === null || llmParsed.agent === undefined || llmParsed.agent === '') {
-      console.log(`[llmRoute] no match for "${fragmentToMatch}" → sticky "${fallbackAgent}"`)
+      logger.info(
+        { component: 'llmRoute', fragment: fragmentToMatch, sticky: fallbackAgent },
+        'no_match_keeping_sticky'
+      )
       return { agent: fallbackAgent, message: transcript, agentChanged: false }
     }
 
@@ -182,13 +186,13 @@ export async function llmRoute(
         ? llmParsed.agent.trim().toLowerCase().replace(/\s+/g, '-')
         : null
 
-    if (!agentNorm) {
+    if (agentNorm === null) {
       return { agent: fallbackAgent, message: transcript, agentChanged: false }
     }
 
     // Guard: never switch to "command" unless explicitly said
     if (agentNorm === 'command' && !/\bcommand\b/i.test(transcript)) {
-      console.log(`[llmRoute] LLM returned "command" but transcript lacks it — keeping sticky`)
+      logger.info({ component: 'llmRoute', transcript }, 'command_guard_keeping_sticky')
       return { agent: fallbackAgent, message: transcript, agentChanged: false }
     }
 
@@ -197,12 +201,13 @@ export async function llmRoute(
       knownNorm.length === 0 || knownNorm.includes(agentNorm) ? agentNorm : fallbackAgent
     const agentChanged = agent !== fallbackAgent
 
-    console.log(
-      `[llmRoute] fragment="${fragmentToMatch}" → agent="${agent}" (changed=${agentChanged})`
+    logger.info(
+      { component: 'llmRoute', fragment: fragmentToMatch, agent, agentChanged },
+      'agent_resolved'
     )
     return { agent, message: messageBody, agentChanged }
   } catch (err) {
-    console.warn('[llmRoute] error:', String(err))
+    logger.warn({ component: 'llmRoute', error: err }, 'llm_error_falling_back')
     return { agent: fallbackAgent, message: transcript, agentChanged: false }
   }
 }

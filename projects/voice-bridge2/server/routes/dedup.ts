@@ -3,6 +3,8 @@
  *
  * Extracted from transcribe.ts to keep concerns separated:
  * - DedupEntry type: the three-variant discriminated union for dedup state
+ * - hashAudioBuffer: SHA-256 fingerprint of an audio buffer (dedup key)
+ * - evictStaleHashes: prune expired entries from the dedup map
  * - checkDedupEntry: resolves what to do when a duplicate audio hash is seen
  * - isWhisperHallucination: tests whether a transcript + RMS should be suppressed
  *
@@ -14,10 +16,37 @@
  */
 
 import {
-  DEDUP_WAIT_DEADLINE_MS,
+  DEDUP_WINDOW_MS,
   WHISPER_HALLUCINATION_PHRASES,
   WHISPER_HALLUCINATION_RMS_THRESHOLD
 } from '../config.ts'
+import { logger } from '../logger.ts'
+
+// ─── Hash + eviction ─────────────────────────────────────────────────────────
+
+/**
+ * SHA-256 fingerprint of an audio buffer, truncated to 16 hex chars.
+ * Used as the dedup map key — short enough to be a fast map key, long enough
+ * to make accidental collisions cosmically unlikely for real audio payloads.
+ */
+export function hashAudioBuffer(buf: Buffer): string {
+  const hasher = new Bun.CryptoHasher('sha256')
+  hasher.update(buf)
+  return hasher.digest('hex').slice(0, 16)
+}
+
+/**
+ * Prune entries older than DEDUP_WINDOW_MS from the dedup map.
+ * Call before inserting a new entry to bound map growth.
+ */
+export function evictStaleHashes(recentAudioHashes: Map<string, DedupEntry>): void {
+  const cutoff = Date.now() - DEDUP_WINDOW_MS
+  for (const [h, entry] of recentAudioHashes) {
+    if (entry.ts < cutoff) recentAudioHashes.delete(h)
+  }
+}
+
+// ─── Dedup state ──────────────────────────────────────────────────────────────
 
 /**
  * Deduplication state: tracks recent audio by hash to prevent WKWebView retries
@@ -40,9 +69,7 @@ export type DedupEntry =
  * - response: a ready-to-return Response (duplicate handled — do not process further)
  * - fallthrough: the original failed mid-wait; the caller should re-process
  */
-export type DedupCheckResult =
-  | { kind: 'response'; response: Response }
-  | { kind: 'fallthrough' }
+export type DedupCheckResult = { kind: 'response'; response: Response } | { kind: 'fallthrough' }
 
 /**
  * Handle a duplicate audio hash: wait for the in-progress original to complete,
@@ -95,11 +122,16 @@ export async function checkDedupEntry(
     if (outcome === 'cancelled' && resolved && 'cancelled' in resolved) {
       // Original detected hallucination — return cached cancelled result.
       // Do NOT re-run whisper; that would just hallucinate again.
-      console.log(`[voice-bridge] duplicate: original was hallucination, returning cached cancelled`)
+      logger.info({ component: 'voice-bridge' }, 'duplicate_original_hallucination_cached')
       return {
         kind: 'response',
         response: Response.json(
-          { transcript: resolved.transcript, cancelled: true, reason: 'whisper-hallucination', deduplicated: true },
+          {
+            transcript: resolved.transcript,
+            cancelled: true,
+            reason: 'whisper-hallucination',
+            deduplicated: true
+          },
           { headers: corsHeaders }
         )
       }
@@ -111,7 +143,7 @@ export async function checkDedupEntry(
       !('cancelled' in resolved) &&
       'to' in resolved
     ) {
-      console.log(`[voice-bridge] duplicate resolved after wait, returning cached transcript`)
+      logger.info({ component: 'voice-bridge' }, 'duplicate_resolved_cached')
       return {
         kind: 'response',
         response: Response.json(
@@ -126,7 +158,7 @@ export async function checkDedupEntry(
       // transcript. 409 Conflict is the honest shape: "there is a
       // conflicting in-flight request for this exact audio; try
       // again shortly."
-      console.log(`[voice-bridge] dedup wait deadline exceeded for hash=${audioHash}`)
+      logger.info({ component: 'voice-bridge', hash: audioHash }, 'dedup_wait_deadline_exceeded')
       return {
         kind: 'response',
         response: Response.json(
@@ -139,15 +171,26 @@ export async function checkDedupEntry(
     // cleared its cache entry. Fall through and re-run transcription
     // + delivery for this duplicate so it gets a real attempt rather
     // than an empty 200.
-    console.log(`[voice-bridge] original failed mid-wait — reprocessing duplicate for hash=${audioHash}`)
+    logger.info(
+      { component: 'voice-bridge', hash: audioHash },
+      'duplicate_original_failed_reprocessing'
+    )
     return { kind: 'fallthrough' }
   } else if ('cancelled' in existing) {
     // Original was a hallucination — return cached cancelled result without re-running whisper.
-    console.log(`[voice-bridge] duplicate: cached hallucination cancellation (hash=${audioHash})`)
+    logger.info(
+      { component: 'voice-bridge', hash: audioHash },
+      'duplicate_cached_hallucination_cancellation'
+    )
     return {
       kind: 'response',
       response: Response.json(
-        { transcript: existing.transcript, cancelled: true, reason: 'whisper-hallucination', deduplicated: true },
+        {
+          transcript: existing.transcript,
+          cancelled: true,
+          reason: 'whisper-hallucination',
+          deduplicated: true
+        },
         { headers: corsHeaders }
       )
     }
@@ -178,7 +221,11 @@ export async function checkDedupEntry(
  * into the mic, Whisper's artifact is a known single-phrase hallucination.
  */
 export function isWhisperHallucination(transcript: string, audioRms: number): boolean {
-  const normalised = transcript.trim().toLowerCase().replace(/[^\w\s]/g, '').trim()
+  const normalised = transcript
+    .trim()
+    .toLowerCase()
+    .replace(/[^\w\s]/g, '')
+    .trim()
   if (!WHISPER_HALLUCINATION_PHRASES.has(normalised)) return false
   return audioRms < WHISPER_HALLUCINATION_RMS_THRESHOLD
 }

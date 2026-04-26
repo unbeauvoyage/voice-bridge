@@ -39,15 +39,25 @@ export type MenuCallbacks = {
   onQuit: () => void
 }
 
-export type TrayLike = {
+export type ConnectionState = 'connected' | 'disconnected' | 'error'
+
+export type MenuStatus = {
+  relay?: ConnectionState
+  whisper?: ConnectionState
+}
+
+// TIcon is the type of icon values (NativeImage in production; opaque token in tests).
+// Defaults to unknown so test fakes and production code can both implement TrayLike
+// without needing a cast at the call site.
+export type TrayLike<TIcon = unknown> = {
   on: (event: 'click' | 'right-click', listener: (...args: unknown[]) => void) => unknown
   popUpContextMenu: (menu: unknown) => void
   // Optional — present on real Electron Tray and on test fakes that exercise
   // the recording indicator. Omitted on fakes that don't care about icons.
-  setImage?: (icon: unknown) => void
+  setImage?: (icon: TIcon) => void
 }
 
-export type TrayDeps = {
+export type TrayDeps<TIcon = unknown> = {
   buildMenu: () => unknown
   showMainWindow: () => void
   hideMainWindow: () => void
@@ -55,8 +65,17 @@ export type TrayDeps = {
   // Icon values to swap on recording state change. Both must be provided for
   // icon swapping to activate. Either may be any value the underlying tray
   // accepts (real nativeImage in production; opaque token in tests).
-  normalIcon?: unknown
-  recordingIcon?: unknown
+  normalIcon?: TIcon
+  recordingIcon?: TIcon
+  // Relay connectivity icons. When provided, setRelayState() swaps the icon
+  // to reflect the relay's health ('disconnected' or 'error'); 'connected'
+  // reverts to normalIcon.
+  relayDisconnectedIcon?: TIcon
+  relayErrorIcon?: TIcon
+  // Whisper-server connectivity icons. When provided, setWhisperState() swaps
+  // the icon to reflect whisper-server health; 'connected' reverts to normalIcon.
+  whisperDisconnectedIcon?: TIcon
+  whisperErrorIcon?: TIcon
 }
 
 export type TrayController = {
@@ -65,11 +84,31 @@ export type TrayController = {
   // Swaps the tray icon between normal and recording states.
   // No-op when `normalIcon`/`recordingIcon` were not provided in deps.
   setRecordingState: (recording: boolean) => void
+  // Relay connectivity indicator. Updates the tray icon to reflect relay health.
+  // 'connected' → normalIcon, 'disconnected' → relayDisconnectedIcon,
+  // 'error' → relayErrorIcon. No-op when relay icons not provided in deps.
+  setRelayState: (state: ConnectionState) => void
+  // Whisper-server connectivity indicator. Same three-state model as relay.
+  // 'connected' → normalIcon, 'disconnected' → whisperDisconnectedIcon,
+  // 'error' → whisperErrorIcon. No-op when whisper icons not provided in deps.
+  setWhisperState: (state: ConnectionState) => void
+  // Returns the current relay + whisper states for use in buildMenuTemplate.
+  getMenuStatus: () => Required<MenuStatus>
 }
 
-export function buildMenuTemplate(cb: MenuCallbacks): MenuTemplate {
+function stateLabel(prefix: string, state: ConnectionState): string {
+  if (state === 'connected') return `${prefix}: Connected`
+  if (state === 'disconnected') return `${prefix}: Offline`
+  return `${prefix}: Error`
+}
+
+export function buildMenuTemplate(cb: MenuCallbacks, status?: MenuStatus): MenuTemplate {
+  const relay: ConnectionState = status?.relay ?? 'connected'
+  const whisper: ConnectionState = status?.whisper ?? 'connected'
   return [
     { label: 'Hey Jarvis — Running', enabled: false },
+    { label: stateLabel('Relay', relay), enabled: false },
+    { label: stateLabel('Whisper', whisper), enabled: false },
     { type: 'separator' },
     { label: 'Settings', click: cb.onSettings },
     { type: 'separator' },
@@ -91,8 +130,13 @@ function isTrayRectangle(v: unknown): v is TrayRectangle {
   )
 }
 
-export function attachTrayBehavior(tray: TrayLike, deps: TrayDeps): TrayController {
+export function attachTrayBehavior<TIcon>(
+  tray: TrayLike<TIcon>,
+  deps: TrayDeps<TIcon>
+): TrayController {
   let lastTrayBounds: TrayRectangle | undefined
+  let relayState: ConnectionState = 'connected'
+  let whisperState: ConnectionState = 'connected'
 
   tray.on('click', (..._args: unknown[]) => {
     const bounds = _args[1]
@@ -117,8 +161,36 @@ export function attachTrayBehavior(tray: TrayLike, deps: TrayDeps): TrayControll
     tray.setImage(recording ? deps.recordingIcon : deps.normalIcon)
   }
 
+  function setRelayState(state: ConnectionState): void {
+    relayState = state
+    if (!tray.setImage) return
+    if (state === 'disconnected') {
+      if (deps.relayDisconnectedIcon !== undefined) tray.setImage(deps.relayDisconnectedIcon)
+    } else if (state === 'error') {
+      if (deps.relayErrorIcon !== undefined) tray.setImage(deps.relayErrorIcon)
+    } else {
+      // 'connected' → revert to normalIcon
+      if (deps.normalIcon !== undefined) tray.setImage(deps.normalIcon)
+    }
+  }
+
+  function setWhisperState(state: ConnectionState): void {
+    whisperState = state
+    if (!tray.setImage) return
+    if (state === 'disconnected') {
+      if (deps.whisperDisconnectedIcon !== undefined) tray.setImage(deps.whisperDisconnectedIcon)
+    } else if (state === 'error') {
+      if (deps.whisperErrorIcon !== undefined) tray.setImage(deps.whisperErrorIcon)
+    } else {
+      if (deps.normalIcon !== undefined) tray.setImage(deps.normalIcon)
+    }
+  }
+
   return {
     getLastTrayBounds: () => lastTrayBounds,
-    setRecordingState
+    setRecordingState,
+    setRelayState,
+    setWhisperState,
+    getMenuStatus: () => ({ relay: relayState, whisper: whisperState })
   }
 }

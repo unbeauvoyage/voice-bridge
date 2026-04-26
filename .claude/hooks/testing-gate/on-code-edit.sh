@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# PostToolUse hook — runs tsc + matching unit test on every TypeScript file edit
+# PostToolUse hook — runs tsc + matching unit test on every TypeScript file edit,
+# and marks the session "dirty" for any source-code file so stop-gate.sh can block.
 # Input: JSON on stdin with tool_name, tool_input, session_id
 # Exit 0 always — never block the edit, just report errors
 
 INPUT=$(cat)
+SESSION=$(echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('session_id','unknown'))" 2>/dev/null)
 
 # Extract the file path using python3 (already a dependency in the system)
 FILE=$(echo "$INPUT" | python3 -c "
@@ -18,17 +20,24 @@ if [[ -z "$FILE" ]]; then
   exit 0
 fi
 
-# Skip if not a .ts or .tsx file
-if [[ ! "$FILE" =~ \.(ts|tsx)$ ]]; then
-  exit 0
-fi
-
-# Skip ignored directories
+# Skip ignored directories (NOT worktrees — coders work there and need error feedback)
 if [[ "$FILE" =~ /node_modules/ ]] || \
-   [[ "$FILE" =~ /\.claude/worktrees/ ]] || \
    [[ "$FILE" =~ /dist/ ]] || \
    [[ "$FILE" =~ /build/ ]] || \
    [[ "$FILE" =~ /out/ ]]; then
+  exit 0
+fi
+
+# Mark session dirty for any source-code file so the Stop gate can block until
+# tests run. Match what stop-gate.sh / on-bash.sh expect: /tmp/tg-dirty-{session}-{cwd-hash}
+if [[ "$FILE" =~ \.(ts|tsx|js|jsx|py|swift|go|rs|mjs|cjs)$ ]]; then
+  CWD_HASH=$(echo "$PWD" | md5sum | cut -c1-8)
+  DIRTY_FILE="/tmp/tg-dirty-${SESSION}-${CWD_HASH}"
+  echo "$(date +%s) $FILE" >> "$DIRTY_FILE"
+fi
+
+# Skip the rest (tsc/eslint/test) if not a .ts or .tsx file
+if [[ ! "$FILE" =~ \.(ts|tsx)$ ]]; then
   exit 0
 fi
 
@@ -120,6 +129,8 @@ pick_tsconfig() {
 
 TSCONFIG=$(pick_tsconfig "$FILE" "$PROJECT_ROOT")
 
+CONTEXT_ERRORS=""
+
 # Run tsc with timeout, but only show errors for the edited file
 # This matches IDE behavior: squiggles on the file you're editing, not a global dump.
 # Cross-file errors surface naturally when those files are edited.
@@ -141,17 +152,13 @@ if [[ -n "$TSCONFIG" ]]; then
   rm -f "$TSC_OUTFILE"
 
   if grep -q "^TIMEOUT$" <<< "$TSC_OUTPUT" 2>/dev/null; then
-    echo ""
-    echo "=== tsc ($TSCONFIG) — TIMEOUT ==="
-    echo "tsc timeout — check manually"
+    CONTEXT_ERRORS+=$'\n'"=== tsc ($TSCONFIG) — TIMEOUT ===\ntsc timeout — check manually"
   else
     # Filter to only lines mentioning the edited file (basename match)
     FILE_BASENAME=$(basename "$FILE")
     FILTERED=$(echo "$TSC_OUTPUT" | grep "$FILE_BASENAME" || true)
     if [[ -n "$FILTERED" ]]; then
-      echo ""
-      echo "=== tsc errors in $FILE_BASENAME ==="
-      echo "$FILTERED"
+      CONTEXT_ERRORS+=$'\n'"=== tsc errors in $FILE_BASENAME ===\n$FILTERED"
     fi
     # If tsc failed but no errors match this file, stay silent — mid-refactor state
   fi
@@ -186,12 +193,9 @@ if [[ -n "$ESLINT_CONFIG" ]]; then
   rm -f "$ESLINT_OUTFILE"
 
   if grep -q "^TIMEOUT$" <<< "$ESLINT_OUTPUT" 2>/dev/null; then
-    echo ""
-    echo "=== eslint — TIMEOUT ==="
+    CONTEXT_ERRORS+=$'\n'"=== eslint — TIMEOUT ==="
   elif [[ $ESLINT_EXIT -ne 0 ]]; then
-    echo ""
-    echo "=== eslint violations in $(basename "$FILE") ==="
-    echo "$ESLINT_OUTPUT" | head -40
+    CONTEXT_ERRORS+=$'\n'"=== eslint errors in $(basename "$FILE") ===\n$ESLINT_OUTPUT"
   fi
 fi
 
@@ -227,6 +231,24 @@ if [[ -n "$TEST_FILE" ]]; then
   wait "$TWATCHER_PID" 2>/dev/null
   cat "$TEST_OUTFILE"
   rm -f "$TEST_OUTFILE"
+fi
+
+# Inject tsc/eslint errors into the agent's context window via additionalContext
+# Claude Code PostToolUse hooks can return JSON with hookSpecificOutput.additionalContext
+# which is injected directly into the model's context — stdout echo is ignored by agents
+if [[ -n "$CONTEXT_ERRORS" ]]; then
+  FILE_BASENAME=$(basename "$FILE")
+  python3 -c "
+import json, sys
+errors = sys.argv[1]
+fname = sys.argv[2]
+print(json.dumps({
+  'hookSpecificOutput': {
+    'hookEventName': 'PostToolUse',
+    'additionalContext': f'🛑 TypeScript/ESLint errors in {fname}. The pre-commit gate WILL block your commit. Fix these NOW before continuing — do not defer:\n{errors}'
+  }
+}))
+" "$CONTEXT_ERRORS" "$FILE_BASENAME"
 fi
 
 # POST telemetry to relay for dashboard visibility

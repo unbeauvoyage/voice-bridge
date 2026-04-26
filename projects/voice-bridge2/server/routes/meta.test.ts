@@ -31,11 +31,15 @@ describe('handleHealth', () => {
 })
 
 describe('handleIndexHtml', () => {
-  test('returns 200 with text/html content-type when loader yields HTML', async () => {
-    const ctx: IndexHtmlContext = {
-      loadIndexHtml: async () => '<!doctype html><title>t</title>'
+  function makeCtx(overrides: Partial<IndexHtmlContext> = {}): IndexHtmlContext {
+    return {
+      loadIndexHtml: async () => '<!doctype html><title>t</title>',
+      ...overrides
     }
-    const res = await handleIndexHtml(ctx)
+  }
+
+  test('returns 200 with text/html content-type when loader yields HTML', async () => {
+    const res = await handleIndexHtml(makeCtx())
     expect(res.status).toBe(200)
     expect(res.headers.get('Content-Type')).toBe('text/html; charset=utf-8')
     const text = await res.text()
@@ -43,30 +47,31 @@ describe('handleIndexHtml', () => {
   })
 
   test('returns 404 "Not found" when loader returns null', async () => {
-    const ctx: IndexHtmlContext = { loadIndexHtml: async () => null }
-    const res = await handleIndexHtml(ctx)
+    const res = await handleIndexHtml(makeCtx({ loadIndexHtml: async () => null }))
     expect(res.status).toBe(404)
     const text = await res.text()
     expect(text).toBe('Not found')
   })
 
   test('returns 404 "Not found" when loader throws', async () => {
-    const ctx: IndexHtmlContext = {
-      loadIndexHtml: async () => {
-        throw new Error('ENOENT')
-      }
-    }
-    const res = await handleIndexHtml(ctx)
+    const res = await handleIndexHtml(
+      makeCtx({
+        loadIndexHtml: async () => {
+          throw new Error('ENOENT')
+        }
+      })
+    )
     expect(res.status).toBe(404)
     const text = await res.text()
     expect(text).toBe('Not found')
   })
 
   test('accepts Buffer-like content from loader', async () => {
-    const ctx: IndexHtmlContext = {
-      loadIndexHtml: async () => Buffer.from('<html/>', 'utf8')
-    }
-    const res = await handleIndexHtml(ctx)
+    const res = await handleIndexHtml(
+      makeCtx({
+        loadIndexHtml: async () => Buffer.from('<html/>', 'utf8')
+      })
+    )
     expect(res.status).toBe(200)
     const text = await res.text()
     expect(text).toBe('<html/>')

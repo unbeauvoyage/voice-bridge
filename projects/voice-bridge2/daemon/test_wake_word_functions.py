@@ -238,6 +238,29 @@ class TestSendToServer:
         kwargs = mock_post.call_args[1]
         assert kwargs.get("data", {}).get("to") == "atlas"
 
+    def test_post_timeout_is_sufficient_for_whisper(self):
+        """
+        The requests.post timeout must be at least 150 seconds.
+
+        whisper.cpp medium model on CPU takes 60-90 seconds for a 5-minute
+        voice recording. The previous value of 30s caused systematic timeout
+        failures: every long recording would hit the timeout before whisper
+        finished, producing [error] send failed: Read timed out in the logs
+        and silently discarding the CEO's voice commands.
+
+        150s gives ~2× headroom over the worst-case 90s whisper inference time.
+        """
+        with patch("wake_word.requests.post", return_value=self._make_ok_response()) as mock_post, \
+             patch("wake_word.show_overlay"):
+            wake_word.send_to_server(self._WAV, "http://localhost:3030", "command")
+        kwargs = mock_post.call_args[1]
+        actual_timeout = kwargs.get("timeout")
+        assert actual_timeout is not None, "timeout kwarg must be set on requests.post"
+        assert actual_timeout >= 150, (
+            f"timeout={actual_timeout} is too short for whisper.cpp medium model on CPU. "
+            f"Whisper takes 60-90s; need ≥ 150s to avoid Read timed out errors."
+        )
+
 
 # ---------------------------------------------------------------------------
 # frames_to_wav

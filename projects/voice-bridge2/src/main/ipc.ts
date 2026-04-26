@@ -24,6 +24,8 @@
 
 import { isMicResponse, isAgentsResponse, type OverlayPayload } from './typeGuards'
 import type { TargetStore } from './state/targetStore'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 
 export type IpcMainLike = {
   handle: (channel: string, handler: (event: unknown, ...args: unknown[]) => unknown) => void
@@ -35,7 +37,12 @@ export type IpcDeps = {
   targetStore: TargetStore
   hideMainWindow: () => void
   showOverlay: (payload: OverlayPayload) => void
+  sendStateUpdate: (update: { micState: 'on' | 'off' }) => void
 }
+
+// The daemon uses a pause-directory convention: presence of this file signals "mic paused"
+const WAKE_WORD_PAUSE_DIR = '/tmp/wake-word-pause.d'
+const MANUAL_PAUSE_FILE = path.join(WAKE_WORD_PAUSE_DIR, 'manual')
 
 const BACKEND_URL = 'http://127.0.0.1:3030'
 const AGENTS_TIMEOUT_MS = 2000
@@ -78,6 +85,20 @@ export function registerIpcHandlers(ipc: IpcMainLike, deps: IpcDeps): void {
   ipc.handle('show-overlay', (_event, ...args) => {
     const payload = args[0]
     if (isOverlayPayloadArg(payload)) deps.showOverlay(payload)
+  })
+
+  ipc.handle('toggle-mic', async () => {
+    // The daemon reads the pause directory: if MANUAL_PAUSE_FILE exists, mic is paused (off).
+    // Toggle: delete the file to turn mic on, create it to turn mic off.
+    const paused = fs.existsSync(MANUAL_PAUSE_FILE)
+    if (paused) {
+      fs.rmSync(MANUAL_PAUSE_FILE)
+      deps.sendStateUpdate({ micState: 'on' })
+    } else {
+      fs.mkdirSync(WAKE_WORD_PAUSE_DIR, { recursive: true })
+      fs.writeFileSync(MANUAL_PAUSE_FILE, '')
+      deps.sendStateUpdate({ micState: 'off' })
+    }
   })
 
   ipc.handle('get-agents', async () => {

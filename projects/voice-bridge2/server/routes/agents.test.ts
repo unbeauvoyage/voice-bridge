@@ -10,36 +10,45 @@ async function readJsonObject(res: Response): Promise<Record<string, unknown>> {
   return out
 }
 
-function ctxWith(opts: {
-  relayOk?: boolean
-  relayThrows?: boolean
-  relayJson?: unknown
-  workspaces: string[]
-}): AgentsContext {
+function makeCtx(
+  overrides: Partial<AgentsContext> & {
+    relayOk?: boolean
+    relayThrows?: boolean
+    relayJson?: unknown
+    workspaces?: string[]
+  } = {}
+): AgentsContext {
+  const { relayOk, relayThrows, relayJson, workspaces, ...ctxOverrides } = overrides
   return {
     relayBaseUrl: 'http://relay.example',
-    listWorkspaceNames: () => opts.workspaces,
-    fetchFn: async () => {
-      if (opts.relayThrows) throw new Error('connection refused')
-      return new Response(JSON.stringify(opts.relayJson ?? { agents: ['a', 'b'] }), {
-        status: opts.relayOk === false ? 500 : 200,
-        headers: { 'Content-Type': 'application/json' }
-      })
-    }
+    listWorkspaceNames: () => workspaces ?? ['ws-default'],
+    fetchFn: Object.assign(
+      async () => {
+        if (relayThrows) throw new Error('connection refused')
+        return new Response(JSON.stringify(relayJson ?? { agents: ['a', 'b'] }), {
+          status: relayOk === false ? 500 : 200,
+          headers: { 'Content-Type': 'application/json' }
+        })
+      },
+      { preconnect: () => {} }
+    ),
+    ...ctxOverrides
   }
 }
 
 describe('handleAgents', () => {
   test('source=workspaces skips relay and returns cmux workspace list', async () => {
     let fetchCalls = 0
-    const ctx: AgentsContext = {
-      relayBaseUrl: 'http://relay.example',
+    const ctx = makeCtx({
       listWorkspaceNames: () => ['alpha', 'beta'],
-      fetchFn: async () => {
-        fetchCalls += 1
-        return new Response('{}')
-      }
-    }
+      fetchFn: Object.assign(
+        async () => {
+          fetchCalls += 1
+          return new Response('{}')
+        },
+        { preconnect: () => {} }
+      )
+    })
     const req = new Request('http://localhost/agents?source=workspaces')
     const res = await handleAgents(req, ctx)
     expect(res.status).toBe(200)
@@ -49,7 +58,7 @@ describe('handleAgents', () => {
   })
 
   test('source=relay returns relay JSON on success', async () => {
-    const ctx = ctxWith({ relayJson: { agents: ['command', 'matrix'] }, workspaces: ['ws1'] })
+    const ctx = makeCtx({ relayJson: { agents: ['command', 'matrix'] }, workspaces: ['ws1'] })
     const req = new Request('http://localhost/agents?source=relay')
     const res = await handleAgents(req, ctx)
     const body = await readJsonObject(res)
@@ -57,7 +66,7 @@ describe('handleAgents', () => {
   })
 
   test('source=relay returns error body when fetch throws', async () => {
-    const ctx = ctxWith({ relayThrows: true, workspaces: ['ws1'] })
+    const ctx = makeCtx({ relayThrows: true, workspaces: ['ws1'] })
     const req = new Request('http://localhost/agents?source=relay')
     const res = await handleAgents(req, ctx)
     const body = await readJsonObject(res)
@@ -66,7 +75,7 @@ describe('handleAgents', () => {
   })
 
   test('source=relay returns error body (not cmux) when relay returns non-ok', async () => {
-    const ctx = ctxWith({ relayOk: false, workspaces: ['shouldNotAppear'] })
+    const ctx = makeCtx({ relayOk: false, workspaces: ['shouldNotAppear'] })
     const req = new Request('http://localhost/agents?source=relay')
     const res = await handleAgents(req, ctx)
     const body = await readJsonObject(res)
@@ -76,7 +85,7 @@ describe('handleAgents', () => {
   })
 
   test('source=auto (default) returns relay JSON on success', async () => {
-    const ctx = ctxWith({ relayJson: { agents: ['relay1'] }, workspaces: ['wsX'] })
+    const ctx = makeCtx({ relayJson: { agents: ['relay1'] }, workspaces: ['wsX'] })
     const req = new Request('http://localhost/agents')
     const res = await handleAgents(req, ctx)
     const body = await readJsonObject(res)
@@ -84,7 +93,7 @@ describe('handleAgents', () => {
   })
 
   test('source=auto falls back to workspaces when relay throws', async () => {
-    const ctx = ctxWith({ relayThrows: true, workspaces: ['wsFallback'] })
+    const ctx = makeCtx({ relayThrows: true, workspaces: ['wsFallback'] })
     const req = new Request('http://localhost/agents')
     const res = await handleAgents(req, ctx)
     const body = await readJsonObject(res)
@@ -92,7 +101,7 @@ describe('handleAgents', () => {
   })
 
   test('source=auto falls back to workspaces when relay returns non-ok', async () => {
-    const ctx = ctxWith({ relayOk: false, workspaces: ['wsFallback2'] })
+    const ctx = makeCtx({ relayOk: false, workspaces: ['wsFallback2'] })
     const req = new Request('http://localhost/agents')
     const res = await handleAgents(req, ctx)
     const body = await readJsonObject(res)
@@ -100,7 +109,7 @@ describe('handleAgents', () => {
   })
 
   test('source=bogus returns 400 (unknown query value rejected at boundary)', async () => {
-    const ctx = ctxWith({ workspaces: ['ws1'] })
+    const ctx = makeCtx({ workspaces: ['ws1'] })
     const req = new Request('http://localhost/agents?source=bogus')
     const res = await handleAgents(req, ctx)
     expect(res.status).toBe(400)
@@ -109,7 +118,7 @@ describe('handleAgents', () => {
   })
 
   test('source=relay rejects schema-invalid relay body ({foo:1}) with error', async () => {
-    const ctx = ctxWith({ relayJson: { foo: 1 }, workspaces: ['wsShouldNotAppear'] })
+    const ctx = makeCtx({ relayJson: { foo: 1 }, workspaces: ['wsShouldNotAppear'] })
     const req = new Request('http://localhost/agents?source=relay')
     const res = await handleAgents(req, ctx)
     const body = await readJsonObject(res)
@@ -118,7 +127,7 @@ describe('handleAgents', () => {
   })
 
   test('source=relay rejects relay body with non-string agents ({agents:[123]})', async () => {
-    const ctx = ctxWith({ relayJson: { agents: [123] }, workspaces: ['wsShouldNotAppear'] })
+    const ctx = makeCtx({ relayJson: { agents: [123] }, workspaces: ['wsShouldNotAppear'] })
     const req = new Request('http://localhost/agents?source=relay')
     const res = await handleAgents(req, ctx)
     const body = await readJsonObject(res)
@@ -127,7 +136,7 @@ describe('handleAgents', () => {
   })
 
   test('source=auto falls back to workspaces when relay body fails schema', async () => {
-    const ctx = ctxWith({ relayJson: { foo: 1 }, workspaces: ['wsFallback3'] })
+    const ctx = makeCtx({ relayJson: { foo: 1 }, workspaces: ['wsFallback3'] })
     const req = new Request('http://localhost/agents')
     const res = await handleAgents(req, ctx)
     const body = await readJsonObject(res)
@@ -135,7 +144,7 @@ describe('handleAgents', () => {
   })
 
   test('CORS header present on all responses', async () => {
-    const ctx = ctxWith({ relayThrows: true, workspaces: [] })
+    const ctx = makeCtx({ relayThrows: true, workspaces: [] })
     const req = new Request('http://localhost/agents?source=relay')
     const res = await handleAgents(req, ctx)
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*')
@@ -146,71 +155,38 @@ describe('handleAgents', () => {
 // It accepts injectable dependencies to avoid network/cmux calls in tests.
 describe('getKnownAgents (extracted from index.ts)', () => {
   test('returns agent names from relay /status when relay is reachable', async () => {
-    const mockFetch: typeof fetch = async () =>
-      new Response(
-        JSON.stringify({ agents: { command: {}, matrix: {}, atlas: {} } }),
-        { status: 200 }
-      )
-    const result = await getKnownAgents({
-      relayBaseUrl: 'http://relay.example',
-      fetchFn: mockFetch,
-      listWorkspaceNames: () => []
-    })
+    const ctx = makeCtx({ relayJson: { agents: { command: {}, matrix: {}, atlas: {} } } })
+    const result = await getKnownAgents(ctx)
     expect(result).toEqual(expect.arrayContaining(['command', 'matrix', 'atlas']))
   })
 
   test('falls back to workspace names when relay is down', async () => {
-    const mockFetch: typeof fetch = async () => { throw new Error('connection refused') }
-    const result = await getKnownAgents({
-      relayBaseUrl: 'http://relay.example',
-      fetchFn: mockFetch,
-      listWorkspaceNames: () => ['alpha', 'beta']
-    })
+    const ctx = makeCtx({ relayThrows: true, workspaces: ['alpha', 'beta'] })
+    const result = await getKnownAgents(ctx)
     expect(result).toEqual(expect.arrayContaining(['alpha', 'beta']))
   })
 
   test('deduplicates names appearing in both relay and workspaces', async () => {
-    const mockFetch: typeof fetch = async () =>
-      new Response(
-        JSON.stringify({ agents: { command: {} } }),
-        { status: 200 }
-      )
-    const result = await getKnownAgents({
-      relayBaseUrl: 'http://relay.example',
-      fetchFn: mockFetch,
-      listWorkspaceNames: () => ['command', 'extra']
+    const ctx = makeCtx({
+      relayJson: { agents: { command: {} } },
+      workspaces: ['command', 'extra']
     })
+    const result = await getKnownAgents(ctx)
     const commandCount = result.filter((a) => a === 'command').length
     expect(commandCount).toBe(1)
   })
 
   test('filters out names containing "test" or "probe"', async () => {
-    const mockFetch: typeof fetch = async () =>
-      new Response(
-        JSON.stringify({ agents: { 'test-agent': {}, 'probe-1': {}, matrix: {} } }),
-        { status: 200 }
-      )
-    const result = await getKnownAgents({
-      relayBaseUrl: 'http://relay.example',
-      fetchFn: mockFetch,
-      listWorkspaceNames: () => []
-    })
+    const ctx = makeCtx({ relayJson: { agents: { 'test-agent': {}, 'probe-1': {}, matrix: {} } } })
+    const result = await getKnownAgents(ctx)
     expect(result).not.toContain('test-agent')
     expect(result).not.toContain('probe-1')
     expect(result).toContain('matrix')
   })
 
   test('normalizes names to lowercase', async () => {
-    const mockFetch: typeof fetch = async () =>
-      new Response(
-        JSON.stringify({ agents: { MATRIX: {}, Command: {} } }),
-        { status: 200 }
-      )
-    const result = await getKnownAgents({
-      relayBaseUrl: 'http://relay.example',
-      fetchFn: mockFetch,
-      listWorkspaceNames: () => []
-    })
+    const ctx = makeCtx({ relayJson: { agents: { MATRIX: {}, Command: {} } } })
+    const result = await getKnownAgents(ctx)
     expect(result).toContain('matrix')
     expect(result).toContain('command')
     expect(result).not.toContain('MATRIX')

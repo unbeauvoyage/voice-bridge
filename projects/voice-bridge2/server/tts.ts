@@ -15,6 +15,16 @@ import { writeFileSync, mkdirSync, unlinkSync } from 'node:fs'
 import { once } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { MIC_PAUSE_DIR, OLLAMA_BASE_URL_DEFAULT, OLLAMA_TIMEOUT_MS } from './config.ts'
+import { logger } from './logger.ts'
+
+function isOllamaResponse(raw: unknown): raw is { response: unknown } {
+  return raw !== null && typeof raw === 'object' && 'response' in raw
+}
+
+function extractOllamaResponse(raw: unknown): string | undefined {
+  if (!isOllamaResponse(raw)) return undefined
+  return typeof raw.response === 'string' ? raw.response : undefined
+}
 
 /**
  * Summarizes a message body using Ollama before TTS playback.
@@ -30,17 +40,15 @@ import { MIC_PAUSE_DIR, OLLAMA_BASE_URL_DEFAULT, OLLAMA_TIMEOUT_MS } from './con
  * @param wordLimit Target word count for the summary (also used as skip threshold).
  *                  Defaults to 8.
  */
-export async function summarizeForTts(
-  text: string,
-  wordLimit: number = 8
-): Promise<string> {
+export async function summarizeForTts(text: string, wordLimit: number = 8): Promise<string> {
   // Short messages need no summarization — pass through unchanged.
   const words = text.trim().split(/\s+/)
   if (words.length <= wordLimit + 3) return text.trim()
 
   try {
     const prompt = `Summarize the following message in ${wordLimit} to ${wordLimit + 3} words. No agent name. Just the key fact.\n\nMessage: ${text}\n\nSummary:`
-    const res = await fetch(OLLAMA_BASE_URL_DEFAULT, {
+    const ollamaUrl = process.env['OLLAMA_URL'] ?? OLLAMA_BASE_URL_DEFAULT
+    const res = await fetch(ollamaUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -52,17 +60,14 @@ export async function summarizeForTts(
       signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS)
     })
     if (!res.ok) throw new Error(`Ollama ${res.status}`)
-    const data = (await res.json()) as { response?: string }
-    let summary = (data.response ?? '').trim()
+    const raw: unknown = await res.json()
+    let summary = (extractOllamaResponse(raw) ?? '').trim()
     if (summary.toLowerCase().startsWith('summary:')) {
       summary = summary.slice(8).trim()
     }
     if (summary) return summary
   } catch (err) {
-    console.error(
-      '[tts] ollama summarization failed:',
-      err instanceof Error ? err.message : String(err)
-    )
+    logger.error({ component: 'tts', error: err }, 'ollama_summarization_failed')
   }
 
   // Fallback: first sentence of the input text, max 120 chars.
@@ -206,10 +211,7 @@ export async function playTts(
       afplayChild.kill()
     }
   } catch (err) {
-    console.error(
-      '[tts] TTS spawn failed:',
-      err instanceof Error ? err.message : String(err)
-    )
+    logger.error({ component: 'tts', error: err }, 'tts_spawn_failed')
   } finally {
     guard.release()
     // Best-effort cleanup of the temp mp3

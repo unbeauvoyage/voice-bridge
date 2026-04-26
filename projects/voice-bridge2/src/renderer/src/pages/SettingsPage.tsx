@@ -29,7 +29,10 @@ const styles: Record<string, React.CSSProperties> = {
   header: {
     display: 'flex',
     alignItems: 'center',
-    gap: 8
+    gap: 8,
+    // Reserve space on the right so the absolutely-positioned close button (right: 12, ~32px wide)
+    // does not overlap the mic badge or status text at the end of the flex row.
+    paddingRight: 40
   },
   dot: {
     width: 10,
@@ -49,7 +52,12 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     letterSpacing: '0.05em',
     color: '#6b7280',
-    transition: 'opacity 0.3s'
+    transition: 'opacity 0.3s',
+    background: 'transparent',
+    border: 'none',
+    cursor: 'pointer',
+    padding: '2px 4px',
+    fontFamily: 'inherit'
   },
   transcriptBox: {
     background: 'rgba(255,255,255,0.05)',
@@ -206,9 +214,13 @@ export function SettingsPage(): React.JSX.Element {
       <div style={styles.header}>
         <div style={{ ...styles.dot, background: dot }} />
         <span style={styles.statusText}>{stateLabel(state.wakeState)}</span>
-        <span style={{ ...styles.micBadge, opacity: state.micState === 'on' ? 1 : 0.4 }}>
+        <button
+          style={{ ...styles.micBadge, opacity: state.micState === 'on' ? 1 : 0.4 }}
+          onClick={(): void => void window.__voiceBridge?.toggleMic?.()}
+          title="Toggle microphone"
+        >
           {state.micState === 'on' ? 'MIC ON' : 'MIC OFF'}
-        </span>
+        </button>
       </div>
 
       <SettingsControls

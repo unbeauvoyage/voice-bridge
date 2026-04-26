@@ -26,11 +26,10 @@ afterEach(() => {
 describe('summarizeForTts: Ollama happy path', () => {
   test('returns trimmed summary from Ollama response', async () => {
     // Arrange: mock Ollama returning a clean summary
-    globalThis.fetch = mock(async () =>
-      Response.json({ response: '  Summary text here  ' })
-    )
+    globalThis.fetch = mock(async () => Response.json({ response: '  Summary text here  ' }))
 
-    const longText = 'This is a very long message with many words that absolutely exceeds the word limit and needs summarization to be short.'
+    const longText =
+      'This is a very long message with many words that absolutely exceeds the word limit and needs summarization to be short.'
     const result = await summarizeForTts(longText, 8)
 
     // The function should return the trimmed Ollama response
@@ -44,18 +43,18 @@ describe('summarizeForTts: Ollama happy path', () => {
       Response.json({ response: 'Summary: Build finished successfully' })
     )
 
-    const longText = 'The build pipeline ran through all stages and finished successfully with zero errors and all checks passing.'
+    const longText =
+      'The build pipeline ran through all stages and finished successfully with zero errors and all checks passing.'
     const result = await summarizeForTts(longText, 8)
 
     expect(result).toBe('Build finished successfully')
   })
 
   test('strips "summary:" prefix case-insensitively', async () => {
-    globalThis.fetch = mock(async () =>
-      Response.json({ response: 'SUMMARY: Task complete' })
-    )
+    globalThis.fetch = mock(async () => Response.json({ response: 'SUMMARY: Task complete' }))
 
-    const longText = 'The assigned task has been completed with all requirements fulfilled as specified in the ticket.'
+    const longText =
+      'The assigned task has been completed with all requirements fulfilled as specified in the ticket.'
     const result = await summarizeForTts(longText, 8)
 
     expect(result).toBe('Task complete')
@@ -93,9 +92,7 @@ describe('summarizeForTts: short messages bypass Ollama', () => {
 
   test('one word over the boundary triggers Ollama', async () => {
     // 12 words = 8 + 4 → Ollama should be called
-    globalThis.fetch = mock(async () =>
-      Response.json({ response: 'Summarized result' })
-    )
+    globalThis.fetch = mock(async () => Response.json({ response: 'Summarized result' }))
 
     const twelveWords = 'one two three four five six seven eight nine ten eleven twelve'
     const result = await summarizeForTts(twelveWords, 8)
@@ -114,7 +111,8 @@ describe('summarizeForTts: Ollama offline fallback', () => {
     })
 
     // Must be long enough (>11 words) to trigger Ollama; first sentence ends at "."
-    const text = 'Build finished. All tests passed with no issues found across every suite and environment tested.'
+    const text =
+      'Build finished. All tests passed with no issues found across every suite and environment tested.'
     const result = await summarizeForTts(text, 8)
 
     // Fallback: first sentence before "."
@@ -146,7 +144,8 @@ describe('summarizeForTts: Ollama offline fallback', () => {
     })
 
     // Long enough (>11 words) to trigger Ollama call
-    const text = 'Deployment succeeded. Pods are healthy and ready to serve all incoming traffic without errors.'
+    const text =
+      'Deployment succeeded. Pods are healthy and ready to serve all incoming traffic without errors.'
     const result = await summarizeForTts(text, 8)
 
     // Falls back to first sentence
@@ -160,36 +159,33 @@ describe('summarizeForTts: empty Ollama response falls back', () => {
   test('falls back when Ollama returns empty string', async () => {
     // Ollama may return {"response": ""} if the model produces nothing —
     // treat that the same as offline: use the first-sentence fallback.
-    globalThis.fetch = mock(async () =>
-      Response.json({ response: '' })
-    )
+    globalThis.fetch = mock(async () => Response.json({ response: '' }))
 
     // Long enough (>11 words) to trigger Ollama call
-    const text = 'Task done. Details in the worklog are available for review and inspection by the team lead.'
+    const text =
+      'Task done. Details in the worklog are available for review and inspection by the team lead.'
     const result = await summarizeForTts(text, 8)
 
     expect(result).toBe('Task done')
   })
 
   test('falls back when Ollama returns whitespace-only response', async () => {
-    globalThis.fetch = mock(async () =>
-      Response.json({ response: '   \n  ' })
-    )
+    globalThis.fetch = mock(async () => Response.json({ response: '   \n  ' }))
 
     // Long enough (>11 words) to trigger Ollama call
-    const text = 'All tests passed. Coverage is 94% across every module in the entire codebase we ship.'
+    const text =
+      'All tests passed. Coverage is 94% across every module in the entire codebase we ship.'
     const result = await summarizeForTts(text, 8)
 
     expect(result).toBe('All tests passed')
   })
 
   test('falls back when Ollama returns non-ok HTTP status', async () => {
-    globalThis.fetch = mock(async () =>
-      new Response('Service Unavailable', { status: 503 })
-    )
+    globalThis.fetch = mock(async () => new Response('Service Unavailable', { status: 503 }))
 
     // Long enough (>11 words) to trigger Ollama call
-    const text = 'Migration complete. Schema updated successfully with no rows dropped during the transition period.'
+    const text =
+      'Migration complete. Schema updated successfully with no rows dropped during the transition period.'
     const result = await summarizeForTts(text, 8)
 
     expect(result).toBe('Migration complete')

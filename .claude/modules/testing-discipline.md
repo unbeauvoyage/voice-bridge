@@ -1,23 +1,132 @@
-# Testing Discipline
+# Testing Discipline & Error Handling Coverage
 
-> **Priority #2 in this system — second only to relay communication.**
+> **Priority #1 after relay communication: Error handling coverage.**
+> **Priority #2: E2E/Integration test coverage.**
+> **Priority #3: Unit tests — strict criteria only (see below).**
 > Every agent reads this before touching code.
+>
+> **Critical emphasis:** Error handling is MORE important than test count. A feature with 100 tests but generic error messages is worse than a feature with 20 tests and beautiful error handling.
 
-## Why Tests Matter (Two Reasons, In Order)
+## 🚨 UNIT TEST POLICY — LAW (2026-04-18, CEO directive)
 
-**Reason 1 — Tests are the spec.** Test files are how coders communicate intent to other agents and to the CEO. When you write a test, you are writing documentation that cannot lie. Other coders, reviewers, and team leads read your tests to understand what the system does. A feature without a test is undocumented.
+**Do NOT write new unit tests. Existing unit tests may be kept but should not be expanded.**
 
-**The goal is 100% behavior documentation, not 100% code coverage.** Coverage metrics measure lines executed — they don't measure whether every significant behavior the system has is captured in a named, readable test. The real question is: "If someone reads only the test file, do they understand what the system does?" If not, the tests are incomplete as a spec.
+### Why
 
-**The project's primary acceptance test framework is the preferred spec format.** Wherever a feature touches the UI, API, or any user-visible behavior — write an acceptance or end-to-end test first. The test defines what the system must do. Implementation follows the test, not the other way around. For JS/TS projects, that framework is Playwright.
+LLM-written code changes the equation. Traditional TDD's red/green loop forced humans to design better interfaces; agents reason about interfaces without needing the failing test as a design tool. Meanwhile, unit tests:
+- Consume agent context window (fewer tokens for real architecture work)
+- Cause compaction earlier (cutting work mid-stream)
+- Give false confidence — hundreds of passing unit tests did not catch the 2026-04-18 voice transcription outage, which was an integration failure, not a logic failure
 
-Only fall back to unit tests (bun test / vitest) for pure logic with no I/O. Everything with a URL, a UI state, or an agent interaction gets a behavior test.
+### The three tiers
 
-**Reason 2 — Tests verify behavior.** Tests catch regressions. A passing test suite means the system does what it claims to do.
+| Tier | What | Action |
+|------|------|--------|
+| **Delete** | Tests for internal implementation details — store internals, private functions, mocked integration points that test nothing real | Delete. They add false confidence. |
+| **Convert** | Tests for user-visible behavior currently covered by unit tests | Rewrite as E2E/integration test, then delete the unit version |
+| **Keep (strict criteria)** | Pure isolated logic with no I/O: parsers, data transforms, math, type guards | Keep only these. They run fast, catch real regressions, require no environment. |
 
-Both reasons matter. But reason 1 comes first — a well-named, well-commented test file is more valuable than a dozen lines of prose documentation.
+### New test rule
 
-**Note for discussion:** We use enriched test files (well-commented tests with clear intent) as the primary spec artifact, rather than separate spec files. The reasoning: spec files drift from reality over time; tests enforced by CI stay honest. If you believe this tradeoff deserves revisiting for a specific project, raise it with the system expert or command.
+**Write E2E or integration tests first. Unit tests only if E2E/integration genuinely cannot cover the scenario** — and that exception must be rare. When in doubt, write an E2E test.
+
+E2E tests catch composition failures (the class of bug that caused our worst incidents). Unit tests do not.
+
+---
+
+## Why E2E Tests Are Primary
+
+**The 2026-04-18 lesson:** Three correct individual components (voice recorder, HTTP client, relay delivery) combined into a broken user experience. Each component passed its unit tests. The integration failed because:
+- localStorage had a stale value unit tests never touch
+- URL was read at module init, not call time — unit tests mock this away
+- MIME type was wrong from the browser — unit tests don't run browsers
+
+None of these are catchable by unit tests. All three were caught by a 30-second Playwright run.
+
+**Test at the highest level you can.** If a Playwright test can cover it, use Playwright. If an HTTP integration test can cover it, use that. Unit tests are the last resort, not the first tool.
+
+---
+
+---
+
+## ERROR HANDLING COVERAGE — PRIORITY OVER TEST COUNT
+
+**Every significant error path in your code must be:**
+1. **Explicit** — not hidden in a generic try-catch
+2. **Logged structurally** — with context (what failed, why, what was attempted)
+3. **Testable** — you have a test that verifies what happens when this error occurs
+4. **User-visible or developer-visible** — never silent failures
+
+**Bad error handling (❌):**
+```ts
+try {
+  await fetch(url).then(r => r.json());
+} catch (e) {
+  console.error('Something went wrong');  // ❌ Generic, no context
+}
+```
+
+**Good error handling (✓):**
+```ts
+try {
+  const res = await fetch(url);
+  if (!res.ok) {
+    const errorBody = await res.text();
+    logger.error('voice_bridge_fetch_failed', {
+      url, status: res.status, body: errorBody.slice(0, 200)
+    });
+    throw new VoiceBridgeError(`HTTP ${res.status}: ${errorBody}`);
+  }
+  return await res.json();
+} catch (e) {
+  if (e instanceof VoiceBridgeError) throw e;
+  logger.error('voice_bridge_parse_failed', { url, error: e.message });
+  throw new VoiceBridgeError(`Failed to reach voice bridge: ${e.message}`);
+}
+```
+
+**Structured logging rule:** Every error MUST log structured context: what operation, what failed, why, what was attempted. This context flows to observability systems (Datadog, AWS CloudWatch).
+
+**Error handling test requirement:** If an error path exists, there is a test for it. "What happens when the relay is offline?" → test. "What happens on 502?" → test. "What happens on MIME rejection?" → test.
+
+---
+
+## STRUCTURED LOGGING FOR OBSERVABILITY
+
+**All applications use unified logging framework** (to be specified by team — candidates: pino, winston, or custom).
+
+**Log entry structure (standardized across all projects):**
+```json
+{
+  "timestamp": "2026-04-18T09:30:00Z",
+  "level": "error|warn|info|debug",
+  "component": "voice-bridge:transcribe|productivitesse:relay|knowledge-base:scraper",
+  "event": "transcription_failed|relay_offline|scrape_timeout",
+  "context": {
+    "url": "...",
+    "status": 502,
+    "attempt": 2,
+    "duration_ms": 1500
+  },
+  "error": {
+    "message": "HTTP 502",
+    "stack": "... (optional, for errors only)"
+  },
+  "user_visible_message": "Voice transcription failed — voice bridge unreachable"
+}
+```
+
+**Every error must include:**
+- **component** — which service/module (voice-bridge:transcribe, productivitesse:relay, etc.)
+- **event** — human-readable error type (transcription_failed, relay_offline, scrape_timeout, auth_failed)
+- **context** — relevant operational data (URL, HTTP status, attempt number, durations)
+- **user_visible_message** — what the user sees (if applicable)
+
+This structure enables:
+- Datadog/AWS parsing and alerting on specific error types
+- Correlation of errors across services
+- Root cause analysis (error patterns over time)
+- SLA monitoring (how many transcription_failed per hour?)
 
 ---
 
@@ -123,6 +232,28 @@ The canonical failure mode this prevents: reporting a fix as done without checki
 - Include the screenshot confirmation in your report
 
 Reporting "fixed" without running the browser after a CEO-reported bug is a policy violation.
+
+---
+
+## Playwright Safety Rule: No Unintercepted Mutations Against Live Applications
+
+**Critical rule discovered via production incident (2026-04-18):**
+
+Playwright tests running against a live application MUST intercept all mutating API calls via `page.route()` or target an isolated server on a separate port. **Never make unintercepted real-server POST/PATCH/DELETE calls from a Playwright test suite when the live application is also running against that server.**
+
+**Why:** Unintercepted mutations from tests mutate shared production state (files, relay targets, relay delivery, database records) while the CEO or users are interacting with the app. This causes unexpected side effects, cross-contamination, and is nearly impossible to debug.
+
+**Examples of violations:**
+- ❌ Test POSTing audio to `localhost:3030/transcribe` while the Electron app is running and also using `localhost:3030`
+- ❌ Test updating relay targets in shared state while CEO is testing voice
+- ❌ Test writing files that the app depends on without isolation
+
+**How to fix:**
+1. **Option A (preferred):** Run your test suite against an isolated server on a different port (e.g., integration tests on port 13031 while live app uses 3030)
+2. **Option B:** Intercept all mutations via `page.route()` and return mock responses
+3. **Option C:** Run tests only when the live app is NOT running (e.g., during build-time gates, not during local development)
+
+**This rule applies to all Playwright test suites.** If you are uncertain whether your test might mutate shared state, err on the side of isolation or interception.
 
 ---
 
@@ -309,3 +440,65 @@ If any of the following is true, escalate to your team lead or the CEO:
 **The single most important sentence in this document:**
 
 > **Never report done to the CEO without having run a real test and shown the output.**
+
+---
+
+## Known Playwright Traps
+
+### 1. `overflow:hidden` + transparent background → `toBeVisible()` false negative
+
+**Problem:** If a container element (e.g. overlay `body`) uses `overflow: hidden` and a transparent background, Playwright's `toBeVisible()` check returns false even when the element is logically present and its children are rendering correctly.
+
+**Fix:** Assert a child element's visibility or use count-based checks:
+```ts
+// Wrong — fails on overflow:hidden + transparent bg
+await expect(page.locator('body')).toBeVisible()
+
+// Correct — assert the root mount point exists
+await expect(page.locator('#overlay-root')).toHaveCount(1)
+// Or assert a visible child
+await expect(page.locator('text=expected content')).toBeVisible()
+```
+
+**Origin:** `src/renderer/tests/tts-playback.pw.ts` — overlay body has `overflow:hidden` + transparent bg by design (click-through window). `toBeVisible()` was replaced with `#overlay-root` count assertion.
+
+---
+
+### 2. Headless Chrome rejects mock streams on native `MediaRecorder`
+
+**Problem:** When `navigator.mediaDevices.getUserMedia` is mocked to return a fake stream object, native `MediaRecorder` construction throws in headless Chrome because the stream lacks proper audio track internals. This means any code path gated on `new MediaRecorder(stream)` never runs, and UI state changes (like disabling the record button) never fire.
+
+**Fix:** Inject a full fake `MediaRecorder` class via `page.addInitScript` using `Reflect.set`:
+```ts
+await page.addInitScript(() => {
+  const fakeTrack = { stop(): void {} }
+  const fakeStream = {
+    getTracks(): typeof[] { return [fakeTrack] },
+    getAudioTracks(): typeof[] { return [fakeTrack] },
+  }
+  Object.defineProperty(navigator, 'mediaDevices', {
+    value: { getUserMedia: async (): Promise<typeof fakeStream> => fakeStream },
+    writable: true,
+    configurable: true,
+  })
+
+  class FakeMediaRecorder extends EventTarget {
+    static isTypeSupported(_mime: string): boolean { return true }
+    mimeType = 'audio/webm'
+    state: 'inactive' | 'recording' | 'paused' = 'inactive'
+    start(): void { this.state = 'recording' }
+    stop(): void {
+      this.state = 'inactive'
+      this.dispatchEvent(new Event('stop'))
+    }
+    addEventListener(type: string, cb: EventListenerOrEventListenerObject): void {
+      super.addEventListener(type, cb)
+    }
+  }
+  Reflect.set(window, 'MediaRecorder', FakeMediaRecorder)
+})
+```
+
+**Reference implementation:** `tests/ui/voice-session-flow.pw.ts` — "record button is disabled while recording is in progress" test.
+
+**Why `Reflect.set` not `window.MediaRecorder =`?** The `consistent-type-assertions` ESLint rule (`@typescript-eslint/consistent-type-assertions`) forbids `(window as any).MediaRecorder = ...`. `Reflect.set` achieves the same result without a type assertion bypass.

@@ -200,6 +200,46 @@ describe('createDaemonController — stop', () => {
   })
 })
 
+describe('createDaemonController — auto-restart', () => {
+  // When wake_word.py crashes (non-zero exit code), the daemon must restart
+  // automatically after 2 seconds — matching the resilience pattern in
+  // backendServer.ts. A null exit code means SIGTERM (intentional stop),
+  // which must NOT trigger a restart.
+  test('auto-restarts after non-zero exit', async () => {
+    const h = makeHarness()
+    const ctrl = createDaemonController(h.cfg)
+    ctrl.start()
+    expect(h.calls).toHaveLength(1)
+    const first = h.procs[0]
+    if (!first) throw new Error('expected proc')
+    // Simulate crash (non-zero exit code)
+    first.emit('exit', 1)
+    expect(ctrl.isRunning()).toBe(false)
+    // Wait for the 2s auto-restart timer
+    await new Promise((r) => setTimeout(r, 2100))
+    expect(h.calls).toHaveLength(2)
+    expect(ctrl.isRunning()).toBe(true)
+  })
+
+  // When stop() sends SIGTERM, node child_process emits exit with a null code
+  // (not 0, not a number). The guard `code !== null` prevents auto-restart in
+  // this case — null exit code means killed-by-signal, not a crash.
+  test('does not auto-restart after SIGTERM (exit code null)', async () => {
+    const h = makeHarness()
+    const ctrl = createDaemonController(h.cfg)
+    ctrl.start()
+    expect(h.calls).toHaveLength(1)
+    const first = h.procs[0]
+    if (!first) throw new Error('expected proc')
+    // Simulate SIGTERM: node child_process emits exit with null code when killed by signal
+    first.emit('exit', null)
+    expect(ctrl.isRunning()).toBe(false)
+    // Wait past the 2s auto-restart window — must remain at 1 spawn
+    await new Promise((r) => setTimeout(r, 2500))
+    expect(h.calls).toHaveLength(1)
+  })
+})
+
 describe('createDaemonController — stdout JSONL routing', () => {
   test('emits onStateChange for each complete JSON line', () => {
     const h = makeHarness()

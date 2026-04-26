@@ -1,0 +1,70 @@
+#!/usr/bin/env sh
+
+# Pre-push hook: runs smoke E2E tests for myenglishbook/next when those files change.
+#
+# Strategy:
+#   - pre-commit: ESLint + TypeScript (fast, ~15s, runs on every commit)
+#   - pre-push:   Smoke E2E tests tagged @smoke (slower, ~60s, runs on push)
+#   - CI:         Full E2E suite (all tests, runs on PR/main)
+#
+# Skipping: set SKIP_SMOKE=1 to bypass (e.g. SKIP_SMOKE=1 git push)
+
+if [ "${SKIP_SMOKE:-0}" = "1" ]; then
+  echo "--- myenglishbook/next: smoke E2E skipped (SKIP_SMOKE=1) ---"
+  exit 0
+fi
+
+GIT_MAIN_ROOT=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')
+MEB_NEXT="${GIT_MAIN_ROOT}/projects/myenglishbook/next"
+
+# Only run if myenglishbook/next files are in the push
+PUSH_FILES=$(git diff --name-only HEAD @{u} 2>/dev/null || git diff --name-only HEAD~1 HEAD 2>/dev/null | head -1)
+MEB_CHANGED=$(echo "$PUSH_FILES" | grep -c "projects/myenglishbook/next/" 2>/dev/null || echo "1")
+
+if [ "$MEB_CHANGED" = "0" ]; then
+  echo "--- myenglishbook/next: no changes, skipping smoke E2E ---"
+  exit 0
+fi
+
+echo "--- myenglishbook/next: running smoke E2E tests (@smoke) ---"
+
+# Check if dev server is already running
+if curl -sf "http://localhost:3000/teacher" > /dev/null 2>&1; then
+  echo "  Reusing existing dev server at :3000"
+  SERVER_PID=""
+else
+  echo "  Starting Next.js dev server..."
+  (cd "${MEB_NEXT}" && yarn dev --port 3000 > /tmp/meb-smoke-server.log 2>&1) &
+  SERVER_PID=$!
+
+  # Wait up to 30s for server to become ready
+  WAIT=0
+  until curl -sf "http://localhost:3000" > /dev/null 2>&1 || [ $WAIT -ge 30 ]; do
+    sleep 2
+    WAIT=$((WAIT + 2))
+  done
+
+  if [ $WAIT -ge 30 ]; then
+    echo "BLOCKED: Next.js dev server did not start in time."
+    kill $SERVER_PID 2>/dev/null
+    exit 1
+  fi
+fi
+
+# Run only @smoke tagged tests
+(cd "${MEB_NEXT}" && yarn playwright test --grep "@smoke" --reporter=line)
+STATUS=$?
+
+# Only kill the server if we started it
+if [ -n "$SERVER_PID" ]; then
+  kill $SERVER_PID 2>/dev/null
+fi
+
+if [ $STATUS -ne 0 ]; then
+  echo "BLOCKED: Smoke E2E tests failed. Fix before pushing."
+  echo "  Run: cd projects/myenglishbook/next && yarn playwright test --grep '@smoke'"
+  echo "  Skip: SKIP_SMOKE=1 git push"
+  exit 1
+fi
+
+echo "--- myenglishbook/next: smoke E2E passed ---"

@@ -1,12 +1,15 @@
-import { app, Tray, Menu, nativeImage, ipcMain, screen } from 'electron'
+import { app, Tray, Menu, nativeImage, ipcMain, screen, type NativeImage } from 'electron'
 import { join } from 'path'
-import { type OverlayPayload } from './typeGuards'
+import { type OverlayPayload, isRecordingState } from './typeGuards'
 import { createTargetStore } from './state/targetStore'
 import { createDaemonController } from './processes/daemon'
 import { createBackendServerController } from './processes/backendServer'
 import { createOverlayServerController } from './overlay/overlayServer'
-import { createOverlayManager } from './overlay/overlayWindow'
-import { createOverlayBrowserWindow } from './overlay/overlayBrowserWindow'
+import { createOverlayManager, createToastManager } from './overlay/overlayWindow'
+import {
+  createOverlayBrowserWindow,
+  createToastBrowserWindow
+} from './overlay/overlayBrowserWindow'
 import { createMainWindowManager } from './windows/mainWindow'
 import { createMainBrowserWindow } from './windows/mainBrowserWindow'
 import { registerIpcHandlers } from './ipc'
@@ -46,8 +49,8 @@ const daemonController = createDaemonController({
     // This is the ONLY path that may call setRecordingState(). Overlay payloads
     // must NOT drive recording state — they are best-effort HTTP and can arrive
     // for non-recording events (e.g. mode="message" toasts) during mic recording.
-    if (state && typeof state === 'object' && 'recording' in state) {
-      trayCtrl?.setRecordingState((state as { recording: boolean }).recording)
+    if (isRecordingState(state)) {
+      trayCtrl?.setRecordingState(state.recording)
     }
     const w = mainWindowManager.getWindow()
     if (w) w.webContents.send('state-change', state)
@@ -98,9 +101,18 @@ function buildMenu(): Electron.Menu {
 
 // ── Overlay ───────────────────────────────────────────────────────────────────
 
+// Recording/status overlay — left side, small pill, repositions between recording and status modes.
 const overlayManager = createOverlayManager({
   getScreenWidth: () => screen.getPrimaryDisplay().workAreaSize.width,
   createWindow: () => createOverlayBrowserWindow(__dirname)
+})
+
+// Message toast overlay — RIGHT side, separate window that never moves.
+// Keeping this independent means incoming relay messages don't reposition
+// the recording pill (the original bug: one shared window moved right on message).
+const toastManager = createToastManager({
+  createWindow: () =>
+    createToastBrowserWindow(__dirname, screen.getPrimaryDisplay().workAreaSize.width)
 })
 
 function showOverlay(payload: OverlayPayload): void {
@@ -109,7 +121,11 @@ function showOverlay(payload: OverlayPayload): void {
   // recording; if that overlay called setRecordingState it would flip the tray back
   // to green, lying about mic state. Recording state is driven exclusively by
   // daemon stdout JSON events in onStateChange above.
-  overlayManager.show(payload)
+  if (payload.mode === 'message') {
+    toastManager.show(payload)
+  } else {
+    overlayManager.show(payload)
+  }
 }
 
 // ── IPC handlers ─────────────────────────────────────────────────────────────
@@ -118,7 +134,11 @@ registerIpcHandlers(ipcMain, {
   fetchFn: fetch,
   targetStore,
   hideMainWindow: () => mainWindowManager.hide(),
-  showOverlay: (payload) => showOverlay(payload)
+  showOverlay: (payload) => showOverlay(payload),
+  sendStateUpdate: (update) => {
+    const w = mainWindowManager.getWindow()
+    if (w) w.webContents.send('state-change', update)
+  }
 })
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
@@ -142,9 +162,8 @@ app.whenReady().then(() => {
     popUpContextMenu: (menu: unknown): void => {
       if (menu instanceof Menu) tray?.popUpContextMenu(menu)
     },
-    setImage: (icon: unknown): void => {
-      // nativeImage type is opaque at this level — cast only at the boundary
-      if (tray) tray.setImage(icon as Parameters<typeof tray.setImage>[0])
+    setImage: (icon: NativeImage): void => {
+      if (tray) tray.setImage(icon)
     }
   }
   trayCtrl = attachTrayBehavior(trayShim, {
@@ -155,6 +174,12 @@ app.whenReady().then(() => {
     normalIcon,
     recordingIcon
   })
+
+  // Pre-warm both overlay windows now, before any recording starts.
+  // Creating a new BrowserWindow while recording was active caused macOS window-manager
+  // cascading that repositioned the recording overlay and could disrupt the audio session.
+  overlayManager.prewarm()
+  toastManager.prewarm()
 
   overlayServerController.start()
   backendServerController.start()

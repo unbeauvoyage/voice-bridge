@@ -4,11 +4,11 @@
 
 Three OS processes cooperate at runtime:
 
-| Process | Runtime | Entry point | Role |
-|---------|---------|-------------|------|
-| Electron main | Node (Electron) | `src/main/index.ts` | Tray icon, settings window, overlay window, subprocess lifecycle |
-| Bun HTTP server | Bun | `server/index.ts` | POST /transcribe, relay delivery, relay polling, TTS |
-| Python daemon | Python 3.14 | `daemon/wake_word.py` | Wake word detection, audio recording, relay polling (legacy), TTS (legacy) |
+| Process         | Runtime         | Entry point           | Role                                                                       |
+| --------------- | --------------- | --------------------- | -------------------------------------------------------------------------- |
+| Electron main   | Node (Electron) | `src/main/index.ts`   | Tray icon, settings window, overlay window, subprocess lifecycle           |
+| Bun HTTP server | Bun             | `server/index.ts`     | POST /transcribe, relay delivery, relay polling, TTS                       |
+| Python daemon   | Python 3.14     | `daemon/wake_word.py` | Wake word detection, audio recording, relay polling (legacy), TTS (legacy) |
 
 Electron spawns the other two as child processes on app ready (lines 138-140 of index.ts).
 
@@ -110,13 +110,13 @@ Agent reply in relay queue
 
 ## Key Files
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `server/index.ts` | 280 | Bun HTTP server wiring (routes, context injection) |
-| `server/routes/transcribe.ts` | 410 | Audio upload → whisper → relay delivery |
-| `server/routes/dedup.ts` | 184 | Audio hash dedup + hallucination filter |
-| `server/relay-poller.ts` | 377 | Relay queue polling + overlay delivery + TTS dispatch |
-| `server/tts.ts` | 222 | Ollama summarization + edge-tts → afplay with timeout+kill |
-| `server/relay.ts` | 93 | Relay HTTP client (Result types) |
-| `src/main/index.ts` | 152 | Electron app lifecycle wiring |
-| `daemon/wake_word.py` | 375 | Wake word state machine + audio recording |
+| File                          | Lines | Purpose                                                    |
+| ----------------------------- | ----- | ---------------------------------------------------------- |
+| `server/index.ts`             | 280   | Bun HTTP server wiring (routes, context injection)         |
+| `server/routes/transcribe.ts` | 410   | Audio upload → whisper → relay delivery                    |
+| `server/routes/dedup.ts`      | 184   | Audio hash dedup + hallucination filter                    |
+| `server/relay-poller.ts`      | 377   | Relay queue polling + overlay delivery + TTS dispatch      |
+| `server/tts.ts`               | 222   | Ollama summarization + edge-tts → afplay with timeout+kill |
+| `server/relay.ts`             | 93    | Relay HTTP client (Result types)                           |
+| `src/main/index.ts`           | 152   | Electron app lifecycle wiring                              |
+| `daemon/wake_word.py`         | 375   | Wake word state machine + audio recording                  |

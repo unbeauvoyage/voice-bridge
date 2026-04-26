@@ -11,10 +11,15 @@
  * server/index.ts would then report ok:true and /transcribe would
  * reply 200 delivered:true — a silent non-delivery.
  *
- * These tests pin the tighter shape: the response must be exactly
- * { status: 'delivered' }. 'queued' returns { ok: false } with the
- * offline message; anything else (wrong type, unknown enum, missing key)
- * returns { ok: false } with an invalid-response message.
+ * Both 'delivered' and 'queued' are now treated as ok:true — the relay
+ * has accepted the message in both cases. 'queued' means the agent is
+ * offline but the message is safely stored and will be delivered when
+ * the agent reconnects. Returning ok:false for 'queued' causes the
+ * caller to fall back to cmux, which fails for agents started outside
+ * cmux. The relay queue is the correct delivery path.
+ *
+ * Anything else (wrong type, unknown enum, missing key) returns
+ * { ok: false } with an invalid-response message.
  *
  * Per server-standards.md: functions that perform I/O return Result<T>,
  * never void/throw. Callers check result.ok instead of catching.
@@ -54,14 +59,14 @@ describe('deliverToAgent — strict relay response schema', () => {
     expect(result.ok).toBe(true)
   })
 
-  test('returns { ok: false } when relay returns {status: "queued"}', async () => {
-    // Agent offline — message queued but not delivered. Propagate as error rather than throw.
+  test('returns { ok: true } when relay returns {status: "queued"}', async () => {
+    // 'queued' means the agent is offline but the relay has accepted and stored the message.
+    // This is a successful delivery to the relay — not an error. Treating it as ok:false
+    // causes the caller to fall through to cmux, which fails with "Access denied" for
+    // agents not started inside cmux. The relay queue is the correct and safe delivery path.
     nextResponse = { status: 200, body: { status: 'queued' } }
     const result = await deliverToAgent('hello', 'command')
-    expect(result.ok).toBe(false)
-    if (!result.ok) {
-      expect(result.error).toMatch(/offline|queued/i)
-    }
+    expect(result.ok).toBe(true)
   })
 
   test('returns { ok: false } on unknown status enum value (e.g. "bogus")', async () => {

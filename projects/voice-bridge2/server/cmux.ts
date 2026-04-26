@@ -64,7 +64,7 @@ function parseWorkspaces(output: string): CmuxWorkspace[] {
   const workspaces: CmuxWorkspace[] = []
   for (const line of output.split('\n').filter(Boolean)) {
     const match = line.match(/(workspace:\d+)\s+[✳⠐⠂]*\s*(.+?)(?:\s+\[selected\])?\s*$/)
-    if (match && match[1] && match[2]) {
+    if (match !== null && match[1] !== undefined && match[2] !== undefined) {
       workspaces.push({ id: match[1], name: match[2].trim() })
     }
   }
@@ -75,7 +75,7 @@ function parseSurfaces(output: string): CmuxSurface[] {
   const surfaces: CmuxSurface[] = []
   for (const line of output.split('\n').filter(Boolean)) {
     const match = line.match(/(surface:\d+)\s+[✳⠐⠂]*\s*(.+?)(?:\s+\[selected\])?\s*$/)
-    if (match && match[1] && match[2]) {
+    if (match !== null && match[1] !== undefined && match[2] !== undefined) {
       surfaces.push({ id: match[1], name: match[2].trim() })
     }
   }

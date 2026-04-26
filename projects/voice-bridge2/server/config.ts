@@ -80,6 +80,15 @@ export const WHISPER_TIMEOUT_MS = 120_000
 /** How often the relay-poller checks for new agent messages (ms). */
 export const POLL_INTERVAL_MS = 3_000
 
+/**
+ * Maximum age of a relay queue message before it is silently skipped by the
+ * overlay dispatcher. Prevents the overlay from replaying a backlog of
+ * historical messages (e.g. from hours ago) when the server restarts with an
+ * empty seenIds map. Messages older than this threshold are marked seen
+ * without being posted to the overlay.
+ */
+export const MAX_OVERLAY_MESSAGE_AGE_MS = 5 * 60 * 1000 // 5 minutes
+
 // ─── Whisper hallucination filter ─────────────────────────────────────────────
 
 /**
@@ -148,3 +157,14 @@ export const DEDUP_WINDOW_MS = 30_000
  * a duplicate request (ms).
  */
 export const DEDUP_WAIT_DEADLINE_MS = 90_000
+
+// ─── Python venv ──────────────────────────────────────────────────────────────
+
+/**
+ * Relative path from daemonDir to the venv site-packages directory.
+ * Used when spawning wake_word.py so it can import from the venv without
+ * activating it (PYTHONPATH injection).
+ *
+ * Update when the daemon venv is rebuilt against a different Python version.
+ */
+export const PYTHON_VENV_SITE_PACKAGES = '.venv/lib/python3.14/site-packages'

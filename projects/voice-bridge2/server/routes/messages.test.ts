@@ -9,16 +9,18 @@ async function readJsonObject(res: Response): Promise<Record<string, unknown>> {
   return out
 }
 
-// Helper: build a MessagesContext whose relay mock returns the given JSON body.
-function mockRelayCtx(body: unknown): MessagesContext {
+function makeCtx(
+  overrides: Partial<MessagesContext> & { relayJson?: unknown } = {}
+): MessagesContext {
+  const { relayJson, ...ctxOverrides } = overrides
   return {
     relayBaseUrl: 'http://mock-relay',
-    fetchFn: async (_url: string) => {
-      return new Response(JSON.stringify(body), {
+    fetchFn: async () =>
+      new Response(JSON.stringify(relayJson ?? { messages: [] }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
-      })
-    }
+      }),
+    ...ctxOverrides
   }
 }
 
@@ -74,7 +76,7 @@ describe('handleMessages', () => {
   // A response that is not an object/array (e.g. a plain string) must not be
   // forwarded blindly — return 502 with a clear reason.
   test('rejects relay response that is not an object/array with 502', async () => {
-    const ctx = mockRelayCtx('hello')
+    const ctx = makeCtx({ relayJson: 'hello' })
     const req = new Request('http://localhost/messages?agent=command')
     const res = await handleMessages(req, ctx)
     expect(res.status).toBe(502)
@@ -87,7 +89,7 @@ describe('handleMessages', () => {
   // must be forwarded as-is with 200 and CORS header.
   test('forwards valid relay response with 200 and CORS header', async () => {
     const relayPayload = { messages: [{ id: 1, text: 'hello' }] }
-    const ctx = mockRelayCtx(relayPayload)
+    const ctx = makeCtx({ relayJson: relayPayload })
     const req = new Request('http://localhost/messages?agent=command')
     const res = await handleMessages(req, ctx)
     expect(res.status).toBe(200)
