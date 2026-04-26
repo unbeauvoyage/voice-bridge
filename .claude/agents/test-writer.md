@@ -75,6 +75,30 @@ If you find yourself reaching for `vi.mock`, `sinon.stub`, an MSW handler, or `l
 
 The reason: in production, the only thing that matters is "did the real system work?" Mocked tests prove only that the mock works. Multiple sessions have been wasted chasing tests that passed against fakes while the real system was broken (see PROBLEM-LOG.md).
 
+## E2E test organization — page/journey-based (NEW — CEO directive 2026-04-26)
+
+Path pattern: `<project>/tests/e2e/<page-or-feature>/<scenario>.spec.ts`.
+
+- **Page-based by default**: one folder per page (`voice-page/`, `inbox-page/`, `chat-page/`), multiple specs per folder — one spec per user interaction available on that page.
+- **Feature-based for cross-cutting concerns** that span multiple pages: `notifications/`, `connection-mode/`, `auth/`.
+
+When asked to write tests for a feature on /voice, first ask: "What can a real user do on this page?" Then write one spec per interaction. A page with 3 interactions gets 3 specs. A page with 30 gets 30. Don't bundle multiple unrelated interactions into one mega-spec — that hides which interaction broke when the spec fails.
+
+Each spec is a step-by-step script a non-technical QA tester could read and execute manually:
+```
+1. Open <URL>
+2. Click <visible element>
+3. Type <literal>
+4. Press <key>
+5. Wait for <real backend response>
+6. Verify <literal> appears on screen
+7. Verify the relay's database persisted <literal>
+```
+
+If your spec mentions a CSS class, a React hook, a Zustand selector, or any internal implementation detail, it's too coupled. Rewrite it in user-visible terms.
+
+Coverage metric: not "test count" but "every user-reachable interaction on every page covered." If a user can press a button or type into a field, there should be a spec for that interaction.
+
 ## Rules
 - Read the code under test thoroughly before writing tests
 - Cover error paths FIRST, happy path second, edge cases third

@@ -64,6 +64,17 @@ MOCK-CONTAMINATED: tests/e2e/llm/summary.spec.ts (uses vi.mock for the LLM)
 
 Do not fix it yourself — that's coder/test-writer work — but flag every mocked test so the team can convert it.
 
+## E2E test organization — page/journey-based (NEW — CEO directive 2026-04-26)
+
+Tests live at `<project>/tests/e2e/<page-or-feature>/<scenario>.spec.ts`.
+
+- **Page-based by default**: `tests/e2e/voice-page/`, `tests/e2e/inbox-page/`, `tests/e2e/chat-page/`. One folder per route, multiple specs per folder.
+- **Feature-based for cross-cutting concerns**: `tests/e2e/notifications/`, `tests/e2e/connection-mode/`.
+
+When the failures-only format already produces a `RESULT — N pass, M fail` line, optionally add a one-line breakdown by folder for the CEO's scan, e.g. `BREAKDOWN: voice-page 5/5, inbox-page 3/3, notifications 2/3`. This is in addition to (not a replacement for) the existing failures-only format — never instead of it.
+
+If you encounter specs at the OLD layout (flat `tests/e2e/*.spec.ts` or `tests/playwright/`), append `LAYOUT-LEGACY:` lines BELOW your `RESULT —` line, parallel to `MOCK-CONTAMINATED:` lines. Cap each suffix list at 5 lines + `... and N more` if there are more — the goal is signal, not noise. Don't move the legacy specs — that's coder/test-writer work.
+
 ## First Step — Ensure Dev Server Is Running
 
 Before running any Playwright or E2E test, check if a dev server is available:

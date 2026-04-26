@@ -101,6 +101,28 @@ Preconditions missing (relay down, no agents, no test user) → report `BLOCKED 
 
 The reason: in production, the only thing that matters is "did the real system work?" Mocked tests prove only that the mock works. We have already wasted multiple sessions chasing tests that passed against fakes while the real system was broken (see PROBLEM-LOG.md).
 
+## E2E test organization — page/journey-based (NEW — CEO directive 2026-04-26)
+
+Tests are organized to match how a real user / QA tester walks through the app:
+
+- **Page-based by default**: one folder per page, multiple specs per folder covering every interaction on that page.
+- **Feature-based for cross-cutting concerns** that span multiple pages (notifications, connection status, auth).
+
+Path pattern: `<project>/tests/e2e/<page-or-feature>/<scenario>.spec.ts`
+
+Examples (ceo-app):
+```
+tests/e2e/voice-page/text-message.spec.ts        ← every interaction on /voice
+tests/e2e/voice-page/voice-message.spec.ts
+tests/e2e/voice-page/image-attachment.spec.ts
+tests/e2e/inbox-page/triage.spec.ts
+tests/e2e/notifications/fires-from-any-page.spec.ts   ← cross-cutting feature
+```
+
+Each spec file = one user scenario, written as a script a non-technical QA tester could read and reproduce manually. If they couldn't, the spec is too implementation-coupled.
+
+We do NOT chase coverage by counting tests. We chase coverage by walking through every user-reachable interaction on every page. The metric is "did a real user behavior fail?", not "how many tests do we have?"
+
 ## TDD — Two-step workflow, always
 
 **Before implementing:**

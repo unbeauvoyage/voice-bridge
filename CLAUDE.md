@@ -70,6 +70,41 @@ The reason: in production, the only thing that matters is "did the real system w
 
 This is the positive-rule restatement of the Synthetic-data ban — they are the same rule from two angles.
 
+## E2E test organization — page/journey-based (NEW — CEO directive 2026-04-26)
+
+Tests are organized to match how a real user / QA tester walks through the app:
+
+- **Page-based by default**: one folder per page, multiple specs per folder covering every interaction available on that page.
+- **Feature-based for cross-cutting concerns** that span multiple pages (notifications, connection status, auth).
+
+Path pattern: `<project>/tests/e2e/<page-or-feature>/<scenario>.spec.ts`
+
+Examples (ceo-app):
+```
+tests/e2e/voice-page/text-message.spec.ts        ← every interaction on /voice
+tests/e2e/voice-page/voice-message.spec.ts
+tests/e2e/voice-page/image-attachment.spec.ts
+tests/e2e/inbox-page/triage.spec.ts              ← every interaction on /inbox
+tests/e2e/chat-page/send-text.spec.ts            ← every interaction on /chat
+tests/e2e/notifications/fires-from-any-page.spec.ts   ← cross-cutting feature
+tests/e2e/connection-mode/tailscale-vs-lan.spec.ts    ← cross-cutting feature
+```
+
+Each spec file = one user scenario, written as a script a person could read and execute:
+```
+1. Open <URL>
+2. Click <element>
+3. Type <literal>
+4. Press <key>
+5. Wait for <real backend response>
+6. Verify <literal> appears
+7. Verify the relay's database persisted <literal>
+```
+
+Spec authors should imagine: "If a non-technical QA tester read this spec, could they reproduce it manually?" If no, the spec is too implementation-coupled.
+
+We do NOT chase coverage by counting tests. We chase coverage by walking through every user-reachable interaction on every page. A page with 3 interactions has 3 specs. A page with 30 has 30. The metric is "did a real user behavior fail?", not "how many tests do we have?"
+
 ## Git
 No `Co-Authored-By` or AI attribution. Subject + body only.
 
