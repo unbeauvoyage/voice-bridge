@@ -133,10 +133,19 @@ User story tests spin up:
 - Real database (separate dev instance — never production)
 - Real browser via Playwright (note: each project's `playwright.config.ts` must include `**/*.story.ts` in `testMatch` — the default Playwright config does not match `.story.ts`)
 
-User story tests do NOT use:
-- Mocks, MSW, vi.mock, sinon, or any test-double library
-- Seeded data in Zustand stores, React Query cache, or localStorage
-- Stubs of the system under test
+**The principle: no mocks of the System Under Test (SUT).** Whatever the test is verifying must actually run. A test that mocks the SUT only proves the mock works.
+
+User story tests therefore do NOT use:
+- Test-double libraries (MSW, vi.mock, sinon, etc.) when the doubled component IS the SUT
+- Seeded data in Zustand stores, React Query cache, or localStorage to fake what the SUT should produce
+- Stubs of any system the test is actually verifying
+
+The SUT depends on what's being tested. Concretely:
+- Test that the relay routes a message → relay is the SUT (real backend, real WS, real DB; do NOT mock those)
+- Test that an LLM-summary feature shows a useful summary → LLM is the SUT (real LLM call required, no mock)
+- Test prompt-construction logic in isolation → LLM is a DEPENDENCY, not the SUT — but you should not write this test in this codebase at all (it's an internal-function test). Instead, write a user story test like "user requests summary, observes correctness" where the LLM is the SUT.
+
+If a test's natural framing requires mocking what it's supposed to verify, the test is wrong-shape. Re-frame it as a user story.
 
 If preconditions are missing (relay down, no agents) → report `BLOCKED — preconditions absent` and stop. NEVER seed-and-self-verify.
 

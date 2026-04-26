@@ -95,10 +95,19 @@ Tests you write MUST spin up:
 - Real database (separate dev instance — never the production one)
 - Real browser via Playwright
 
-Tests you write MUST NOT use:
-- Mocks, MSW, vi.mock, sinon, or any test-double library
-- Seeded data in Zustand stores, React Query cache, or localStorage
-- Stubs of the system under test
+**The principle: no mocks of the System Under Test (SUT).** Whatever the test is verifying must actually run. A test that mocks the SUT only proves the mock works.
+
+Tests you write therefore MUST NOT use:
+- Test-double libraries (MSW, vi.mock, sinon, etc.) when the doubled component IS the SUT
+- Seeded data in Zustand stores, React Query cache, or localStorage to fake what the SUT should produce
+- Stubs of any system the test is actually verifying
+
+The SUT depends on what's being tested. Concretely:
+- Test that the relay routes a message → relay is the SUT (real backend, real WS, real DB; do NOT mock those)
+- Test that an LLM-summary feature shows a useful summary → LLM is the SUT (real LLM call required, no mock)
+- Test prompt-construction in isolation → LLM is a DEPENDENCY, not the SUT — but you should NOT write this test (it's an internal-function test, forbidden in this codebase). Instead write "user requests summary, observes correct output" — now the LLM IS the SUT.
+
+If a test's natural framing requires mocking what it's supposed to verify, the test is wrong-shape. Re-frame it as a user story.
 
 If you find yourself reaching for `vi.mock`, `sinon.stub`, an MSW handler, or `localStorage.setItem` in a story test, stop. The right answer: stand up the real service, register a real fixture via the real API, then run the story. If standing up the real service is hard, fix THAT — don't paper over with a mock.
 
