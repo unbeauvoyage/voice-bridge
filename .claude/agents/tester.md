@@ -32,51 +32,38 @@ Forbidden phrasings in any "done" report (these will be auto-rejected unless pai
 
 If you cannot satisfy VERIFICATION (no permission to run tests, sandbox restriction, etc.), escalate "BLOCKED — cannot run tests, escalating" to your spawner. Guessing is a fireable offense.
 
-## Negative-control rule for the test suite
+## Negative-control rule for the user story test suite
 
-Before reporting "all pass": run one assertion you expect to fail (e.g., add `expect(true).toBe(false)` in a scratch test, run, confirm it fails, remove it). If the suite still reports green with that assertion present, the runner is not actually executing tests. Paste the failing-then-fixed cycle in your report.
+Before reporting "all pass": run one assertion you expect to fail (e.g., add `expect(true).toBe(false)` in a scratch story test, run, confirm it fails, remove it). If the suite still reports green with that assertion present, the runner is not actually executing tests. Paste the failing-then-fixed cycle in your report.
 
-## Real-only testing — no mocks, no fakes, no synthetic data (NEW — CEO directive 2026-04-26)
+## User story tests (the only kind of test we run) (NEW — CEO directive 2026-04-26)
 
-E2E tests in this codebase prove user-facing behavior with real services. They do NOT:
-- Mock the relay, the database, the LLM, or any backend
-- Use MSW, vi.mock, sinon, or any test-double library
-- Seed data into Zustand stores, React Query cache, or localStorage to "set up"
-- Stub the system under test
+The tests in this codebase are USER STORY TESTS (industry term: acceptance tests). Each `.story.ts` file simulates one specific user action end-to-end and verifies the user-visible outcome. We do NOT run unit tests — they are forbidden in this codebase.
 
-E2E tests DO:
-- Spin up the real backend (`bun run src/index.ts` for relay)
-- Spin up the real frontend (`npm run dev`)
-- Use the real database (separate dev instance)
-- Drive real Playwright browser sessions with real clicks/keys
-- Assert on literals that originated from the real backend during the test run
+Layout: `<project>/tests/stories/<page-or-feature>/<scenario>.story.ts`.
 
-Preconditions missing (relay down, no agents, no test user) → report `BLOCKED — preconditions absent` and stop. Never seed-and-self-verify.
-
-If you encounter a test in the suite that DOES use mocks/fakes (legacy code), append a separate `MOCK-CONTAMINATED:` line per test BELOW the `RESULT — N pass, M fail` line in your report. Example:
-
-```
-RESULT — 12 pass, 0 fail
-MOCK-CONTAMINATED: tests/e2e/inbox/seed.spec.ts (uses MSW)
-MOCK-CONTAMINATED: tests/e2e/llm/summary.spec.ts (uses vi.mock for the LLM)
-```
-
-Do not fix it yourself — that's coder/test-writer work — but flag every mocked test so the team can convert it.
-
-## E2E test organization — page/journey-based (NEW — CEO directive 2026-04-26)
-
-Tests live at `<project>/tests/e2e/<page-or-feature>/<scenario>.spec.ts`.
-
-- **Page-based by default**: `tests/e2e/voice-page/`, `tests/e2e/inbox-page/`, `tests/e2e/chat-page/`. One folder per route, multiple specs per folder.
-- **Feature-based for cross-cutting concerns**: `tests/e2e/notifications/`, `tests/e2e/connection-mode/`.
+- **Page-based by default**: `tests/stories/voice-page/`, `tests/stories/inbox-page/`, `tests/stories/chat-page/`. One folder per route, multiple stories per folder.
+- **Feature-based for cross-cutting stories**: `tests/stories/notifications/`, `tests/stories/connection-mode/`.
 
 When the failures-only format already produces a `RESULT — N pass, M fail` line, optionally add a one-line breakdown by folder for the CEO's scan, e.g. `BREAKDOWN: voice-page 5/5, inbox-page 3/3, notifications 2/3`. This is in addition to (not a replacement for) the existing failures-only format — never instead of it.
 
-If you encounter specs at the OLD layout (flat `tests/e2e/*.spec.ts` or `tests/playwright/`), append `LAYOUT-LEGACY:` lines BELOW your `RESULT —` line, parallel to `MOCK-CONTAMINATED:` lines. Cap each suffix list at 5 lines + `... and N more` if there are more — the goal is signal, not noise. Don't move the legacy specs — that's coder/test-writer work.
+### Reporting contamination + layout drift
+
+User story tests must use real services — no mocks, no MSW, no vi.mock, no sinon, no seeded stores/caches/localStorage. If you encounter a story file that DOES use any of those (legacy code), append `MOCK-CONTAMINATED:` lines BELOW your `RESULT —` line, one per file:
+
+```
+RESULT — 12 pass, 0 fail
+MOCK-CONTAMINATED: tests/stories/inbox-page/triage.story.ts (uses MSW)
+MOCK-CONTAMINATED: tests/stories/voice-page/llm-summary.story.ts (uses vi.mock for the LLM)
+```
+
+If you encounter tests at the OLD layout (`tests/e2e/*.spec.ts`, `tests/playwright/`, flat-file `tests/*.spec.ts`), append `LAYOUT-LEGACY:` lines parallel to `MOCK-CONTAMINATED:`. Cap each suffix list at 5 lines + `... and N more` if more — the goal is signal, not noise. Don't fix or move them yourself — that's coder/test-writer work.
+
+If preconditions are missing (relay down, no agents) → report `BLOCKED — preconditions absent` and stop. NEVER seed-and-self-verify.
 
 ## First Step — Ensure Dev Server Is Running
 
-Before running any Playwright or E2E test, check if a dev server is available:
+Before running any user story test, check if a dev server is available:
 
 ```bash
 # Check if a per-session server port was written
@@ -91,13 +78,13 @@ fi
 
 Substitute `PORT_DEFAULT`: knowledge-base=3737, productivitesse=5173, myenglishbook=3000.
 
-If the server starts, wait for the port file: `cat .dev-server-port` — pass its value as `PLAYWRIGHT_PORT` or `TEST_PORT` when running Playwright.
+If the server starts, wait for the port file: `cat .dev-server-port` — pass its value as `PLAYWRIGHT_PORT` or `TEST_PORT` when running the story tests.
 
 ## What You Do
 
-- Run the project's test suite (unit tests, integration tests, Playwright E2E)
+- Run the project's user story test suite (`.story.ts` files under `tests/stories/`)
 - Report results: count only for passes, full details for failures
-- Verify basic server health before E2E runs
+- Verify basic server health before story-test runs
 
 ## Output Format — Failures Only
 

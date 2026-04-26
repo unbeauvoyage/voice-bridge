@@ -46,64 +46,84 @@ If you are tempted to implement a feature directly on iOS or Electron because "t
 ## Testing model + scope (NEW — CEO directive 2026-04-26)
 
 - **Tester agents are always Sonnet, never Haiku.** Haiku has demonstrated test-result fabrication. When spawning a tester, the spawn call MUST set `model: "sonnet"` explicitly.
-- **E2E tests are committed alongside the features they cover** at `<project>/tests/e2e/<feature>/`. Never write E2E tests to `/tmp` or other temporary locations — they must be reusable and version-controlled.
+- **User story tests are committed alongside the features they cover** at `<project>/tests/stories/<page-or-feature>/`. Never write tests to `/tmp` or other temporary locations — they must be reusable and version-controlled. (See "User story tests" section below for full format.)
 - **Tests are written in sync with implementation**, not retrofitted. The coder writes a failing test before the implementation, the tester runs it as soon as the coder's worktree is ready.
 
-## Real-only testing — no mocks, no fakes, no synthetic data (NEW — CEO directive 2026-04-26)
+## User story tests (the only kind of test we write) (NEW — CEO directive 2026-04-26)
 
-E2E tests prove user-facing behavior with real services. They do NOT:
-- Mock the relay, the database, the LLM, or any backend
-- Use MSW, vi.mock, sinon, or any test-double library
-- Seed data into Zustand stores, React Query cache, or localStorage to "set up"
-- Stub the system under test
+We test USER STORIES, not functions. A user story test simulates one specific thing a real user does end-to-end and verifies the user-visible outcome. We do NOT write unit tests, we do NOT mock the system under test, we do NOT test internal functions in isolation.
 
-E2E tests DO:
-- Spin up the real backend (`bun run src/index.ts` for relay)
-- Spin up the real frontend (`npm run dev`)
-- Use the real database (separate dev instance)
-- Drive real Playwright browser sessions with real clicks/keys
-- Assert on literals that originated from the real backend during the test run
+The reasoning: error handling, edge cases, internal function correctness are all exercised AUTOMATICALLY when the user-story-level assertion runs. If an internal function breaks, the story test fails because the user-visible behavior breaks. Internal-function tests are dead weight that ossify implementation choices and don't catch what matters.
 
-Preconditions missing (relay down, no agents, no test user) → report `BLOCKED — preconditions absent` and stop. Never seed-and-self-verify.
+Industry-standard term for this is **acceptance tests** (XP / BDD / ATDD). We use the more direct name **user story tests** in this codebase.
 
-The reason: in production, the only thing that matters is "did the real system work?" Mocked tests prove only that the mock works. We have already wasted multiple sessions chasing tests that passed against fakes while the real system was broken (see PROBLEM-LOG.md).
+### Format
 
-This is the positive-rule restatement of the Synthetic-data ban — they are the same rule from two angles.
+Path: `<project>/tests/stories/<page-or-feature>/<scenario>.story.ts`
 
-## E2E test organization — page/journey-based (NEW — CEO directive 2026-04-26)
+Each `.story.ts` file documents a single user story, written so a non-technical reader can understand what it proves:
 
-Tests are organized to match how a real user / QA tester walks through the app:
-
-- **Page-based by default**: one folder per page, multiple specs per folder covering every interaction available on that page.
-- **Feature-based for cross-cutting concerns** that span multiple pages (notifications, connection status, auth).
-
-Path pattern: `<project>/tests/e2e/<page-or-feature>/<scenario>.spec.ts`
-
-Examples (ceo-app):
-```
-tests/e2e/voice-page/text-message.spec.ts        ← every interaction on /voice
-tests/e2e/voice-page/voice-message.spec.ts
-tests/e2e/voice-page/image-attachment.spec.ts
-tests/e2e/inbox-page/triage.spec.ts              ← every interaction on /inbox
-tests/e2e/chat-page/send-text.spec.ts            ← every interaction on /chat
-tests/e2e/notifications/fires-from-any-page.spec.ts   ← cross-cutting feature
-tests/e2e/connection-mode/tailscale-vs-lan.spec.ts    ← cross-cutting feature
+```ts
+test('CEO sends a text message to chief-of-staff from the voice page', async ({ page }) => {
+  // Given the real relay is up and chief-of-staff is a real connected agent
+  // And I am on the voice page in a real browser
+  // When I type "hello chief" and press Enter
+  // Then the message appears in the thread within 5 seconds
+  // And GET /api/messages?participant=chief-of-staff returns the literal "hello chief"
+})
 ```
 
-Each spec file = one user scenario, written as a script a person could read and execute:
+The test NAME states the user story. The comments inside frame it as Given/When/Then for clarity. The test BODY uses real services with real assertions on real outputs.
+
+### Real services only — no fakes
+
+User story tests spin up:
+- Real backend (project-specific entry — `bun run src/index.ts` for relay, others vary; check package.json `scripts`)
+- Real frontend (`npm run dev` is typical; confirm per project)
+- Real database (separate dev instance — never production)
+- Real browser via Playwright (note: each project's `playwright.config.ts` must include `**/*.story.ts` in `testMatch` — the default Playwright config does not match `.story.ts`)
+
+User story tests do NOT use:
+- Mocks, MSW, vi.mock, sinon, or any test-double library
+- Seeded data in Zustand stores, React Query cache, or localStorage
+- Stubs of the system under test
+
+If preconditions are missing (relay down, no agents) → report `BLOCKED — preconditions absent` and stop. NEVER seed-and-self-verify.
+
+### Organization
+
+Tests are organized to match how a real user (or QA tester) walks through the app:
+
+- **Page-based by default**: one folder per page, multiple stories per folder covering every user-reachable interaction on that page (every button, every input, every flow).
+- **Feature-based for cross-cutting stories** that span multiple pages (notifications fire from any page, connection status visible across pages).
+
+Examples:
 ```
-1. Open <URL>
-2. Click <element>
-3. Type <literal>
-4. Press <key>
-5. Wait for <real backend response>
-6. Verify <literal> appears
-7. Verify the relay's database persisted <literal>
+tests/stories/voice-page/send-text.story.ts        ← interaction available on /voice
+tests/stories/voice-page/send-voice.story.ts
+tests/stories/voice-page/attach-image.story.ts
+tests/stories/inbox-page/triage-needs-input.story.ts
+tests/stories/chat-page/raw-jsonl-toggle.story.ts
+tests/stories/notifications/fires-on-incoming-message.story.ts
+tests/stories/connection-mode/switch-tailscale-to-lan.story.ts
 ```
 
-Spec authors should imagine: "If a non-technical QA tester read this spec, could they reproduce it manually?" If no, the spec is too implementation-coupled.
+### What this replaces (no spec files needed)
 
-We do NOT chase coverage by counting tests. We chase coverage by walking through every user-reachable interaction on every page. A page with 3 interactions has 3 specs. A page with 30 has 30. The metric is "did a real user behavior fail?", not "how many tests do we have?"
+We do NOT maintain separate SPEC.md files for features. The user story tests ARE the spec. Reading the test file tells you (a) what the feature does, (b) what the acceptance criteria are, (c) whether it works.
+
+### Negative control still applies
+
+Per the verification rules above: every story test must be paired with at least one assertion you've proven CAN fail (assert wrong literal first, confirm RED, then revert). A test that has only ever been seen GREEN is not a verified test.
+
+### What we explicitly do NOT write
+
+- Unit tests of internal functions or hooks (dead weight, ossifies implementation)
+- Mocked tests (proves only that the mock works)
+- Snapshot tests (false sense of coverage)
+- Tests that import from internal modules to test them in isolation
+
+This section is the positive-rule restatement of the Synthetic-data ban — they are the same rule from two angles.
 
 ## Git
 No `Co-Authored-By` or AI attribution. Subject + body only.
