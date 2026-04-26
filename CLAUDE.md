@@ -201,6 +201,16 @@ No `Co-Authored-By` or AI attribution. Subject + body only.
 - **Never spawn `team-lead` or `agency-lead`.** Those are session-start roles. The harness enforces this via a PreToolUse hook (`~/environment/.claude/hooks/agent-spawn-guard.sh`), but you should not attempt it in the first place.
 - If you ARE the team-lead/agency-lead, spawn coders / designers / test-writers / etc. directly. No middleman.
 
+## Hooks wiring (NEW — CEO directive 2026-04-26)
+
+The testing-gate hooks (`testing-gate/on-code-edit.sh`, `on-bash.sh`, `stop-gate.sh`) only fire if the `hooks` block is present in the active settings file.
+
+`~/environment/.claude/settings.json` (committed) wires the hooks correctly. **BUT** if a user/agent has their own `~/environment/.claude/settings.local.json` with ANY `hooks` block, that block REPLACES the global one (Claude Code does NOT deep-merge; it object-replaces at top level).
+
+If you create or edit `settings.local.json` for any reason, you MUST include the full `hooks` block from `settings.json` (or omit `hooks` entirely from your local file to inherit the global). Otherwise the testing-gate stops firing for your session and "tests pass" claims become unverifiable theater.
+
+If hooks aren't firing in your session, run `cat ~/environment/.claude/settings.local.json | jq .hooks` — if it's null or absent, you're inheriting global. If it's defined but missing the `PreToolUse|PostToolUse|Stop` testing-gate keys, that's the bug.
+
 ## settings.local.json gotcha — READ THIS BEFORE TOUCHING settings (NEW — CEO directive 2026-04-26)
 
 Claude Code does NOT deep-merge `settings.json` and `settings.local.json`. The local file REPLACES the global file's `hooks` key entirely (top-level object replacement, not key-by-key merge). Concrete failure mode: a user with their own `~/environment/.claude/settings.local.json` from before the testing-gate wiring landed will have NO hooks fire — the gate is silently bypassed for that user.
