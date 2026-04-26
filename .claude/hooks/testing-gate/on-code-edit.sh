@@ -177,7 +177,7 @@ fi
 
 if [[ -n "$ESLINT_CONFIG" ]]; then
   ESLINT_OUTFILE=$(mktemp /tmp/hook-eslint-XXXXXX)
-  (cd "$PROJECT_ROOT" && bunx eslint --no-fix --max-warnings=0 "$FILE" > "$ESLINT_OUTFILE" 2>&1) &
+  (cd "$PROJECT_ROOT" && bunx eslint --no-fix --max-warnings=0 --no-warn-ignored "$FILE" > "$ESLINT_OUTFILE" 2>&1) &
   ESLINT_PID=$!
   (
     sleep 20
