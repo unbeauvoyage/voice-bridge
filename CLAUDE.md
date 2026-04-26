@@ -7,6 +7,21 @@ If your role is one of: **coder, code-reviewer, tester, test-writer, spec-writer
 1. `echo $RELAY_AGENT_NAME` → read `.claude/agents/$RELAY_AGENT_NAME.md`
 2. Skim `learnings/token-optimization/PRINCIPLES.md` (P2,P3,P4,P7,P8) + `ANTI-PATTERNS.md`
 3. Read `CONCEPTS.md`, `SESSIONS.md`, `BACKLOG.md`, then `.claude/modules/CLAUDE-full.md`
+4. **Read your handoff pointer** (see "Handoff convention" below).
+
+## Handoff convention
+- **Per-project session** (productivitesse, relay, knowledge-base, ...): read
+  `<project-root>/handoffs/LATEST.md`.
+- **Cross-project session** (chief-of-staff, agency-lead): read
+  `~/environment/handoffs/LATEST-for-{your-role}.md`.
+- **Decisions and conventions** (timeless): `~/environment/decisions/`.
+- **`.worklog/`** is a per-agent rolling diary, not a handoff — different
+  artifact. Keep using it.
+- **Legacy: `~/.claude/plans/`** is read-only archive. Do not write there.
+- Full convention: `~/environment/decisions/handoff-convention.md`.
+- The CEO says "write a handoff" → write the handoff in the right scope folder
+  and update the relevant LATEST pointer. CEO says "continue" / "resume" →
+  read your role's LATEST pointer first.
 
 ## CEO communication
 - Flag/ask CEO via `relay_reply to: "ceo"`. CLI alone = invisible.
@@ -15,6 +30,33 @@ If your role is one of: **coder, code-reviewer, tester, test-writer, spec-writer
 ## TDD — ABSOLUTE
 - Failing test first. Report test name before implementing.
 - No `skip()`. Show real pass/fail count or task is not done.
+
+## Verification — ABSOLUTE
+Every code change must be **exercised as a user before reporting done**. This is separate from a permanent test suite — it's the human verification step automated.
+
+- **UI changes (React/TS apps):** drive Playwright programmatically (not a saved spec). Open the page, perform the user action, screenshot the result, and read the screenshot back to confirm it looks right. Paste the page URL + screenshot path in the completion report.
+- **Backend / data changes:** curl the endpoint, parse the response, show the actual JSON (not "it works").
+- **CLI / script changes:** run the script with a representative input, show stdout/stderr.
+
+A coder may spawn a **Sonnet** (not Haiku) verifier sub-agent for UI verification they can't do inline. Haiku cannot reliably drive Playwright. The verifier returns PASS/FAIL with evidence. The coder is still responsible for the result.
+
+"Tests pass" without artifact is rejected. "I believe it works" is rejected. "TypeScript clean" is necessary but not sufficient — type-correct code can be visually broken or behaviorally wrong.
+
+### Mandatory artifact shape
+
+Every verification claim must reference a literal value copied from the task. The phrase pattern is:
+
+> "I verified the user can see `<literal>` at `<URL>` after `<action>`."
+
+If `<literal>` is a placeholder, the verification is invalid. If `<URL>` is "the app loads," it is invalid unless the bug was about the landing page. If `<action>` is "navigate to home," it is invalid unless the bug was about navigation.
+
+### Synthetic-data ban (relay-backed projects)
+
+For projects that consume data from the relay (productivitesse, knowledge-base, voice-bridge2): you may not pass UI verification by injecting data into the client-side store, MSW, or localStorage. Data must originate from the actual relay process at the participant/key named in the task. Empty backend = stop and report `BLOCKED — preconditions absent`, never seed-and-self-verify.
+
+### Negative control rule
+
+Any UI assertion that gates "done" must be paired with one negative-control run that proves the assertion can fail. If you cannot make it fail by changing the expected string, your selector is wrong and the green run is meaningless.
 
 ## Real-time visibility (NEW — CEO directive 2026-04-26)
 
@@ -153,6 +195,19 @@ This section is the positive-rule restatement of the Synthetic-data ban — they
 
 ## Git
 No `Co-Authored-By` or AI attribution. Subject + body only.
+
+## Sub-agent spawn policy
+- **Always pass `run_in_background: true` to the Agent tool.** Never block on a spawned subagent — you'll be notified when it finishes.
+- **Never spawn `team-lead` or `agency-lead`.** Those are session-start roles. The harness enforces this via a PreToolUse hook (`~/environment/.claude/hooks/agent-spawn-guard.sh`), but you should not attempt it in the first place.
+- If you ARE the team-lead/agency-lead, spawn coders / designers / test-writers / etc. directly. No middleman.
+
+## settings.local.json gotcha — READ THIS BEFORE TOUCHING settings (NEW — CEO directive 2026-04-26)
+
+Claude Code does NOT deep-merge `settings.json` and `settings.local.json`. The local file REPLACES the global file's `hooks` key entirely (top-level object replacement, not key-by-key merge). Concrete failure mode: a user with their own `~/environment/.claude/settings.local.json` from before the testing-gate wiring landed will have NO hooks fire — the gate is silently bypassed for that user.
+
+**If you have a `~/environment/.claude/settings.local.json`, you MUST include the same `hooks` block from `settings.json` in it (or remove the `hooks` key from your local entirely so it falls through to global). Otherwise the testing gate doesn't fire for you.** The committed `settings.json` is the single source of truth for the hooks block. Copy it verbatim into your local override if you keep one.
+
+A future Phase 5+ task will move the hook enforcement to a wrapper script that fires regardless of settings.local.json — until then, every user is responsible for keeping their local file in sync.
 
 ## Model policy
 - Persistent agents + managers: Sonnet. Spawned teammates: Sonnet default; Opus when stuck.

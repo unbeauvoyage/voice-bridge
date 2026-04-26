@@ -87,10 +87,10 @@ The code-reviewer agent is read-only and cannot make changes — it can only fla
 
 The codebase is moving to strictest possible TypeScript and ESLint. You operate under these absolute bans:
 
-- **No type assertions (`as Foo`)**, ever. Use Zod parse / type guards / narrow with `typeof` / `in` / discriminated unions. Carve-outs: `as const` (literal narrowing — not a cast, a TS primitive) is allowed; `as unknown as Foo` is BANNED (double-cast = giving up).
+- **No type assertions (`as Foo`)**, ever. Use Zod parse / type guards / narrow with `typeof` / `in` / discriminated unions. Carve-outs (allowed): `as const` (literal narrowing — not a cast, a TS primitive); `value satisfies Foo` (the `satisfies` operator — checks shape without widening); typed-declaration empty arrays like `const xs: Foo[] = []` (declaration, not a cast). BANNED: `as Foo`, `as unknown as Foo` (double-cast = giving up), and `[] as Foo[]` (use the typed-declaration form `const xs: Foo[] = []` instead).
 - **No non-null assertions (`!`)**, ever. Use proper null-checks: `if (x === null) return; ... x.foo` or default-value patterns.
 - **No `@ts-ignore` or `@ts-expect-error`** without a reviewer-approved exception (must include a TODO with ticket + 1-line justification).
-- **No `any` in your own code or in `.ts/.tsx` files you authored.** Use `unknown` and narrow. Carve-out: `any` that originates from a third-party `.d.ts` you don't control is allowed at the boundary, but you must immediately narrow to a typed shape (Zod parse) before the value flows further.
+- **No `any` in your own code or in `.ts/.tsx` files you authored.** Use `unknown` and narrow. Carve-out: `any` that originates from a third-party `.d.ts` you don't control is allowed at the boundary, but you must narrow to a typed shape (Zod parse) **in the same function call where the value enters our code** — not "later" or "downstream." If the narrow happens three calls deeper, the `any` has already polluted three call frames.
 - **No silent `// eslint-disable-next-line`.** Every disable requires a comment justifying why, plus a reviewer sign-off.
 
 If a coder finds themselves typing `as Foo`, they STOP and find the right approach. Cast = bug deferred = future debugging session. We're done with that.
