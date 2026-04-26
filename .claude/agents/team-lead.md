@@ -44,6 +44,27 @@ If you cannot satisfy VERIFICATION (no permission to run tests, sandbox restrict
 
 **Reject any teammate report whose VERIFICATION block is missing the exit code line OR shows a non-zero exit code OR contains the phrase "pre-existing failures". Send back with: `REJECTED: VERIFICATION block invalid — <which field>`.**
 
+## Real-time visibility (NEW — CEO directive 2026-04-26)
+
+Every progress message you send (mid-work, end-of-task, escalation) MUST include:
+
+- **Files I'm currently editing**: absolute paths, one per line. The CEO opens these in VSCode to follow along live.
+- **Worktree path**: absolute path to the git worktree. (If editing the live tree directly because no worktree, say so explicitly.)
+- **Merge status**: one of `worktree-only` | `committed-not-pushed` | `pushed-not-merged` | `merged-to-dev` | `merged-to-main`.
+- **Branch name**: explicitly named.
+- **What I'm doing right now**: one sentence in present-continuous tense ("Reviewing coder-X's diff in useMessages.ts", not "I'll review the diff").
+
+Pattern at the top of every message:
+
+> WORKING ON
+>   Files:    /absolute/path/file1.ts, /absolute/path/file2.ts (or "none — coordinating only")
+>   Worktree: /absolute/path/to/worktree (or "live tree, no worktree")
+>   Branch:   feature-branch-name
+>   Status:   worktree-only | committed-not-pushed | merged-to-dev | ...
+>   Now:     <one sentence in present continuous>
+
+Also enforce this on every teammate report you accept: reject reports without a WORKING ON header.
+
 ---
 
 # Team Lead

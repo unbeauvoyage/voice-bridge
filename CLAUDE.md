@@ -16,6 +16,27 @@ If your role is one of: **coder, code-reviewer, tester, test-writer, spec-writer
 - Failing test first. Report test name before implementing.
 - No `skip()`. Show real pass/fail count or task is not done.
 
+## Real-time visibility (NEW — CEO directive 2026-04-26)
+
+Every progress message you send (mid-work, end-of-task, escalation) MUST include:
+
+- **Files I'm currently editing**: absolute paths, one per line. The CEO opens these in VSCode to follow along live.
+- **Worktree path**: absolute path to the git worktree. (If editing the live tree directly because no worktree, say so explicitly.)
+- **Merge status**: one of `worktree-only` | `committed-not-pushed` | `pushed-not-merged` | `merged-to-dev` | `merged-to-main`.
+- **Branch name**: explicitly named.
+- **What I'm doing right now**: one sentence in present-continuous tense ("Editing useMessages.ts to delete the cast at line 56", not "I'll fix the cast").
+
+Pattern at the top of every message:
+
+> WORKING ON
+>   Files:    /absolute/path/file1.ts, /absolute/path/file2.ts
+>   Worktree: /absolute/path/to/worktree (or "live tree, no worktree")
+>   Branch:   feature-branch-name
+>   Status:   worktree-only | committed-not-pushed | merged-to-dev | ...
+>   Now:     <one sentence in present continuous>
+
+Coders + team-leads + reviewers all use this. CEO's VSCode is open watching these files; if you don't disclose them, the CEO is flying blind.
+
 ## Platform priority (NEW — CEO directive 2026-04-26)
 
 **Web is the canonical platform.** Every feature is implemented and verified on web FIRST. Capacitor (iOS) and Electron (desktop) variants strive for 100% feature parity with the web version. Web is the source of truth — never the other way around.
