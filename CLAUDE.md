@@ -95,6 +95,12 @@ If you are tempted to implement a feature directly on iOS or Electron because "t
 
 We test USER STORIES, not functions. A user story test simulates one specific thing a real user does end-to-end and verifies the user-visible outcome. We do NOT write unit tests, we do NOT mock the system under test, we do NOT test internal functions in isolation.
 
+**The bar (CEO directive 2026-04-26):** A passing user-story test must be PROOF that the user story works in production. Not "high confidence" — proof. If a test is green and the user story is broken, the test is insufficient and that is a defect in the test.
+
+**Count rule:** The number of tests equals the number of user stories. One test per story, no more. We do NOT write contract tests, smoke tests, key-shape assertions, type-narrowness checks, or coverage-gap patches. If a code path needs coverage, write the user story for it — never patch it with a side-channel test.
+
+**Mechanical gating:** No commit lands without its user-story test proven passing. The pre-commit hook runs the relevant story-test suite against real services; failing tests block the commit. Chief-of-staff owns enforcement.
+
 The reasoning: error handling, edge cases, internal function correctness are all exercised AUTOMATICALLY when the user-story-level assertion runs. If an internal function breaks, the story test fails because the user-visible behavior breaks. Internal-function tests are dead weight that ossify implementation choices and don't catch what matters.
 
 Industry-standard term for this is **acceptance tests** (XP / BDD / ATDD). We use the more direct name **user story tests** in this codebase.
@@ -196,10 +202,18 @@ This section is the positive-rule restatement of the Synthetic-data ban — they
 ## Git
 No `Co-Authored-By` or AI attribution. Subject + body only.
 
+## Branch policy (NEW — CEO directive 2026-04-26)
+- **`dev` is the canonical CEO development branch** in every project. CEO uses `dev`; agents work in feature/fix/infra branches.
+- **Team-leads (and chief-of-staff) merge verified work into `dev`**, never directly into `main`. "Verified" means: passing user-story tests via the mechanical gate AND adversarial code review by a separate Opus reviewer.
+- **Agents do not merge to `dev` themselves.** They commit to feature branches; team-leads decide when to promote.
+- Every project must have a `dev` branch. If a project lacks one, create it from the canonical local main and document the convention.
+- **Promotion `dev` → `main`** is a separate decision the CEO owns; agents don't initiate it.
+
 ## Sub-agent spawn policy
+- **Prefer `TeamCreate` + named teammates over raw `Agent` spawns.** TeamCreate gives you persistent named teammates (addressable via `SendMessage to: <name>`) with a shared task list and peer visibility. Raw `Agent` spawns are fire-and-forget — once they exit you cannot resume them mid-session, only re-spawn fresh. Use `TeamCreate` for any workstream involving (a) multiple coders touching related work, (b) longer than a single round-trip, or (c) work where you might want to interrupt or course-correct. Reserve raw `Agent` spawns for one-shot independent reads (e.g., a single research pass) where mid-session interaction is not needed.
 - **Always pass `run_in_background: true` to the Agent tool.** Never block on a spawned subagent — you'll be notified when it finishes.
 - **Never spawn `team-lead` or `agency-lead`.** Those are session-start roles. The harness enforces this via a PreToolUse hook (`~/environment/.claude/hooks/agent-spawn-guard.sh`), but you should not attempt it in the first place.
-- If you ARE the team-lead/agency-lead, spawn coders / designers / test-writers / etc. directly. No middleman.
+- If you ARE the team-lead/agency-lead, spawn coders / designers / test-writers / etc. directly into your team. No middleman.
 
 ## Hooks wiring (NEW — CEO directive 2026-04-26)
 
