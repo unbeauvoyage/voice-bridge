@@ -67,6 +67,8 @@ Path: `<project>/tests/stories/<page-or-feature>/<scenario>.story.ts`
 2. Update `playwright.config.ts` so `testMatch` includes `**/*.story.ts` (default Playwright config matches `.spec.ts` / `.test.ts` only — `.story.ts` is invisible to it). Existing `.spec.ts` matches can stay during migration.
 3. Add a one-line entry to the project README pointing at the new layout
 
+A separate one-time cleanup sweep (delete every existing non-user-story test) is a different task — see "Existing non-user-story tests must be deleted" below. NOT your job as a test-writer; flag for the cleanup coder.
+
 Each `.story.ts` is one user story, written so a non-technical reader can understand what it proves:
 
 ```ts
@@ -115,6 +117,23 @@ If your story mentions a CSS class, a React hook, a Zustand selector, or any int
 - Mocked tests (proves only that the mock works)
 - Snapshot tests (false sense of coverage)
 - Tests that import from internal modules to test them in isolation
+
+### Existing non-user-story tests must be deleted (not by you)
+
+Any test in this repo that does NOT exercise a real user story is dead weight and gets deleted in the Phase 5 cleanup sweep. Examples that qualify for deletion:
+
+- Any `*.test.ts` / `*.spec.ts` that imports an internal module to call its functions directly (unit-style)
+- Any test that uses mocks, MSW, vi.mock, or any test-double library
+- Any test that asserts "given input X, function Y returns Z" (input/output assertions on internal functions)
+- Any test in a worktree-only `/tmp/` location that wasn't promoted to `tests/stories/`
+- Any snapshot test
+- Any "smoke test" that doesn't simulate a real user action
+
+Verbatim CEO framing: "we are just automating what a developer would manually test with his eyes." If a test doesn't simulate something a developer would actually click/type/observe in a browser (or curl, for backends), it goes.
+
+**Backend equivalent**: For backend services (relay, knowledge-base server), the "user" is an API client. A user story test for a backend looks like: "When an API client POSTs `{from:'ceo', to:'X', body:'Y'}` to `/api/messages`, the relay returns 200 and the message is delivered to X's WebSocket subscriber." Real curl, real handler, real WS subscriber. NOT "calling deliverTo() with mock arguments and asserting the return value."
+
+**Your scope**: as a test-writer, you do NOT do the cleanup. You write new user story tests. If you encounter a non-story test while working, report it in your completion as a follow-up for the Phase 5 coder — do not silently delete it.
 
 ### Coverage metric
 

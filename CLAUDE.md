@@ -57,6 +57,8 @@ The reasoning: error handling, edge cases, internal function correctness are all
 
 Industry-standard term for this is **acceptance tests** (XP / BDD / ATDD). We use the more direct name **user story tests** in this codebase.
 
+**On adoption of this rule**: every project (ceo-app, relay, knowledge-base, voice-bridge2, productivitesse — all of them) must do a one-time sweep of its existing test files and delete any test that does not match the user-story-test definition above. This is a permanent commitment — we never write or keep non-story tests again. The sweep is tracked as the test-cleanup phase of each project's strict-contracts initiative; the canonical task name is "Phase 5 of strict-contracts" inside ceo-app and the equivalent named phase elsewhere.
+
 ### Format
 
 Path: `<project>/tests/stories/<page-or-feature>/<scenario>.story.ts`
@@ -122,6 +124,21 @@ Per the verification rules above: every story test must be paired with at least 
 - Mocked tests (proves only that the mock works)
 - Snapshot tests (false sense of coverage)
 - Tests that import from internal modules to test them in isolation
+
+### Existing non-user-story tests must be deleted
+
+Any test in this repo that does NOT exercise a real user story is dead weight and gets deleted. Specifically delete:
+
+- Any `*.test.ts` / `*.spec.ts` that imports an internal module to call its functions directly (unit-style)
+- Any test that uses mocks, MSW, vi.mock, or any test-double library
+- Any test that asserts "given input X, function Y returns Z" (input/output assertions on internal functions)
+- Any test in a worktree-only `/tmp/` location that wasn't promoted to `tests/stories/`
+- Any snapshot test
+- Any "smoke test" that doesn't simulate a real user action
+
+Verbatim CEO framing: "we are just automating what a developer would manually test with his eyes." If a test doesn't simulate something a developer would actually click/type/observe in a browser (or curl, for backends), it goes.
+
+**Backend equivalent**: For backend services (relay, knowledge-base server), the "user" is an API client. A user story test for a backend looks like: "When an API client POSTs `{from:'ceo', to:'X', body:'Y'}` to `/api/messages`, the relay returns 200 and the message is delivered to X's WebSocket subscriber." Real curl, real handler, real WS subscriber. NOT "calling deliverTo() with mock arguments and asserting the return value."
 
 This section is the positive-rule restatement of the Synthetic-data ban — they are the same rule from two angles.
 
