@@ -99,7 +99,7 @@ The reasoning: error handling, edge cases, internal function correctness are all
 
 Industry-standard term for this is **acceptance tests** (XP / BDD / ATDD). We use the more direct name **user story tests** in this codebase.
 
-**On adoption of this rule**: every project (ceo-app, relay, knowledge-base, voice-bridge2, productivitesse — all of them) must do a one-time sweep of its existing test files and delete any test that does not match the user-story-test definition above. This is a permanent commitment — we never write or keep non-story tests again. The sweep is tracked as the test-cleanup phase of each project's strict-contracts initiative; the canonical task name is "Phase 5 of strict-contracts" inside ceo-app and the equivalent named phase elsewhere.
+**On adoption of this rule**: every project (ceo-app, relay, knowledge-base, voice-bridge2, productivitesse — all of them) must do a one-time **user-story-test cleanup sweep** of its existing test files and delete any test that does not match the user-story-test definition above. This is a permanent commitment — we never write or keep non-story tests again. Phase definitions for the agency-wide strict-contracts initiative live in `~/environment/decisions/strict-contracts.md` (the cleanup sweep is one of the phases there).
 
 ### Format
 
@@ -217,7 +217,7 @@ Claude Code does NOT deep-merge `settings.json` and `settings.local.json`. The l
 
 **If you have a `~/environment/.claude/settings.local.json`, you MUST include the same `hooks` block from `settings.json` in it (or remove the `hooks` key from your local entirely so it falls through to global). Otherwise the testing gate doesn't fire for you.** The committed `settings.json` is the single source of truth for the hooks block. Copy it verbatim into your local override if you keep one.
 
-A future Phase 5+ task will move the hook enforcement to a wrapper script that fires regardless of settings.local.json — until then, every user is responsible for keeping their local file in sync.
+A future task (filed as a follow-up phase in `~/environment/decisions/strict-contracts.md`) will move the hook enforcement to a wrapper script that fires regardless of settings.local.json — until then, every user is responsible for keeping their local file in sync.
 
 ## Model policy
 - Persistent agents + managers: Sonnet. Spawned teammates: Sonnet default; Opus when stuck.
