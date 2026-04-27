@@ -29,7 +29,7 @@ var relay = builder.AddExecutable(
         "relay",
         "node",
         workingDirectory: "../message-relay",
-        "--watch", "--import", "tsx/esm", "src/relay-lean.ts")
+        "--watch", "--require", "tsx/cjs", "src/relay-lean.ts")
     .WithHttpEndpoint(port: 8767, name: "http", env: "LEAN_RELAY_PORT")
     .WithExternalHttpEndpoints()
     .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint)
@@ -61,7 +61,7 @@ var voiceBridgeServer = builder.AddExecutable(
         "voice-bridge-server",
         "node",
         workingDirectory: "../voice-bridge2",
-        "--watch", "--import", "tsx/esm", "server/index.ts")
+        "--watch", "--require", "tsx/cjs", "server/index.ts")
     .WithHttpEndpoint(port: 3030, name: "http", env: "PORT")
     .WithExternalHttpEndpoints()
     .WaitFor(relay)
