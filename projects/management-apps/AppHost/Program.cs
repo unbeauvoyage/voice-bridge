@@ -2,13 +2,20 @@ var builder = DistributedApplication.CreateBuilder(args);
 
 // message-relay — lean relay (Bun). DCP allocates an internal port, injects it
 // via LEAN_RELAY_PORT, and proxies external 8767 → that internal port.
+// OTEL_EXPORTER_OTLP_ENDPOINT points at the Aspire dashboard HTTP OTLP receiver
+// (port 19004 in the http profile). Raw AddExecutable resources do NOT get
+// auto-injected OTel env vars — we must wire them explicitly. We use HTTP (not
+// gRPC) because Bun cannot load native gRPC bindings.
 var relay = builder.AddExecutable(
         "relay",
         "bun",
         workingDirectory: "../message-relay",
         "run", "src/relay-lean.ts")
     .WithHttpEndpoint(port: 8767, name: "http", env: "LEAN_RELAY_PORT")
-    .WithExternalHttpEndpoints();
+    .WithExternalHttpEndpoints()
+    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:19004")
+    .WithEnvironment("OTEL_SERVICE_NAME", "relay")
+    .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf");
 
 // whisper-server (whisper.cpp). Binds 127.0.0.1:8766 directly; isProxied: false
 // prevents DCP from allocating a second port — the process owns 8766.
@@ -34,7 +41,10 @@ var voiceBridgeServer = builder.AddExecutable(
     .WithHttpEndpoint(port: 3030, name: "http", env: "PORT")
     .WithExternalHttpEndpoints()
     .WaitFor(relay)
-    .WaitFor(whisper);
+    .WaitFor(whisper)
+    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:19004")
+    .WithEnvironment("OTEL_SERVICE_NAME", "voice-bridge-server")
+    .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf");
 
 // wake-word daemon (Python). No HTTP endpoint — listens for wake phrase only.
 // --target chief-of-staff matches CEO's running config.
