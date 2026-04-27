@@ -10,7 +10,22 @@ var relay = builder.AddExecutable(
     .WithHttpEndpoint(port: 8767, name: "http", env: "LEAN_RELAY_PORT")
     .WithExternalHttpEndpoints();
 
+// whisper-server (whisper.cpp). Binds 127.0.0.1:8766 directly; isProxied: false
+// prevents DCP from allocating a second port — the process owns 8766.
+var whisper = builder.AddExecutable(
+        "whisper-server",
+        "whisper-server",
+        workingDirectory: "../message-relay",
+        "--model", "models/ggml-medium.bin",
+        "--host", "127.0.0.1",
+        "--port", "8766",
+        "--language", "auto",
+        "--translate")
+    .WithHttpEndpoint(port: 8766, name: "http", isProxied: false)
+    .WithExternalHttpEndpoints();
+
 // voice-bridge2 server (Bun). Reads PORT from env, so env-injection works.
+// WaitFor(whisper) ensures whisper-server is bound before voice-bridge accepts audio.
 var voiceBridgeServer = builder.AddExecutable(
         "voice-bridge-server",
         "bun",
@@ -18,7 +33,8 @@ var voiceBridgeServer = builder.AddExecutable(
         "run", "server/index.ts")
     .WithHttpEndpoint(port: 3030, name: "http", env: "PORT")
     .WithExternalHttpEndpoints()
-    .WaitFor(relay);
+    .WaitFor(relay)
+    .WaitFor(whisper);
 
 // wake-word daemon (Python). No HTTP endpoint — listens for wake phrase only.
 // --target chief-of-staff matches CEO's running config.
