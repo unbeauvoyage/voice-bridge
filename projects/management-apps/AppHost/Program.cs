@@ -59,9 +59,9 @@ var whisper = builder.AddExecutable(
 // WaitFor(whisper) ensures whisper-server is bound before voice-bridge accepts audio.
 var voiceBridgeServer = builder.AddExecutable(
         "voice-bridge-server",
-        "node",
+        "bun",
         workingDirectory: "../voice-bridge2",
-        "--watch", "--require", "tsx/cjs", "server/index.ts")
+        "run", "--hot", "server/index.ts")
     .WithHttpEndpoint(port: 3030, name: "http", env: "PORT")
     .WithExternalHttpEndpoints()
     .WaitFor(relay)
