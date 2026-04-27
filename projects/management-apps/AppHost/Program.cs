@@ -27,9 +27,9 @@ var otlpHeaders = otlpApiKey.Length > 0 ? $"x-otlp-api-key={otlpApiKey}" : "";
 // if auto-respawn on crash is needed.
 var relay = builder.AddExecutable(
         "relay",
-        "bun",
+        "node",
         workingDirectory: "../message-relay",
-        "run", "--hot", "src/relay-lean.ts")
+        "--watch", "--import", "tsx/esm", "src/relay-lean.ts")
     .WithHttpEndpoint(port: 8767, name: "http", env: "LEAN_RELAY_PORT")
     .WithExternalHttpEndpoints()
     .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint)
@@ -59,9 +59,9 @@ var whisper = builder.AddExecutable(
 // WaitFor(whisper) ensures whisper-server is bound before voice-bridge accepts audio.
 var voiceBridgeServer = builder.AddExecutable(
         "voice-bridge-server",
-        "bun",
+        "node",
         workingDirectory: "../voice-bridge2",
-        "run", "--hot", "server/index.ts")
+        "--watch", "--import", "tsx/esm", "server/index.ts")
     .WithHttpEndpoint(port: 3030, name: "http", env: "PORT")
     .WithExternalHttpEndpoints()
     .WaitFor(relay)
