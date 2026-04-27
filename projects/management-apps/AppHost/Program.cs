@@ -10,6 +10,13 @@ var builder = DistributedApplication.CreateBuilder(args);
 var otlpEndpoint = Environment.GetEnvironmentVariable("DOTNET_DASHBOARD_OTLP_HTTP_ENDPOINT_URL")
     ?? "http://localhost:18890";
 
+// AppHost:OtlpApiKey is stored in dotnet user-secrets (run `dotnet user-secrets list`).
+// Aspire DCP sets DASHBOARD__OTLP__AUTHMODE=ApiKey for the dashboard, so non-.NET
+// AddExecutable resources must include the key in every OTLP request header.
+// OTEL_EXPORTER_OTLP_HEADERS format: "key=value,key2=value2".
+var otlpApiKey = builder.Configuration["AppHost:OtlpApiKey"] ?? "";
+var otlpHeaders = otlpApiKey.Length > 0 ? $"x-otlp-api-key={otlpApiKey}" : "";
+
 // message-relay — lean relay (Bun). DCP allocates an internal port, injects it
 // via LEAN_RELAY_PORT, and proxies external 8767 → that internal port.
 // --hot enables Bun hot-module-reload: source file changes reload modules in-place
@@ -26,6 +33,7 @@ var relay = builder.AddExecutable(
     .WithHttpEndpoint(port: 8767, name: "http", env: "LEAN_RELAY_PORT")
     .WithExternalHttpEndpoints()
     .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint)
+    .WithEnvironment("OTEL_EXPORTER_OTLP_HEADERS", otlpHeaders)
     .WithEnvironment("OTEL_SERVICE_NAME", "relay")
     .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
     .WithHttpHealthCheck("/health");
@@ -59,6 +67,7 @@ var voiceBridgeServer = builder.AddExecutable(
     .WaitFor(relay)
     .WaitFor(whisper)
     .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint)
+    .WithEnvironment("OTEL_EXPORTER_OTLP_HEADERS", otlpHeaders)
     .WithEnvironment("OTEL_SERVICE_NAME", "voice-bridge-server")
     .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
     .WithHttpHealthCheck("/health");
@@ -103,6 +112,7 @@ builder.AddExecutable(
     .WithExternalHttpEndpoints()
     .WaitFor(relay)
     .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint)
+    .WithEnvironment("OTEL_EXPORTER_OTLP_HEADERS", otlpHeaders)
     .WithEnvironment("OTEL_SERVICE_NAME", "ceo-app")
     .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
     .WithHttpHealthCheck("/");
