@@ -85,148 +85,148 @@ const getKnownAgentsBound = (): Promise<string[]> =>
 const tracer = getTracer()
 
 async function handleRequest(req: Request): Promise<Response> {
-    const url = new URL(req.url)
+  const url = new URL(req.url)
 
-    // ── Health ────────────────────────────────────────────────────────────────
-    if (url.pathname === '/health') {
-      return handleHealth()
-    }
+  // ── Health ────────────────────────────────────────────────────────────────
+  if (url.pathname === '/health') {
+    return handleHealth()
+  }
 
-    // ── Mobile UI ─────────────────────────────────────────────────────────────
-    if (req.method === 'GET' && url.pathname === '/') {
-      const indexCtx: IndexHtmlContext = {
-        loadIndexHtml: async () => {
-          try {
-            const buf = await readFile(join(PUBLIC_DIR, 'index.html'))
-            return buf.toString('utf8')
-          } catch {
-            return null
-          }
+  // ── Mobile UI ─────────────────────────────────────────────────────────────
+  if (req.method === 'GET' && url.pathname === '/') {
+    const indexCtx: IndexHtmlContext = {
+      loadIndexHtml: async () => {
+        try {
+          const buf = await readFile(join(PUBLIC_DIR, 'index.html'))
+          return buf.toString('utf8')
+        } catch {
+          return null
         }
       }
-      return handleIndexHtml(indexCtx)
     }
+    return handleIndexHtml(indexCtx)
+  }
 
-    // ── CORS preflight — allow dashboard (localhost:5173) to call voice-bridge ──
-    if (req.method === 'OPTIONS') {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-          'Access-Control-Max-Age': '86400'
-        }
-      })
-    }
-
-    // ── Transcribe ────────────────────────────────────────────────────────────
-    if (req.method === 'POST' && url.pathname === '/transcribe') {
-      const ctx: TranscribeContext = {
-        recentAudioHashes,
-        evictStaleHashes: () => evictStaleHashes(recentAudioHashes),
-        hashAudioBuffer,
-        loadLastTarget: loadLastTargetBound,
-        saveLastTarget: saveLastTargetBound,
-        handleMicCommand: handleMicCommandBound,
-        getKnownAgents: getKnownAgentsBound,
-        transcribeAudio,
-        llmRoute,
-        // Relay-only delivery. Queued (offline agent) counts as ok — relay
-        // will deliver when the agent comes online. cmux fallback removed:
-        // voice-bridge2 is not a cmux process, so deliverViaCmux always
-        // throws "Access denied" and was never useful here.
-        deliverMessage: async (message, to) => {
-          const relayResult = await deliverToAgent(message, to)
-          if (relayResult.ok) {
-            logger.info({ component: 'relay', to, message }, 'message_sent')
-            return { ok: true }
-          }
-          logger.error(
-            { component: 'voice-bridge', relayError: relayResult.error },
-            'relay_delivery_failed'
-          )
-          return { ok: false, error: relayResult.error }
-        }
+  // ── CORS preflight — allow dashboard (localhost:5173) to call voice-bridge ──
+  if (req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Max-Age': '86400'
       }
-      return handleTranscribe(req, ctx)
-    }
+    })
+  }
 
-    // ── Messages proxy ────────────────────────────────────────────────────────
-    if (req.method === 'GET' && url.pathname === '/messages') {
-      const ctx: MessagesContext = { relayBaseUrl: RELAY_BASE_URL }
-      return handleMessages(req, ctx)
-    }
-
-    // ── Mic control ──────────────────────────────────────────────────────────
-    // GET  /mic         — { state: "on"|"off" }
-    // POST /mic         — { state: "on"|"off" } → toggle
-    if (url.pathname === '/mic') {
-      const micCtx: MicContext = { isMicOn: isMicOnBound, setMic: setMicBound }
-      const res = await handleMic(req, micCtx)
-      if (res) return res
-    }
-
-    // ── Agents list ───────────────────────────────────────────────────────────
-    if (req.method === 'GET' && url.pathname === '/agents') {
-      const ctx: AgentsContext = {
-        relayBaseUrl: RELAY_BASE_URL,
-        listWorkspaceNames,
-        fetchFn: fetch
-      }
-      return handleAgents(req, ctx)
-    }
-
-    // ── Status ───────────────────────────────────────────────────────────────
-    if (req.method === 'GET' && url.pathname === '/status') {
-      const ctx: StatusContext = { loadLastTarget: loadLastTargetBound, isMicOn: isMicOnBound }
-      return handleStatus(ctx)
-    }
-
-    // ── Target control ────────────────────────────────────────────────────────
-    if (req.method === 'POST' && url.pathname === '/target') {
-      const ctx: TargetContext = { saveLastTarget: saveLastTargetBound }
-      return handleTarget(req, ctx)
-    }
-
-    // ── Settings ─────────────────────────────────────────────────────────────
-    if (url.pathname === '/settings') {
-      const settingsPath = join(import.meta.dir, '../daemon/settings.json')
-      const ctx: SettingsContext = {
-        readSettings: () => {
-          try {
-            return readFileSync(settingsPath, 'utf8')
-          } catch (err) {
-            // ENOENT = file missing (legitimate first-time use) → return null so
-            // the handler gives a 404 on GET or merges onto {} on POST.
-            // Any other error (EACCES, EISDIR, EIO) is a real problem → re-throw
-            // so the handler surfaces it as 500 instead of silently treating it
-            // as "no settings file" and potentially overwriting with fresh {}.
-            if (err instanceof Error && 'code' in err && err.code === 'ENOENT') return null
-            throw err
-          }
-        },
-        writeSettings: (content: string) => {
-          atomicWriteFile(settingsPath, content)
+  // ── Transcribe ────────────────────────────────────────────────────────────
+  if (req.method === 'POST' && url.pathname === '/transcribe') {
+    const ctx: TranscribeContext = {
+      recentAudioHashes,
+      evictStaleHashes: () => evictStaleHashes(recentAudioHashes),
+      hashAudioBuffer,
+      loadLastTarget: loadLastTargetBound,
+      saveLastTarget: saveLastTargetBound,
+      handleMicCommand: handleMicCommandBound,
+      getKnownAgents: getKnownAgentsBound,
+      transcribeAudio,
+      llmRoute,
+      // Relay-only delivery. Queued (offline agent) counts as ok — relay
+      // will deliver when the agent comes online. cmux fallback removed:
+      // voice-bridge2 is not a cmux process, so deliverViaCmux always
+      // throws "Access denied" and was never useful here.
+      deliverMessage: async (message, to) => {
+        const relayResult = await deliverToAgent(message, to)
+        if (relayResult.ok) {
+          logger.info({ component: 'relay', to, message }, 'message_sent')
+          return { ok: true }
         }
+        logger.error(
+          { component: 'voice-bridge', relayError: relayResult.error },
+          'relay_delivery_failed'
+        )
+        return { ok: false, error: relayResult.error }
       }
-      const res = await handleSettings(req, ctx)
-      if (res) return res
     }
+    return handleTranscribe(req, ctx)
+  }
 
-    // ── Wake word process control ─────────────────────────────────────────────
-    if (url.pathname === '/wake-word' || url.pathname.startsWith('/wake-word/')) {
-      const daemonDir = join(import.meta.dir, '../daemon')
-      const wakeCtx = createWakeWordOsContext(daemonDir, loadLastTargetBound, {
-        spawnSync,
-        spawn: (cmd, args, opts) => spawn(cmd, [...args], opts),
-        env: process.env
-      })
-      const res = handleWakeWord(req, wakeCtx)
-      if (res) return res
+  // ── Messages proxy ────────────────────────────────────────────────────────
+  if (req.method === 'GET' && url.pathname === '/messages') {
+    const ctx: MessagesContext = { relayBaseUrl: RELAY_BASE_URL }
+    return handleMessages(req, ctx)
+  }
+
+  // ── Mic control ──────────────────────────────────────────────────────────
+  // GET  /mic         — { state: "on"|"off" }
+  // POST /mic         — { state: "on"|"off" } → toggle
+  if (url.pathname === '/mic') {
+    const micCtx: MicContext = { isMicOn: isMicOnBound, setMic: setMicBound }
+    const res = await handleMic(req, micCtx)
+    if (res) return res
+  }
+
+  // ── Agents list ───────────────────────────────────────────────────────────
+  if (req.method === 'GET' && url.pathname === '/agents') {
+    const ctx: AgentsContext = {
+      relayBaseUrl: RELAY_BASE_URL,
+      listWorkspaceNames,
+      fetchFn: fetch
     }
+    return handleAgents(req, ctx)
+  }
 
-    return new Response('Not found', { status: 404 })
+  // ── Status ───────────────────────────────────────────────────────────────
+  if (req.method === 'GET' && url.pathname === '/status') {
+    const ctx: StatusContext = { loadLastTarget: loadLastTargetBound, isMicOn: isMicOnBound }
+    return handleStatus(ctx)
+  }
+
+  // ── Target control ────────────────────────────────────────────────────────
+  if (req.method === 'POST' && url.pathname === '/target') {
+    const ctx: TargetContext = { saveLastTarget: saveLastTargetBound }
+    return handleTarget(req, ctx)
+  }
+
+  // ── Settings ─────────────────────────────────────────────────────────────
+  if (url.pathname === '/settings') {
+    const settingsPath = join(import.meta.dir, '../daemon/settings.json')
+    const ctx: SettingsContext = {
+      readSettings: () => {
+        try {
+          return readFileSync(settingsPath, 'utf8')
+        } catch (err) {
+          // ENOENT = file missing (legitimate first-time use) → return null so
+          // the handler gives a 404 on GET or merges onto {} on POST.
+          // Any other error (EACCES, EISDIR, EIO) is a real problem → re-throw
+          // so the handler surfaces it as 500 instead of silently treating it
+          // as "no settings file" and potentially overwriting with fresh {}.
+          if (err instanceof Error && 'code' in err && err.code === 'ENOENT') return null
+          throw err
+        }
+      },
+      writeSettings: (content: string) => {
+        atomicWriteFile(settingsPath, content)
+      }
+    }
+    const res = await handleSettings(req, ctx)
+    if (res) return res
+  }
+
+  // ── Wake word process control ─────────────────────────────────────────────
+  if (url.pathname === '/wake-word' || url.pathname.startsWith('/wake-word/')) {
+    const daemonDir = join(import.meta.dir, '../daemon')
+    const wakeCtx = createWakeWordOsContext(daemonDir, loadLastTargetBound, {
+      spawnSync,
+      spawn: (cmd, args, opts) => spawn(cmd, [...args], opts),
+      env: process.env
+    })
+    const res = handleWakeWord(req, wakeCtx)
+    if (res) return res
+  }
+
+  return new Response('Not found', { status: 404 })
 }
 
 const server = Bun.serve({
@@ -239,8 +239,8 @@ const server = Bun.serve({
         'http.method': req.method,
         'http.url': req.url,
         'http.scheme': url.protocol.replace(':', ''),
-        'net.host.name': url.hostname,
-      },
+        'net.host.name': url.hostname
+      }
     })
     try {
       const response = await handleRequest(req)
@@ -250,12 +250,15 @@ const server = Bun.serve({
       }
       return response
     } catch (err) {
-      span.setStatus({ code: SpanStatusCode.ERROR, message: err instanceof Error ? err.message : String(err) })
+      span.setStatus({
+        code: SpanStatusCode.ERROR,
+        message: err instanceof Error ? err.message : String(err)
+      })
       throw err
     } finally {
       span.end()
     }
-  },
+  }
 })
 
 // Clean up stale TTS pause tokens left by a previous crash. Must run before the
