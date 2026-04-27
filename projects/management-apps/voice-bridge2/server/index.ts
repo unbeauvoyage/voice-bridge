@@ -17,7 +17,8 @@ import './otel.ts' // must be first — initializes OTel SDK before any other mo
 import { readFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { atomicWriteFile } from './atomicWriteFile.ts'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { spawnSync, spawn } from 'node:child_process'
 import { listWorkspaceNames } from './cmux.ts'
 import { deliverToAgent } from './relay.ts'
@@ -54,7 +55,7 @@ import { getTracer } from './otel.ts'
 import { SpanStatusCode } from '@opentelemetry/api'
 
 const PORT = Number(process.env['PORT'] ?? SERVER_PORT)
-const PUBLIC_DIR = join(import.meta.dir, '../public')
+const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '../public')
 const RELAY_BASE_URL = process.env['RELAY_BASE_URL'] ?? RELAY_BASE_URL_DEFAULT
 
 // Audio dedup — WKWebView retries fetches when Whisper is slow, causing duplicate relay delivery.
@@ -191,7 +192,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
   // ── Settings ─────────────────────────────────────────────────────────────
   if (url.pathname === '/settings') {
-    const settingsPath = join(import.meta.dir, '../daemon/settings.json')
+    const settingsPath = join(dirname(fileURLToPath(import.meta.url)), '../daemon/settings.json')
     const ctx: SettingsContext = {
       readSettings: () => {
         try {
@@ -216,7 +217,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
   // ── Wake word process control ─────────────────────────────────────────────
   if (url.pathname === '/wake-word' || url.pathname.startsWith('/wake-word/')) {
-    const daemonDir = join(import.meta.dir, '../daemon')
+    const daemonDir = join(dirname(fileURLToPath(import.meta.url)), '../daemon')
     const wakeCtx = createWakeWordOsContext(daemonDir, loadLastTargetBound, {
       spawnSync,
       spawn: (cmd, args, opts) => spawn(cmd, [...args], opts),
@@ -292,7 +293,7 @@ drainVoiceBridgeQueue(RELAY_BASE_URL, (msg) => {
 
 // Start relay response poller — agent replies appear as overlay message toasts
 const OVERLAY_URL = process.env['OVERLAY_URL'] ?? OVERLAY_URL_DEFAULT
-const SETTINGS_PATH = join(import.meta.dir, '../daemon/settings.json')
+const SETTINGS_PATH = join(dirname(fileURLToPath(import.meta.url)), '../daemon/settings.json')
 startRelayPoller({
   relayBaseUrl: RELAY_BASE_URL,
   overlayUrl: OVERLAY_URL,
