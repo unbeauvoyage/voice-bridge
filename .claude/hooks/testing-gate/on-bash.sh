@@ -54,9 +54,10 @@ if echo "$LAST_SEGMENT" | grep -qE "$TEST_CMD_RE"; then
   DIRTY_FILE="/tmp/tg-dirty-${SESSION}-${CWD_HASH}"
 
   # Structural pass markers — actual runner summary lines, not stray words.
-  # Covers: vitest/jest/bun-test ("N passed"), Tests: header, Playwright PASS lines,
-  # TAP "ok N -", cargo "test result: ok. N passed; ...", go "ok package 0.1s".
-  PASS_MARKER_RE='([0-9]+[[:space:]]+passed)|(Tests:[[:space:]]+[0-9]+[[:space:]]+passed)|(PASS[[:space:]]+[^[:space:]]+\.(test|spec)\.)|(ok[[:space:]]+[0-9]+[[:space:]]+-)|(test[[:space:]]+result:[[:space:]]+ok\.[[:space:]]+[0-9]+[[:space:]]+passed)|(^ok[[:space:]]+[^[:space:]]+[[:space:]]+[0-9]+\.[0-9]+s)'
+  # Covers: vitest/jest ("N passed"), bun test ("N pass" — no trailing d),
+  # Tests: header, Playwright PASS lines, TAP "ok N -",
+  # cargo "test result: ok. N passed; ...", go "ok package 0.1s".
+  PASS_MARKER_RE='([0-9]+[[:space:]]+pass)|(Tests:[[:space:]]+[0-9]+[[:space:]]+passed)|(PASS[[:space:]]+[^[:space:]]+\.(test|spec)\.)|(ok[[:space:]]+[0-9]+[[:space:]]+-)|(test[[:space:]]+result:[[:space:]]+ok\.[[:space:]]+[0-9]+[[:space:]]+passed)|(^ok[[:space:]]+[^[:space:]]+[[:space:]]+[0-9]+\.[0-9]+s)'
   PASS_MARKER_OK=0
   if echo "$OUTPUT" | grep -qE "$PASS_MARKER_RE"; then
     PASS_MARKER_OK=1
