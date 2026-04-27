@@ -93,6 +93,25 @@ if [ ! -f "$AGENT_FILE" ] && [ ! -f "$GLOBAL_AGENT_FILE" ] && [ ! -f "$ENV_AGENT
   exit 1
 fi
 
+# Check relay-channel plugin marketplace is present.
+# Claude Code loads the plugin via --dangerously-load-development-channels at startup;
+# if the marketplace directory is missing the session starts silently without the plugin
+# and all relay_ack / relay_reply calls fail at runtime with no useful error.
+MARKETPLACE_DIR="$HOME/environment/projects/management-apps/message-relay/marketplace"
+MARKETPLACE_JSON="$MARKETPLACE_DIR/.claude-plugin/marketplace.json"
+if [ ! -f "$MARKETPLACE_JSON" ]; then
+  echo "ERROR: relay-channel plugin marketplace not found."
+  echo "  Expected: $MARKETPLACE_JSON"
+  echo ""
+  echo "  Fix: ensure the management-apps repo is present and the marketplace"
+  echo "  directory exists at:"
+  echo "  $MARKETPLACE_DIR"
+  echo ""
+  echo "  If the repo exists, check that marketplace/.claude-plugin/marketplace.json"
+  echo "  is committed and not gitignored."
+  exit 1
+fi
+
 # Build model flag
 MODEL_FLAG=""
 if [ -n "$MODEL" ]; then

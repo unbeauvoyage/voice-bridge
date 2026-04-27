@@ -2,10 +2,23 @@ var builder = DistributedApplication.CreateBuilder(args);
 
 // message-relay — lean relay (Bun). DCP allocates an internal port, injects it
 // via LEAN_RELAY_PORT, and proxies external 8767 → that internal port.
+<<<<<<< Updated upstream
 // OTEL_EXPORTER_OTLP_ENDPOINT points at the Aspire dashboard HTTP OTLP receiver
 // (port 19004 in the http profile). Raw AddExecutable resources do NOT get
 // auto-injected OTel env vars — we must wire them explicitly. We use HTTP (not
 // gRPC) because Bun cannot load native gRPC bindings.
+=======
+// OTEL_EXPORTER_OTLP_ENDPOINT points at the Aspire dashboard HTTP/protobuf OTLP
+// receiver (port 18890 via DOTNET_DASHBOARD_OTLP_HTTP_ENDPOINT_URL). Raw
+// AddExecutable resources do NOT get auto-injected OTel env vars (only AddProject
+// does). We use HTTP/protobuf because Bun cannot load native gRPC bindings.
+// --hot enables Bun hot-module-reload: source file changes reload modules in-place
+// without a full process restart (dev-time convenience; in-memory state resets on reload).
+// NOTE: Aspire 13.2.4 has no public restart-policy API for AddExecutable resources.
+// DCP's ExecutableSpec.restartPolicy field exists in the binary but is not exposed
+// via C#. Wrap in a shell loop or upgrade to a version that adds WithRestartPolicy
+// if auto-respawn on crash is needed.
+>>>>>>> Stashed changes
 var relay = builder.AddExecutable(
         "relay",
         "bun",
@@ -13,7 +26,7 @@ var relay = builder.AddExecutable(
         "run", "src/relay-lean.ts")
     .WithHttpEndpoint(port: 8767, name: "http", env: "LEAN_RELAY_PORT")
     .WithExternalHttpEndpoints()
-    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:19004")
+    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:18890")
     .WithEnvironment("OTEL_SERVICE_NAME", "relay")
     .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf");
 
@@ -42,7 +55,7 @@ var voiceBridgeServer = builder.AddExecutable(
     .WithExternalHttpEndpoints()
     .WaitFor(relay)
     .WaitFor(whisper)
-    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:19004")
+    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:18890")
     .WithEnvironment("OTEL_SERVICE_NAME", "voice-bridge-server")
     .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf");
 

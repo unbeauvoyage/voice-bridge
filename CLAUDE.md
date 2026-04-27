@@ -225,6 +225,39 @@ If you create or edit `settings.local.json` for any reason, you MUST include the
 
 If hooks aren't firing in your session, run `cat ~/environment/.claude/settings.local.json | jq .hooks` — if it's null or absent, you're inheriting global. If it's defined but missing the `PreToolUse|PostToolUse|Stop` testing-gate keys, that's the bug.
 
+## Relay plugin — install and verify
+
+Every agent session that communicates via the relay needs the `relay-channel` plugin loaded. The plugin lives in the **local plugin marketplace** inside the message-relay project.
+
+**Marketplace location:** `~/environment/projects/management-apps/message-relay/marketplace/`
+- `.claude-plugin/marketplace.json` — registers the marketplace as `relay-plugins`
+- `channel-plugin/` — the plugin source (Bun/TypeScript MCP server)
+- `relay-channel` — symlink → `channel-plugin/` (alternate resolution path)
+
+**How a session loads the plugin:** `spawn-session.sh` passes
+`--dangerously-load-development-channels plugin:relay-channel@relay-plugins`
+to every `claude` invocation. This is the **development channel** load path —
+Claude Code reads the plugin source directly from
+`~/.claude/plugins/cache/relay-plugins/relay-channel/1.0.0/` at startup.
+That cache entry is a symlink pointing at the marketplace `channel-plugin/` dir:
+```
+~/.claude/plugins/cache/relay-plugins/relay-channel/1.0.0
+  → ~/environment/projects/management-apps/message-relay/marketplace/channel-plugin/
+```
+
+**If the plugin is missing (tool prefix `mcp__plugin_relay_relay-channel__*` absent):**
+1. Check the cache symlink:
+   `ls -la ~/.claude/plugins/cache/relay-plugins/relay-channel/`
+2. If the symlink is missing or broken, recreate it:
+   ```sh
+   mkdir -p ~/.claude/plugins/cache/relay-plugins/relay-channel
+   ln -sfn ~/environment/projects/management-apps/message-relay/marketplace/channel-plugin \
+     ~/.claude/plugins/cache/relay-plugins/relay-channel/1.0.0
+   ```
+3. Restart the session.
+
+Agents receive channel messages as `<channel source="relay" from="..." ...>` tags injected by the plugin. They MUST call `relay_ack` immediately on receipt, before doing anything else.
+
 ## settings.local.json gotcha — READ THIS BEFORE TOUCHING settings (NEW — CEO directive 2026-04-26)
 
 Claude Code does NOT deep-merge `settings.json` and `settings.local.json`. The local file REPLACES the global file's `hooks` key entirely (top-level object replacement, not key-by-key merge). Concrete failure mode: a user with their own `~/environment/.claude/settings.local.json` from before the testing-gate wiring landed will have NO hooks fire — the gate is silently bypassed for that user.
