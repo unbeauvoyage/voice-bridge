@@ -1,0 +1,4 @@
+[test]
+
+# Playwright E2E tests use .pw.ts suffix (not .spec.ts) so bun's test
+# runner doesn't pick them up. See playwright.config.ts testMatch.

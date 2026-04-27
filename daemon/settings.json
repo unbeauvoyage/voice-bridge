@@ -1,0 +1,7 @@
+{
+  "start_threshold": 0.3,
+  "stop_threshold": 0.25,
+  "tts_enabled": true,
+  "tts_word_limit": 3,
+  "toast_duration": 3.5
+}
