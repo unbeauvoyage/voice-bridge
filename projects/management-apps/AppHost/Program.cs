@@ -1,12 +1,7 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
-// FIRST-BOOT MODE: only message-relay is wired so we can verify the Aspire
-// dashboard + service lifecycle without colliding with the wake-word session
-// or stomping ceo-app's dev server. Uncomment the other services as we
-// confirm each one boots cleanly in the dashboard.
-
-// message-relay — lean relay (Bun). Aspire allocates the internal port and
-// injects it into LEAN_RELAY_PORT; DCP proxies external 8767 → that port.
+// message-relay — lean relay (Bun). DCP allocates an internal port, injects it
+// via LEAN_RELAY_PORT, and proxies external 8767 → that internal port.
 var relay = builder.AddExecutable(
         "relay",
         "bun",
@@ -15,41 +10,48 @@ var relay = builder.AddExecutable(
     .WithHttpEndpoint(port: 8767, name: "http", env: "LEAN_RELAY_PORT")
     .WithExternalHttpEndpoints();
 
-// voice-bridge2 server (Bun) — uncomment when ready to swap from your
-// running instance. Listens on PORT (3030).
-//
-// var voiceBridge = builder.AddExecutable(
-//         "voice-bridge",
-//         "bun",
-//         workingDirectory: "../voice-bridge2",
-//         "run", "server/index.ts")
-//     .WithEnvironment("PORT", "3030")
-//     .WithHttpEndpoint(port: 3030, name: "http")
-//     .WithExternalHttpEndpoints()
-//     .WaitFor(relay);
+// voice-bridge2 server (Bun). Reads PORT from env, so env-injection works.
+var voiceBridgeServer = builder.AddExecutable(
+        "voice-bridge-server",
+        "bun",
+        workingDirectory: "../voice-bridge2",
+        "run", "server/index.ts")
+    .WithHttpEndpoint(port: 3030, name: "http", env: "PORT")
+    .WithExternalHttpEndpoints()
+    .WaitFor(relay);
 
-// wake-word daemon (Python) — uncomment after voice-bridge2 wiring.
-//
-// builder.AddExecutable(
-//         "wake-word",
-//         "python3",
-//         workingDirectory: "../voice-bridge2/daemon",
-//         "wake_word.py", "--server", "http://127.0.0.1:3030", "--target", "command")
-//     .WaitFor(voiceBridge);
+// wake-word daemon (Python). No HTTP endpoint — listens for wake phrase only.
+// --target chief-of-staff matches CEO's running config.
+builder.AddExecutable(
+        "wake-word",
+        "python3",
+        workingDirectory: "../voice-bridge2/daemon",
+        "wake_word.py",
+        "--server", "http://127.0.0.1:3030",
+        "--target", "chief-of-staff",
+        "--start-threshold", "0.3",
+        "--stop-threshold", "0.15")
+    .WaitFor(voiceBridgeServer);
 
-// ceo-app dev server (React Router / Vite via Bun) — uncomment when ready
-// to manage it through Aspire.
-//
-// builder.AddExecutable(
-//         "ceo-app",
-//         "bun",
-//         workingDirectory: "../ceo-app",
-//         "run", "dev")
-//     .WithHttpEndpoint(port: 5173, name: "http")
-//     .WithExternalHttpEndpoints()
-//     .WaitFor(relay);
+// voice-bridge2 Electron window. No HTTP endpoint (Electron opens a window,
+// not a port). electron-vite picks its own renderer port.
+builder.AddExecutable(
+        "voice-bridge-electron",
+        "bun",
+        workingDirectory: "../voice-bridge2",
+        "run", "dev")
+    .WaitFor(voiceBridgeServer);
 
-// Suppress unused-variable warning for `relay` until other services WaitFor it.
-_ = relay;
+// ceo-app dev server (React Router / Vite via Bun). Vite respects --port flag
+// but not PORT env, so we pass --port 5175 as args. isProxied: false prevents
+// DCP from allocating a second port — the process binds 5175 directly.
+builder.AddExecutable(
+        "ceo-app",
+        "bun",
+        workingDirectory: "../ceo-app",
+        "run", "dev", "--", "--port", "5175")
+    .WithHttpEndpoint(port: 5175, name: "http", isProxied: false)
+    .WithExternalHttpEndpoints()
+    .WaitFor(relay);
 
 builder.Build().Run();
