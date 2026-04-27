@@ -10,18 +10,21 @@
  * verification is disabled — Aspire DCP uses self-signed certs in local dev.
  *
  * Protocol: OTLP/HTTP + JSON.
- * SimpleSpanProcessor is used so spans flush immediately — Bun's event loop
- * doesn't reliably drain BatchSpanProcessor before SIGTERM.
+ * SimpleSpanProcessor is used so spans flush immediately.
+ * Auto-instrumentations patch Node's require() hooks — requires Node runtime (not Bun).
  */
 
 import { NodeSDK } from '@opentelemetry/sdk-node'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
+import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http'
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics'
+import { SimpleLogRecordProcessor } from '@opentelemetry/sdk-logs'
 import { SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base'
 import { resourceFromAttributes } from '@opentelemetry/resources'
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions'
 import { trace, type Tracer } from '@opentelemetry/api'
+import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node'
 
 const otlpRaw =
   process.env['DOTNET_DASHBOARD_OTLP_HTTP_ENDPOINT_URL'] ??
@@ -42,6 +45,7 @@ if (endpoint !== null) {
 
   const traceExporter = new OTLPTraceExporter({ url: `${endpoint}/v1/traces` })
   const metricExporter = new OTLPMetricExporter({ url: `${endpoint}/v1/metrics` })
+  const logExporter = new OTLPLogExporter({ url: `${endpoint}/v1/logs` })
 
   sdk = new NodeSDK({
     resource,
@@ -50,7 +54,12 @@ if (endpoint !== null) {
       exporter: metricExporter,
       exportIntervalMillis: 10_000
     }),
-    instrumentations: []
+    logRecordProcessors: [new SimpleLogRecordProcessor(logExporter)],
+    instrumentations: [
+      getNodeAutoInstrumentations({
+        '@opentelemetry/instrumentation-fs': { enabled: false }
+      })
+    ]
   })
 
   sdk.start()

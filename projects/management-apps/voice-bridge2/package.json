@@ -15,7 +15,7 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
-    "dev:server": "bun run server/index.ts",
+    "dev:server": "node --watch --import tsx/esm server/index.ts",
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "electron-builder install-app-deps",
     "prepare": "cd ../.. && node projects/voice-bridge2/node_modules/.bin/husky || true",
@@ -46,6 +46,7 @@
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
     "@electron-toolkit/tsconfig": "^2.0.0",
     "@hey-api/openapi-ts": "^0.96.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.73.0",
     "@playwright/test": "^1.59.1",
     "@types/bun": "^1.3.12",
     "@types/node": "^22.19.1",
@@ -67,6 +68,7 @@
     "prettier": "^3.7.4",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vite": "^7.2.6"
   }
