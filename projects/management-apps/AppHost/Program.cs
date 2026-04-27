@@ -1,11 +1,17 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
+// Read the OTLP HTTP endpoint from this process's environment (injected by launchSettings
+// via DOTNET_DASHBOARD_OTLP_HTTP_ENDPOINT_URL). "http" profile → http://localhost:18890,
+// "https" profile → https://localhost:18891. Passing this through to AddExecutable resources
+// as OTEL_EXPORTER_OTLP_ENDPOINT because the Node/Bun OTel SDK reads the standard env var
+// while DCP only injects DOTNET_DASHBOARD_OTLP_HTTP_ENDPOINT_URL automatically for .NET
+// projects. otel.ts files also read DOTNET_DASHBOARD_OTLP_HTTP_ENDPOINT_URL directly as
+// a belt-and-suspenders fallback.
+var otlpEndpoint = Environment.GetEnvironmentVariable("DOTNET_DASHBOARD_OTLP_HTTP_ENDPOINT_URL")
+    ?? "http://localhost:18890";
+
 // message-relay — lean relay (Bun). DCP allocates an internal port, injects it
 // via LEAN_RELAY_PORT, and proxies external 8767 → that internal port.
-// OTEL_EXPORTER_OTLP_ENDPOINT points at the Aspire dashboard HTTP/protobuf OTLP
-// receiver (port 18890 via DOTNET_DASHBOARD_OTLP_HTTP_ENDPOINT_URL). Raw
-// AddExecutable resources do NOT get auto-injected OTel env vars (only AddProject
-// does). We use HTTP/protobuf because Bun cannot load native gRPC bindings.
 // --hot enables Bun hot-module-reload: source file changes reload modules in-place
 // without a full process restart (dev-time convenience; in-memory state resets on reload).
 // NOTE: Aspire 13.2.4 has no public restart-policy API for AddExecutable resources.
@@ -19,7 +25,7 @@ var relay = builder.AddExecutable(
         "run", "--hot", "src/relay-lean.ts")
     .WithHttpEndpoint(port: 8767, name: "http", env: "LEAN_RELAY_PORT")
     .WithExternalHttpEndpoints()
-    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:18890")
+    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint)
     .WithEnvironment("OTEL_SERVICE_NAME", "relay")
     .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
     .WithHttpHealthCheck("/health");
@@ -52,7 +58,7 @@ var voiceBridgeServer = builder.AddExecutable(
     .WithExternalHttpEndpoints()
     .WaitFor(relay)
     .WaitFor(whisper)
-    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:18890")
+    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint)
     .WithEnvironment("OTEL_SERVICE_NAME", "voice-bridge-server")
     .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
     .WithHttpHealthCheck("/health");
@@ -96,7 +102,7 @@ builder.AddExecutable(
     .WithHttpEndpoint(port: 5175, name: "http", isProxied: false)
     .WithExternalHttpEndpoints()
     .WaitFor(relay)
-    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:18890")
+    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint)
     .WithEnvironment("OTEL_SERVICE_NAME", "ceo-app")
     .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
     .WithHttpHealthCheck("/");
