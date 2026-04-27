@@ -2,12 +2,6 @@ var builder = DistributedApplication.CreateBuilder(args);
 
 // message-relay — lean relay (Bun). DCP allocates an internal port, injects it
 // via LEAN_RELAY_PORT, and proxies external 8767 → that internal port.
-<<<<<<< Updated upstream
-// OTEL_EXPORTER_OTLP_ENDPOINT points at the Aspire dashboard HTTP OTLP receiver
-// (port 19004 in the http profile). Raw AddExecutable resources do NOT get
-// auto-injected OTel env vars — we must wire them explicitly. We use HTTP (not
-// gRPC) because Bun cannot load native gRPC bindings.
-=======
 // OTEL_EXPORTER_OTLP_ENDPOINT points at the Aspire dashboard HTTP/protobuf OTLP
 // receiver (port 18890 via DOTNET_DASHBOARD_OTLP_HTTP_ENDPOINT_URL). Raw
 // AddExecutable resources do NOT get auto-injected OTel env vars (only AddProject
@@ -18,20 +12,21 @@ var builder = DistributedApplication.CreateBuilder(args);
 // DCP's ExecutableSpec.restartPolicy field exists in the binary but is not exposed
 // via C#. Wrap in a shell loop or upgrade to a version that adds WithRestartPolicy
 // if auto-respawn on crash is needed.
->>>>>>> Stashed changes
 var relay = builder.AddExecutable(
         "relay",
         "bun",
         workingDirectory: "../message-relay",
-        "run", "src/relay-lean.ts")
+        "run", "--hot", "src/relay-lean.ts")
     .WithHttpEndpoint(port: 8767, name: "http", env: "LEAN_RELAY_PORT")
     .WithExternalHttpEndpoints()
     .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:18890")
     .WithEnvironment("OTEL_SERVICE_NAME", "relay")
-    .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf");
+    .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+    .WithHttpHealthCheck("/health");
 
 // whisper-server (whisper.cpp). Binds 127.0.0.1:8766 directly; isProxied: false
 // prevents DCP from allocating a second port — the process owns 8766.
+// No /health endpoint — health check polls root "/" which returns 200 when ready.
 var whisper = builder.AddExecutable(
         "whisper-server",
         "whisper-server",
@@ -42,22 +37,25 @@ var whisper = builder.AddExecutable(
         "--language", "auto",
         "--translate")
     .WithHttpEndpoint(port: 8766, name: "http", isProxied: false)
-    .WithExternalHttpEndpoints();
+    .WithExternalHttpEndpoints()
+    .WithHttpHealthCheck("/");
 
 // voice-bridge2 server (Bun). Reads PORT from env, so env-injection works.
+// --hot enables Bun hot-module-reload for dev-time iteration.
 // WaitFor(whisper) ensures whisper-server is bound before voice-bridge accepts audio.
 var voiceBridgeServer = builder.AddExecutable(
         "voice-bridge-server",
         "bun",
         workingDirectory: "../voice-bridge2",
-        "run", "server/index.ts")
+        "run", "--hot", "server/index.ts")
     .WithHttpEndpoint(port: 3030, name: "http", env: "PORT")
     .WithExternalHttpEndpoints()
     .WaitFor(relay)
     .WaitFor(whisper)
     .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:18890")
     .WithEnvironment("OTEL_SERVICE_NAME", "voice-bridge-server")
-    .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf");
+    .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+    .WithHttpHealthCheck("/health");
 
 // wake-word daemon (Python). No HTTP endpoint — listens for wake phrase only.
 // --target chief-of-staff matches CEO's running config.
@@ -84,6 +82,12 @@ builder.AddExecutable(
 // ceo-app dev server (React Router / Vite via Bun). Vite respects --port flag
 // but not PORT env, so we pass --port 5175 as args. isProxied: false prevents
 // DCP from allocating a second port — the process binds 5175 directly.
+// Health check uses "/" — Vite dev server returns 200 at root when ready.
+// OTEL_EXPORTER_OTLP_ENDPOINT is read by vite.config.ts and mirrored to
+// VITE_OTEL_EXPORTER_OTLP_ENDPOINT so the browser bundle picks it up at
+// build time. The browser OTel SDK in app/otel.ts then sends OTLP/HTTP
+// to the Aspire dashboard. CORS must be allowed — see appsettings.Development.json
+// ASPIRE_DASHBOARD_OTLP__CORS__ALLOWEDORIGINS.
 builder.AddExecutable(
         "ceo-app",
         "bun",
@@ -91,6 +95,10 @@ builder.AddExecutable(
         "run", "dev", "--", "--port", "5175")
     .WithHttpEndpoint(port: 5175, name: "http", isProxied: false)
     .WithExternalHttpEndpoints()
-    .WaitFor(relay);
+    .WaitFor(relay)
+    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:18890")
+    .WithEnvironment("OTEL_SERVICE_NAME", "ceo-app")
+    .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+    .WithHttpHealthCheck("/");
 
 builder.Build().Run();
