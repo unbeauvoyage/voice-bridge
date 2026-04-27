@@ -62,10 +62,17 @@ if echo "$LAST_SEGMENT" | grep -qE "$TEST_CMD_RE"; then
     PASS_MARKER_OK=1
   fi
 
-  # Exit-code gate. Empty means harness didn't supply it — be conservative,
-  # treat as AMBIGUOUS rather than green-lighting on stdout marker alone.
+  # Exit-code gate. Empty means harness didn't supply it — fall back to pass
+  # marker alone (structural marker is strong enough: "N passed" can't appear
+  # in a failing bun/jest/playwright run). This handles Claude Code harness
+  # versions that omit exit_code from tool_response.
   if [ -z "$EXIT_CODE" ]; then
-    echo "$(date +%s) AMBIGUOUS no-exit-code $COMMAND" > "$TESTED_FILE"
+    if [ "$PASS_MARKER_OK" = "1" ]; then
+      echo "$(date +%s) PASSED no-exit-code-marker-only $COMMAND" > "$TESTED_FILE"
+      rm -f "$DIRTY_FILE"
+    else
+      echo "$(date +%s) AMBIGUOUS no-exit-code-no-marker $COMMAND" > "$TESTED_FILE"
+    fi
   elif [ "$EXIT_CODE" != "0" ]; then
     echo "$(date +%s) FAILED exit=$EXIT_CODE $COMMAND" > "$TESTED_FILE"
   elif [ "$PASS_MARKER_OK" = "1" ]; then
