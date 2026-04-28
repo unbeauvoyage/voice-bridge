@@ -17,16 +17,24 @@ var otlpEndpoint = Environment.GetEnvironmentVariable("DOTNET_DASHBOARD_OTLP_HTT
 var otlpApiKey = builder.Configuration["AppHost:OtlpApiKey"] ?? "";
 var otlpHeaders = otlpApiKey.Length > 0 ? $"x-otlp-api-key={otlpApiKey}" : "";
 
-// message-relay — lean relay (Bun). DCP allocates an internal port, injects it
+// ─── Stack-suffix naming convention ──────────────────────────────────────────
+// Every backend service has BOTH a TS and a .NET sibling. Resource names carry
+// an explicit stack suffix so the dashboard self-documents which stack each
+// belongs to: relay-ts / relay-dotnet, voice-bridge-ts / voice-bridge-dotnet,
+// content-service-ts / content-service-dotnet. whisper-server and the
+// voice-bridge daemons (wake-word, voice-bridge-electron) have no .NET sibling
+// and stay unsuffixed.
+
+// ─── TS stack ────────────────────────────────────────────────────────────────
+
+// message-relay (Bun → Node + tsx). DCP allocates an internal port, injects it
 // via LEAN_RELAY_PORT, and proxies external 8767 → that internal port.
-// --hot enables Bun hot-module-reload: source file changes reload modules in-place
-// without a full process restart (dev-time convenience; in-memory state resets on reload).
-// NOTE: Aspire 13.2.4 has no public restart-policy API for AddExecutable resources.
-// DCP's ExecutableSpec.restartPolicy field exists in the binary but is not exposed
-// via C#. Wrap in a shell loop or upgrade to a version that adds WithRestartPolicy
-// if auto-respawn on crash is needed.
-var relay = builder.AddExecutable(
-        "relay",
+// --watch enables tsx watch-mode reload on source changes.
+// NOTE: Aspire 13.2.4 has no public restart-policy API for AddExecutable
+// resources — the underlying ExecutableSpec.restartPolicy field exists but is
+// not exposed in C#. Wrap in a shell loop or upgrade if auto-respawn matters.
+var relayTs = builder.AddExecutable(
+        "relay-ts",
         "node",
         workingDirectory: "../message-relay",
         "--watch", "--require", "tsx/cjs", "src/relay-lean.ts")
@@ -34,13 +42,14 @@ var relay = builder.AddExecutable(
     .WithExternalHttpEndpoints()
     .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint)
     .WithEnvironment("OTEL_EXPORTER_OTLP_HEADERS", otlpHeaders)
-    .WithEnvironment("OTEL_SERVICE_NAME", "relay")
+    .WithEnvironment("OTEL_SERVICE_NAME", "relay-ts")
     .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
     .WithHttpHealthCheck("/health");
 
 // whisper-server (whisper.cpp). Binds 127.0.0.1:8766 directly; isProxied: false
-// prevents DCP from allocating a second port — the process owns 8766.
-// No /health endpoint — health check polls root "/" which returns 200 when ready.
+// prevents DCP from allocating a second port — the process owns 8766. No
+// /health endpoint — health check polls "/" which returns 200 when ready.
+// Shared dependency: both voice-bridge-ts and voice-bridge-dotnet wait for it.
 var whisper = builder.AddExecutable(
         "whisper-server",
         "whisper-server",
@@ -54,13 +63,14 @@ var whisper = builder.AddExecutable(
     .WithExternalHttpEndpoints()
     .WithHttpHealthCheck("/");
 
-// content-service (Bun + Fastify). File-content store for ceo-app — clipboard images,
-// screenshots. Storage at ~/.claude/content/ with sha256 content-hash filenames.
-// Reads PORT env. isProxied:false binds 8770 directly so the URL handed to ceo-app
-// matches the URL the browser will hit (no DCP proxy hop on the upload return URL).
-// Declared before voice-bridge-server so the variable is in scope for WaitFor/WithEnvironment.
-var contentService = builder.AddExecutable(
-        "content-service",
+// content-service-ts (Bun + Fastify). File-content store for ceo-app — clipboard
+// images, screenshots. Storage at ~/.claude/content/ with sha256 content-hash
+// filenames. Reads PORT env. isProxied:false binds 8770 directly so the URL
+// handed to ceo-app matches the URL the browser will hit (no DCP proxy hop on
+// the upload-return URL). Declared before voice-bridge-ts so its variable is
+// in scope for WaitFor + WithEnvironment.
+var contentServiceTs = builder.AddExecutable(
+        "content-service-ts",
         "bun",
         workingDirectory: "../content-service",
         "--hot", "run", "src/index.ts")
@@ -68,33 +78,35 @@ var contentService = builder.AddExecutable(
     .WithExternalHttpEndpoints()
     .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint)
     .WithEnvironment("OTEL_EXPORTER_OTLP_HEADERS", otlpHeaders)
-    .WithEnvironment("OTEL_SERVICE_NAME", "content-service")
+    .WithEnvironment("OTEL_SERVICE_NAME", "content-service-ts")
     .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
     .WithHttpHealthCheck("/health");
 
-// voice-bridge2 server (Bun). Reads PORT from env, so env-injection works.
-// --hot enables Bun hot-module-reload for dev-time iteration.
-// WaitFor(whisper) ensures whisper-server is bound before voice-bridge accepts audio.
-// WaitFor(contentService) + CONTENT_SERVICE_URL wires the content store for attachment uploads.
-var voiceBridgeServer = builder.AddExecutable(
-        "voice-bridge-server",
+// voice-bridge-ts (Bun → multimodal /compose orchestrator + /transcribe + agents/mic/settings).
+// Reads PORT from env. --hot enables Bun hot-module-reload for dev-time iteration.
+// WaitFor(whisper) ensures whisper is bound before voice-bridge accepts audio.
+// WaitFor(contentServiceTs) + CONTENT_SERVICE_URL wires attachment uploads.
+var voiceBridgeTs = builder.AddExecutable(
+        "voice-bridge-ts",
         "bun",
         workingDirectory: "../voice-bridge2",
         "run", "--hot", "server/index.ts")
     .WithHttpEndpoint(port: 3030, name: "http", env: "PORT")
     .WithExternalHttpEndpoints()
-    .WaitFor(relay)
+    .WaitFor(relayTs)
     .WaitFor(whisper)
-    .WaitFor(contentService)
-    .WithEnvironment("CONTENT_SERVICE_URL", contentService.GetEndpoint("http"))
+    .WaitFor(contentServiceTs)
+    .WithEnvironment("CONTENT_SERVICE_URL", contentServiceTs.GetEndpoint("http"))
     .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint)
     .WithEnvironment("OTEL_EXPORTER_OTLP_HEADERS", otlpHeaders)
-    .WithEnvironment("OTEL_SERVICE_NAME", "voice-bridge-server")
+    .WithEnvironment("OTEL_SERVICE_NAME", "voice-bridge-ts")
     .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
     .WithHttpHealthCheck("/health");
 
-// wake-word daemon (Python). No HTTP endpoint — listens for wake phrase only.
-// --target chief-of-staff matches CEO's running config.
+// wake-word daemon (Python). No HTTP endpoint — listens for the wake phrase.
+// Currently pointed at voice-bridge-ts; when voice-bridge-dotnet reaches
+// feature parity, the --server arg can become an env-driven setting that
+// follows ceo-app's backend toggle.
 builder.AddExecutable(
         "wake-word",
         "python3",
@@ -104,35 +116,36 @@ builder.AddExecutable(
         "--target", "chief-of-staff",
         "--start-threshold", "0.3",
         "--stop-threshold", "0.15")
-    .WaitFor(voiceBridgeServer);
+    .WaitFor(voiceBridgeTs);
 
-// voice-bridge2 Electron window. No HTTP endpoint (Electron opens a window,
-// not a port). electron-vite picks its own renderer port.
+// voice-bridge-electron — Electron window for voice-bridge2. No HTTP endpoint.
+// Pointed at voice-bridge-ts via in-process IPC + the daemon URL above.
 builder.AddExecutable(
         "voice-bridge-electron",
         "bun",
         workingDirectory: "../voice-bridge2",
         "run", "dev")
-    .WaitFor(voiceBridgeServer);
+    .WaitFor(voiceBridgeTs);
 
-// ─── .NET backend experiment ─────────────────────────────────────────────────
-// PascalCase siblings to the kebab-case TS services. Strive for feature parity;
-// TS is canonical. AddProject<>() + WithExplicitStart() means each resource is
-// visible in the Aspire dashboard but NOT started automatically — ceo-app's
-// settings toggle (Task #13) flips RELAY_URL_TS ↔ RELAY_URL_DOTNET (etc.) at
-// runtime and starts the .NET sibling on demand.
+// ─── .NET stack ──────────────────────────────────────────────────────────────
+// PascalCase project siblings (MessageRelay, VoiceBridge, ContentService) under
+// management-apps/. Strive for feature parity with TS; TS is canonical.
+//
+// AddProject<>() + WithExplicitStart() means each resource is visible in the
+// Aspire dashboard but NOT started automatically — ceo-app's settings toggle
+// (Task #13) starts the .NET sibling on demand and flips its base URL via
+// the *_TS / *_DOTNET env-var pair below.
 //
 // Ports come from each project's Properties/launchSettings.json — Aspire
 // auto-discovers them as the endpoint named "http". MessageRelay :8768,
 // VoiceBridge :3031, ContentService :8771 (all TS-port +1).
-// WithExternalHttpEndpoints exposes the discovered endpoint to the host so
-// ceo-app's browser bundle can hit it directly via the GetEndpoint("http") URL.
+//
+// Dependency graph mirrors the TS side: voice-bridge-dotnet WaitFor whisper,
+// relay-dotnet, content-service-dotnet — keeps dashboard topology parallel.
+// Cross-stack mixing (e.g., voice-bridge-dotnet → relay-ts) is possible by
+// overriding env vars manually; the default wiring is fully-parallel.
 
 var relayDotnet = builder.AddProject<Projects.MessageRelay>("relay-dotnet")
-    .WithExternalHttpEndpoints()
-    .WithExplicitStart();
-
-var voiceBridgeDotnet = builder.AddProject<Projects.VoiceBridge>("voice-bridge-dotnet")
     .WithExternalHttpEndpoints()
     .WithExplicitStart();
 
@@ -140,21 +153,33 @@ var contentServiceDotnet = builder.AddProject<Projects.ContentService>("content-
     .WithExternalHttpEndpoints()
     .WithExplicitStart();
 
-// ceo-app dev server (React Router / Vite via Bun). Vite respects --port flag
-// but not PORT env, so we pass --port 5175 as args. isProxied: false prevents
-// DCP from allocating a second port — the process binds 5175 directly.
+var voiceBridgeDotnet = builder.AddProject<Projects.VoiceBridge>("voice-bridge-dotnet")
+    .WithExternalHttpEndpoints()
+    .WithExplicitStart()
+    .WaitFor(relayDotnet)
+    .WaitFor(whisper)
+    .WaitFor(contentServiceDotnet)
+    .WithEnvironment("RELAY_URL", relayDotnet.GetEndpoint("http"))
+    .WithEnvironment("WHISPER_URL", whisper.GetEndpoint("http"))
+    .WithEnvironment("CONTENT_SERVICE_URL", contentServiceDotnet.GetEndpoint("http"));
+
+// ─── ceo-app ─────────────────────────────────────────────────────────────────
+// React Router / Vite via Bun. Vite respects --port flag but not PORT env, so
+// we pass --port 5175 as args. isProxied: false prevents DCP from allocating
+// a second port — the process binds 5175 directly.
+//
 // Health check uses "/" — Vite dev server returns 200 at root when ready.
 // OTEL_EXPORTER_OTLP_ENDPOINT is read by vite.config.ts and mirrored to
-// VITE_OTEL_EXPORTER_OTLP_ENDPOINT so the browser bundle picks it up at
-// build time. The browser OTel SDK in app/otel.ts then sends OTLP/HTTP
-// to the Aspire dashboard. CORS must be allowed — see appsettings.Development.json
+// VITE_OTEL_EXPORTER_OTLP_ENDPOINT so the browser bundle picks it up at build
+// time. The browser OTel SDK in app/otel.ts then sends OTLP/HTTP to the
+// Aspire dashboard. CORS must be allowed — see appsettings.Development.json
 // ASPIRE_DASHBOARD_OTLP__CORS__ALLOWEDORIGINS.
 //
 // Dual backend URLs: ceo-app sees both TS and .NET URLs at startup so the
 // settings toggle (Task #13) can flip between them at runtime without an
-// AppHost restart. Existing single-name vars (CONTENT_SERVICE_URL, VOICE_BRIDGE_URL)
-// kept as TS-aliases for backward-compat with code already reading them; new
-// code SHOULD read the explicit *_TS / *_DOTNET pair.
+// AppHost restart. Existing single-name vars (CONTENT_SERVICE_URL,
+// VOICE_BRIDGE_URL) are kept as TS-aliases for backward-compat with code
+// already reading them; new code SHOULD read the explicit *_TS / *_DOTNET pair.
 builder.AddExecutable(
         "ceo-app",
         "bun",
@@ -162,20 +187,20 @@ builder.AddExecutable(
         "run", "dev", "--", "--port", "5175")
     .WithHttpEndpoint(port: 5175, name: "http", isProxied: false)
     .WithExternalHttpEndpoints()
-    .WaitFor(relay)
-    .WaitFor(contentService)
-    .WaitFor(voiceBridgeServer)
+    .WaitFor(relayTs)
+    .WaitFor(contentServiceTs)
+    .WaitFor(voiceBridgeTs)
     .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint)
     .WithEnvironment("OTEL_EXPORTER_OTLP_HEADERS", otlpHeaders)
     .WithEnvironment("OTEL_SERVICE_NAME", "ceo-app")
     .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
-    .WithEnvironment("CONTENT_SERVICE_URL", contentService.GetEndpoint("http"))
-    .WithEnvironment("VOICE_BRIDGE_URL", voiceBridgeServer.GetEndpoint("http"))
-    .WithEnvironment("RELAY_URL_TS", relay.GetEndpoint("http"))
+    .WithEnvironment("CONTENT_SERVICE_URL", contentServiceTs.GetEndpoint("http"))
+    .WithEnvironment("VOICE_BRIDGE_URL", voiceBridgeTs.GetEndpoint("http"))
+    .WithEnvironment("RELAY_URL_TS", relayTs.GetEndpoint("http"))
     .WithEnvironment("RELAY_URL_DOTNET", relayDotnet.GetEndpoint("http"))
-    .WithEnvironment("VOICE_BRIDGE_URL_TS", voiceBridgeServer.GetEndpoint("http"))
+    .WithEnvironment("VOICE_BRIDGE_URL_TS", voiceBridgeTs.GetEndpoint("http"))
     .WithEnvironment("VOICE_BRIDGE_URL_DOTNET", voiceBridgeDotnet.GetEndpoint("http"))
-    .WithEnvironment("CONTENT_SERVICE_URL_TS", contentService.GetEndpoint("http"))
+    .WithEnvironment("CONTENT_SERVICE_URL_TS", contentServiceTs.GetEndpoint("http"))
     .WithEnvironment("CONTENT_SERVICE_URL_DOTNET", contentServiceDotnet.GetEndpoint("http"))
     .WithHttpHealthCheck("/");
 
