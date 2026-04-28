@@ -37,6 +37,7 @@ public sealed class SendsMultimodalMessageStory(ComposeFixture fixture)
         // And recorded a 1-second audio clip
         // And selected one PNG attachment
         const string Recipient = "chief-of-staff";
+        const string TextInput = "hello chief";
         const string TextLiteral = "hello chief";
         const string AttachmentMarker = "[Attachment:";
 
@@ -44,7 +45,7 @@ public sealed class SendsMultimodalMessageStory(ComposeFixture fixture)
         using MultipartFormDataContent form = new();
 
         form.Add(new StringContent(Recipient), "to");
-        form.Add(new StringContent(TextLiteral), "text");
+        form.Add(new StringContent(TextInput), "text");
 
         byte[] wav = BuildSilenceWav(durationSeconds: 1, sampleRate: 16_000);
         ByteArrayContent audio = new(wav);
