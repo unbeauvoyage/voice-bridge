@@ -175,12 +175,23 @@ export function attachTrayBehavior<TIcon>(
     clearPulse()
     if (recording) {
       if (deps.recordingFrames !== undefined && deps.recordingFrames.length > 0) {
+        // Capture narrowed values before the callback — TypeScript loses the
+        // outer guards (lines 173, 177) inside setInterval closures.
+        const frames = deps.recordingFrames
+        const setImage = tray.setImage
+        // Explicit undefined checks satisfy noUncheckedIndexedAccess without
+        // non-null assertions. firstFrame is always defined (length > 0 guard
+        // above); frame in the callback is always defined (modulo keeps
+        // frameIdx within [0, frames.length-1]).
+        const firstFrame = frames[0]
+        if (firstFrame === undefined) return
         let frameIdx = 0
-        tray.setImage(deps.recordingFrames[0])
+        setImage(firstFrame)
         const intervalMs = deps.pulseIntervalMs ?? 150
         pulseTimer = setInterval(() => {
-          frameIdx = (frameIdx + 1) % deps.recordingFrames!.length
-          tray.setImage!(deps.recordingFrames![frameIdx])
+          frameIdx = (frameIdx + 1) % frames.length
+          const frame = frames[frameIdx]
+          if (frame !== undefined) setImage(frame)
         }, intervalMs)
       } else {
         tray.setImage(deps.recordingIcon)
