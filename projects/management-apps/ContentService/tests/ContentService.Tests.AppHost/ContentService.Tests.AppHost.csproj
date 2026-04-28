@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Sdk Name="Aspire.AppHost.Sdk" Version="13.2.4" />
+
+  <!--
+    Test-only AppHost. Spins up ONLY content-service-dotnet (no whisper, no
+    voice-bridge-electron, no ceo-app, no Bun/Python tooling). Lets the test
+    fixture use Aspire.Hosting.Testing's DistributedApplicationTestingBuilder
+    without inheriting the heavy external-process dependencies of the main
+    AppHost.
+
+    The CONTENT_DIR env var is forwarded from the test fixture's configuration
+    (via builder.Configuration["ContentDir"]) so each test gets a fresh temp
+    directory and never touches the user's ~/.claude/content/.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsAspireHost>true</IsAspireHost>
+    <RootNamespace>ContentService.Tests.AppHost</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.AppHost" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\ContentService.csproj" IsAspireProjectResource="true" />
+  </ItemGroup>
+
+</Project>

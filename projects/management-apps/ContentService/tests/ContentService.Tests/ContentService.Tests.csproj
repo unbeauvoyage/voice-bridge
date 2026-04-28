@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    User-story tests for ContentService (the .NET sibling). xunit.v3 +
+    Aspire.Hosting.Testing's DistributedApplicationTestingBuilder. NO mocks of
+    the SUT — every test runs the real Aspire-hosted ContentService binary
+    against a per-test temp CONTENT_DIR.
+
+    Strict-regime status: this project lives under ContentService/, so the
+    .editorconfig path-glob `[{...,ContentService}/**.cs]` applies. We
+    intentionally do NOT import Backends.props here — analyzer packages would
+    fire on xunit idioms (test names with underscores → CA1707, fixture
+    constructor args without null-checks → CA1062). The .editorconfig
+    severity overrides for tests/ live in the parent .editorconfig under a
+    `[ContentService/tests/**.cs]` block when needed.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ContentService.Tests</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- xunit.v3 source generator. -->
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Aspire.Hosting.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      ProjectReference to the test-only AppHost. The Aspire.Hosting.AppHost SDK
+      generates the strongly-typed `Projects.ContentService_Tests_AppHost`
+      class that DistributedApplicationTestingBuilder<T> uses as the entry
+      point. We do NOT reference the main AppHost here — it pulls in
+      whisper-server, bun, python3, electron as runtime deps.
+    -->
+    <ProjectReference Include="..\ContentService.Tests.AppHost\ContentService.Tests.AppHost.csproj" />
+  </ItemGroup>
+
+</Project>
