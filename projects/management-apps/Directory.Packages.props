@@ -46,6 +46,10 @@
     <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.15.1" />
   </ItemGroup>
 
+  <ItemGroup Label="Roslyn SDK (BackendShared.Analyzers project only)">
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
+  </ItemGroup>
+
   <ItemGroup Label="Analyzers (PrivateAssets=all in consuming csprojs — no runtime impact)">
     <PackageVersion Include="Roslynator.Analyzers" Version="4.13.1" />
     <PackageVersion Include="Roslynator.Formatting.Analyzers" Version="4.13.1" />

@@ -120,9 +120,9 @@ dotnet_diagnostic.RS0030.severity = error  # symbol is in BannedSymbols.txt
 dotnet_diagnostic.RCS1206.severity = error
 
 # ─── Banned: null-forgiving `!` operator (analogue to TS `!`) ────────────────
-# No off-the-shelf analyzer cleanly bans `!`. Enforcement today is review-only;
-# Task #25 ships a custom Roslyn analyzer in BackendShared.Analyzers/. Until
-# that lands, reviewers reject undocumented `!` use.
+# BSH0001 fires from BackendShared.Analyzers/NullForgivingBanAnalyzer.cs on
+# SyntaxKind.SuppressNullableWarningExpression. Wired as error below.
+dotnet_diagnostic.BSH0001.severity = error  # null-forgiving `!` is banned (BackendShared.Analyzers)
 
 # ─── ASP.NET Core specifics — silenced (wrong-context) ───────────────────────
 # CA2007 (ConfigureAwait) is wrong for ASP.NET — there is no SyncContext, so
