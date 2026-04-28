@@ -1,0 +1,754 @@
+openapi: 3.1.0
+info:
+  title: Voice Bridge Server API
+  version: 1.0.0
+  description: |
+    Voice-to-agent bridge server. Receives audio from the iOS/macOS client,
+    transcribes via Whisper, routes to Claude Code agents via relay.
+    Runs on Bun at port 3030.
+
+servers:
+  - url: http://localhost:3030
+    description: Local development
+
+# ─── Shared components ────────────────────────────────────────────────────────
+
+components:
+  schemas:
+    ComposeSuccess:
+      type: object
+      required: [delivered, to, body, ts]
+      properties:
+        delivered:
+          type: boolean
+          const: true
+        to:
+          type: string
+        transcript:
+          type: string
+          description: Present iff audio was supplied
+        attachmentUrls:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComposedAttachment'
+        body:
+          type: string
+          description: The final composed body string sent to the agent
+        messageId:
+          type: string
+          description: id returned by relay /send
+        ts:
+          type: string
+          format: date-time
+
+    ComposedAttachment:
+      type: object
+      required: [url, mime, bytes, sha256]
+      properties:
+        url:
+          type: string
+        mime:
+          type: string
+        bytes:
+          type: integer
+        sha256:
+          type: string
+
+    ComposeError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum:
+            - no_speech
+            - attachment_too_large
+            - unsupported_mime
+            - whisper_unavailable
+            - content_service_unavailable
+            - relay_unavailable
+            - validation_failed
+        message:
+          type: string
+        stage:
+          type: string
+          enum: [validate, transcribe, upload, deliver]
+
+    ValidationError:
+      type: object
+      required: [error, details]
+      properties:
+        error:
+          type: string
+          const: validation_failed
+        details:
+          type: array
+          items:
+            type: object
+            required: [path, message]
+            properties:
+              path:
+                type: string
+              message:
+                type: string
+      description: |
+        Consistent 400 shape from Zod boundary validation. Every route that
+        parses a request body returns this shape on invalid input.
+
+    MicState:
+      type: string
+      enum: [on, 'off']
+
+    DaemonSettings:
+      type: object
+      description: Daemon settings (partial updates accepted)
+      properties:
+        start_threshold:
+          type: number
+          minimum: 0
+          maximum: 1
+        stop_threshold:
+          type: number
+          minimum: 0
+          maximum: 1
+        tts_enabled:
+          type: boolean
+        tts_word_limit:
+          type: integer
+          minimum: 1
+        toast_duration:
+          type: number
+          exclusiveMinimum: 0
+
+    TranscribeSuccess:
+      type: object
+      required: [transcript, to, message, delivered]
+      properties:
+        transcript:
+          type: string
+        to:
+          type: string
+          description: Agent name the message was routed to
+        message:
+          type: string
+          description: The message body delivered (may differ from transcript after please-gate routing)
+        delivered:
+          type: boolean
+          const: true
+
+    TranscribeCancelled:
+      type: object
+      required: [transcript, cancelled]
+      properties:
+        transcript:
+          type: string
+        cancelled:
+          type: boolean
+          const: true
+        reason:
+          type: string
+          enum: [whisper-hallucination]
+          description: Present when cancelled due to hallucination detection
+
+    TranscribeDeduplicated:
+      type: object
+      required: [transcript, deduplicated]
+      properties:
+        transcript:
+          type: string
+        to:
+          type: string
+        deduplicated:
+          type: boolean
+          const: true
+        cancelled:
+          type: boolean
+          description: True when the original was a hallucination
+
+    RelayAgentEntry:
+      oneOf:
+        - type: string
+        - type: object
+          required: [name]
+          properties:
+            name:
+              type: string
+          additionalProperties: true
+
+  responses:
+    ValidationFailed:
+      description: Request body failed Zod boundary validation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+
+    ServiceUnavailable:
+      description: Upstream service unavailable (relay, Ollama, etc.)
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                type: string
+
+# ─── Paths ────────────────────────────────────────────────────────────────────
+
+paths:
+  # ── Health + Index ────────────────────────────────────────────────────────────
+
+  /health:
+    get:
+      summary: Liveness probe
+      tags: [System]
+      responses:
+        '200':
+          description: Server is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, ts]
+                properties:
+                  status:
+                    type: string
+                    const: ok
+                  ts:
+                    type: integer
+                    description: Unix epoch milliseconds
+
+  /:
+    get:
+      summary: Serve the mobile recording UI
+      tags: [System]
+      responses:
+        '200':
+          description: HTML page for the iOS/macOS recording interface
+          content:
+            text/html:
+              schema:
+                type: string
+        '404':
+          description: index.html not found
+
+  # ── Compose ───────────────────────────────────────────────────────────────────
+
+  /compose:
+    post:
+      operationId: compose
+      summary: Compose a multimodal CEO message and deliver via relay
+      description: |
+        Accepts any combination of text, audio, and binary attachments.
+        Orchestrates whisper-server (transcription) + content-service (upload) in
+        parallel, builds the final body, calls relay /send, and returns the result.
+
+        All-or-nothing transactional: if any sub-step fails (whisper down,
+        content-service down, relay down, validation error), /compose returns an
+        error response. Nothing is delivered on failure.
+
+        Body composition rule:
+          text ?? "" + (audio ? "\n\n" + transcript : "") + attachments.map(a => "\n\n[Attachment: <url>]").join("")
+
+        If text is empty/missing AND there are no other modalities → 400 validation error.
+      tags: [Compose]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [to]
+              properties:
+                to:
+                  type: string
+                  maxLength: 128
+                  description: Recipient agent name
+                text:
+                  type: string
+                  description: Optional typed text body
+                audio:
+                  type: string
+                  format: binary
+                  description: Optional audio; transcribed via whisper-server
+                attachments:
+                  type: array
+                  description: Optional binary attachments; each uploaded to content-service
+                  items:
+                    type: string
+                    format: binary
+                replyTo:
+                  type: string
+                  description: Optional message id this is replying to (pass-through today)
+      responses:
+        '200':
+          description: Composed and delivered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComposeSuccess'
+        '400':
+          description: Validation error (empty body, missing `to`, etc.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComposeError'
+        '413':
+          description: Attachment too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComposeError'
+        '415':
+          description: Unsupported attachment mime type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComposeError'
+        '422':
+          description: Whisper detected no speech (audio path only, no text or attachments)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComposeError'
+        '502':
+          description: Downstream specialist failed (whisper / content-service / relay)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComposeError'
+
+  # ── Transcribe ────────────────────────────────────────────────────────────────
+
+  /transcribe:
+    post:
+      summary: Receive audio, transcribe, and route to agent
+      description: |
+        Main voice pipeline endpoint. Accepts multipart audio, transcribes via
+        Whisper, then routes to an agent via relay.
+
+        Boundary validation:
+        - Content-Length > 10 MiB: 413 before reading body
+        - Streaming body > 10 MiB: 413 mid-stream (chunked transfer)
+        - Audio file > 8 MiB: 413
+        - MIME not in allowlist: 415
+        - `to` field > 128 chars: 400
+
+        Routing logic (priority order):
+        1. "please" in first 7 words: LLM routes to detected agent, message = text after "please"
+        2. Explicit `to` field: use it, full transcript as message
+        3. Neither: deliver full transcript to "command"
+
+        Deduplication: audio buffer is hashed; duplicate submissions within 30s
+        return cached results or wait for the in-flight original.
+      tags: [Voice]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [audio]
+              properties:
+                audio:
+                  type: string
+                  format: binary
+                  description: |
+                    Audio file. Allowed MIME types: audio/webm, audio/ogg, audio/wav,
+                    audio/x-wav, audio/mp4, audio/mpeg, audio/aac, audio/flac.
+                    Max 8 MiB.
+                to:
+                  type: string
+                  maxLength: 128
+                  description: Explicit agent name to route to. Overridden by please-gate.
+                transcribe_only:
+                  type: string
+                  enum: ['1']
+                  description: Set to "1" to transcribe without delivering to relay
+      responses:
+        '200':
+          description: |
+            Transcription result. Shape varies by outcome:
+            - Delivered: transcript + to + message + delivered=true
+            - Cancelled: transcript + cancelled=true (user said "cancel" or hallucination)
+            - Deduplicated: transcript + deduplicated=true (cached from prior request)
+            - Transcribe-only: transcript + to (no delivery)
+            - Test mode: transcript + test=true
+            - Mic command: transcript + mic + command=true
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/TranscribeSuccess'
+                  - $ref: '#/components/schemas/TranscribeCancelled'
+                  - $ref: '#/components/schemas/TranscribeDeduplicated'
+        '400':
+          description: Missing audio, invalid form data, or `to` field too long
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+        '409':
+          description: Dedup conflict — original transcription still in progress
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error, retryAfterMs]
+                properties:
+                  error:
+                    type: string
+                  retryAfterMs:
+                    type: integer
+                    const: 2000
+        '413':
+          description: Request body or audio file too large
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+        '415':
+          description: Unsupported audio MIME type
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+              example:
+                error: 'Unsupported audio MIME: application/octet-stream'
+        '422':
+          description: Empty transcription — no speech detected
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+        '500':
+          description: Whisper transcription failed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+        '502':
+          description: Delivery to agent failed (relay)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [transcript, to, message, delivered, error]
+                properties:
+                  transcript:
+                    type: string
+                  to:
+                    type: string
+                  message:
+                    type: string
+                  delivered:
+                    type: boolean
+                    const: false
+                  error:
+                    type: string
+
+  # ── Mic ───────────────────────────────────────────────────────────────────────
+
+  /mic:
+    get:
+      summary: Get current mic state
+      tags: [Mic]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state]
+                properties:
+                  state:
+                    $ref: '#/components/schemas/MicState'
+    post:
+      summary: Set mic state
+      tags: [Mic]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state]
+              properties:
+                state:
+                  $ref: '#/components/schemas/MicState'
+              additionalProperties: false
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state]
+                properties:
+                  state:
+                    $ref: '#/components/schemas/MicState'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+
+  # ── Agents ────────────────────────────────────────────────────────────────────
+
+  /agents:
+    get:
+      summary: List agents known to the relay
+      description: |
+        Lists agents known to the relay. Relay-required: any failure
+        (timeout, fetch throw, non-OK status, or schema-invalid body)
+        returns 502 with body { error: string, detail?: string }.
+        There is no fallback source.
+      tags: [Agents]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [agents]
+                properties:
+                  agents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RelayAgentEntry'
+        '502':
+          description: Relay unavailable, returned non-OK status, or schema-invalid body
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+                  detail:
+                    type: string
+
+  # ── Status ────────────────────────────────────────────────────────────────────
+
+  /status:
+    get:
+      summary: Get current session state (target + mic)
+      tags: [System]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [target, micState]
+                properties:
+                  target:
+                    type: string
+                    description: Last-used relay target agent name
+                  micState:
+                    $ref: '#/components/schemas/MicState'
+
+  # ── Target ────────────────────────────────────────────────────────────────────
+
+  /target:
+    post:
+      summary: Set the relay target agent
+      description: |
+        Persists the new target to disk via atomic write (temp file + rename).
+        Validated with Zod: target must be a non-empty string, max 128 chars.
+        Unknown keys are rejected (strict mode).
+      tags: [Agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target]
+              properties:
+                target:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+              additionalProperties: false
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [target]
+                properties:
+                  target:
+                    type: string
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+
+  # ── Settings ──────────────────────────────────────────────────────────────────
+
+  /settings:
+    get:
+      summary: Get daemon settings
+      description: |
+        Returns raw daemon/settings.json contents. Returns 404 if the file
+        doesn't exist, 500 if the file exists but can't be read.
+      tags: [Settings]
+      responses:
+        '200':
+          description: Raw settings JSON
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DaemonSettings'
+        '404':
+          description: Settings file not found
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+        '500':
+          description: Settings file exists but cannot be read or is corrupt
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+    post:
+      summary: Update daemon settings (partial merge)
+      description: |
+        Merges validated partial JSON into existing settings and persists via
+        atomic write. Validates with Zod strict schema — unknown keys, wrong
+        types, and out-of-range values return 400. Refuses to overwrite
+        corrupt settings files (500).
+      tags: [Settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DaemonSettings'
+      responses:
+        '200':
+          description: Merged settings after update
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DaemonSettings'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          description: Cannot read or write settings file
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+
+  # ── Wake Word ─────────────────────────────────────────────────────────────────
+
+  /wake-word:
+    get:
+      summary: Check if wake_word.py is running
+      tags: [Wake Word]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [running]
+                properties:
+                  running:
+                    type: boolean
+
+  /wake-word/stop:
+    post:
+      summary: Stop the wake_word.py process
+      description: Idempotent — no-op if not running.
+      tags: [Wake Word]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [running]
+                properties:
+                  running:
+                    type: boolean
+                    const: false
+        '500':
+          description: Kill failed (permission denied, etc.)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [running, error]
+                properties:
+                  running:
+                    type: boolean
+                    const: true
+                  error:
+                    type: string
+
+  /wake-word/start:
+    post:
+      summary: Start the wake_word.py process
+      description: |
+        Spawns wake_word.py with the last-used target. Idempotent — no-op if
+        already running. Includes a liveness check after spawn: if the process
+        exits immediately (bad Python path, missing venv), returns 500.
+      tags: [Wake Word]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [running]
+                properties:
+                  running:
+                    type: boolean
+                    const: true
+        '500':
+          description: Spawn failed or process exited immediately
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [running, error]
+                properties:
+                  running:
+                    type: boolean
+                    const: false
+                  error:
+                    type: string

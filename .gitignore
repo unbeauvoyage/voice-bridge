@@ -8,7 +8,6 @@ playwright-report/
 .claude/
 tmp/
 build/
-docs/
 
 # ── Electron build output ─────────────────────────────────────────────────────
 out/

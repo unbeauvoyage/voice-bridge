@@ -2,11 +2,16 @@
  * voice-bridge Bun HTTP server
  *
  * Endpoints:
- *   GET  /           — mobile recording UI
- *   POST /transcribe — receives audio, transcribes via Whisper, delivers to relay
- *   GET  /health     — liveness check
- *   GET  /mic        — { state: "on"|"off" }
- *   POST /mic        — { state: "on"|"off" } → set mic state
+ *   POST /compose      — multimodal CEO message (text + audio + attachments)
+ *   POST /transcribe   — legacy voice-only pipeline (pending removal)
+ *   GET  /health       — liveness check
+ *   GET  /openapi.yaml — served at runtime for hey-api codegen
+ *   GET/POST /mic      — mic state control (Electron + wake_word.py)
+ *   GET/POST /settings — daemon settings (Electron settings page)
+ *   POST /target       — relay target agent selection (Electron tray + wake_word.py)
+ *   GET  /agents       — relay-required agent list
+ *   GET  /status       — current session state (target + mic)
+ *   GET/POST /wake-word* — wake word process control
  *
  * This file is wiring-only: construct ctx, mount routes, start Bun.serve.
  * No business logic lives here — see the route files for extracted functions.
@@ -20,23 +25,18 @@ import { atomicWriteFile } from './atomicWriteFile.ts'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync, spawn } from 'node:child_process'
-import { listWorkspaceNames } from './cmux.ts'
 import { deliverToAgent } from './relay.ts'
 import { transcribeAudio } from './whisper.ts'
 import { llmRoute } from './llmRouter.ts'
-import { startRelayPoller } from './relay-poller.ts'
-import { drainVoiceBridgeQueue } from './queue-drain.ts'
 import { handleTranscribe, type TranscribeContext } from './routes/transcribe.ts'
 import { handleCompose } from './routes/compose.ts'
 import { type DedupEntry, hashAudioBuffer, evictStaleHashes } from './routes/dedup.ts'
 import { createWakeWordOsContext } from './wakeWordController.ts'
-import { handleMessages, type MessagesContext } from './routes/messages.ts'
 import {
   handleMic,
   isMicOn,
   setMic,
   handleMicCommand,
-  cleanStaleTtsPauseTokens,
   type MicContext
 } from './routes/mic.ts'
 import { handleStatus, type StatusContext } from './routes/status.ts'
@@ -50,7 +50,7 @@ import { handleAgents, getKnownAgents, type AgentsContext } from './routes/agent
 import { handleSettings, type SettingsContext } from './routes/settings.ts'
 import { handleWakeWord } from './routes/wakeWord.ts'
 import { handleHealth, handleIndexHtml, type IndexHtmlContext } from './routes/meta.ts'
-import { SERVER_PORT, RELAY_BASE_URL_DEFAULT, OVERLAY_URL_DEFAULT } from './config.ts'
+import { SERVER_PORT, RELAY_BASE_URL_DEFAULT } from './config.ts'
 import { logger } from './logger.ts'
 import { getTracer } from './otel.ts'
 import { SpanStatusCode } from '@opentelemetry/api'
@@ -82,7 +82,7 @@ const saveLastTargetBound = (target: string): void => saveLastTarget(target)
 const handleMicCommandBound = (transcript: string): { handled: true; state: 'on' | 'off' } | null =>
   handleMicCommand(transcript)
 const getKnownAgentsBound = (): Promise<string[]> =>
-  getKnownAgents({ relayBaseUrl: RELAY_BASE_URL, fetchFn: fetch, listWorkspaceNames })
+  getKnownAgents({ relayBaseUrl: RELAY_BASE_URL, fetchFn: fetch })
 
 const tracer = getTracer()
 
@@ -157,9 +157,7 @@ async function handleRequest(req: Request): Promise<Response> {
       transcribeAudio,
       llmRoute,
       // Relay-only delivery. Queued (offline agent) counts as ok — relay
-      // will deliver when the agent comes online. cmux fallback removed:
-      // voice-bridge2 is not a cmux process, so deliverViaCmux always
-      // throws "Access denied" and was never useful here.
+      // will deliver when the agent comes online.
       deliverMessage: async (message, to) => {
         const relayResult = await deliverToAgent(message, to)
         if (relayResult.ok) {
@@ -176,12 +174,6 @@ async function handleRequest(req: Request): Promise<Response> {
     return handleTranscribe(req, ctx)
   }
 
-  // ── Messages proxy ────────────────────────────────────────────────────────
-  if (req.method === 'GET' && url.pathname === '/messages') {
-    const ctx: MessagesContext = { relayBaseUrl: RELAY_BASE_URL }
-    return handleMessages(req, ctx)
-  }
-
   // ── Mic control ──────────────────────────────────────────────────────────
   // GET  /mic         — { state: "on"|"off" }
   // POST /mic         — { state: "on"|"off" } → toggle
@@ -195,7 +187,6 @@ async function handleRequest(req: Request): Promise<Response> {
   if (req.method === 'GET' && url.pathname === '/agents') {
     const ctx: AgentsContext = {
       relayBaseUrl: RELAY_BASE_URL,
-      listWorkspaceNames,
       fetchFn: fetch
     }
     return handleAgents(req, ctx)
@@ -285,11 +276,6 @@ const server = Bun.serve({
   }
 })
 
-// Clean up stale TTS pause tokens left by a previous crash. Must run before the
-// relay poller or any TTS cycle can create new tokens, so the daemon starts with
-// a clean slate and voice pickup works immediately.
-cleanStaleTtsPauseTokens()
-
 logger.info(
   { component: 'server', port: server.port, url: `http://localhost:${server.port}` },
   'listening'
@@ -297,32 +283,4 @@ logger.info(
 logger.info(
   { component: 'server', note: 'HTTPS required for non-localhost access — use mkcert' },
   'mobile_ui_note'
-)
-
-// Drain voice-bridge's own relay queue — messages sent while offline are not lost
-drainVoiceBridgeQueue(RELAY_BASE_URL, (msg) => {
-  logger.info(
-    {
-      component: 'queue-drain',
-      from: msg.from,
-      type: msg.type,
-      body: msg.body
-    },
-    'startup_message_received'
-  )
-}).catch(() => {
-  /* drain errors already logged inside drainVoiceBridgeQueue */
-})
-
-// Start relay response poller — agent replies appear as overlay message toasts
-const OVERLAY_URL = process.env['OVERLAY_URL'] ?? OVERLAY_URL_DEFAULT
-const SETTINGS_PATH = join(dirname(fileURLToPath(import.meta.url)), '../daemon/settings.json')
-startRelayPoller({
-  relayBaseUrl: RELAY_BASE_URL,
-  overlayUrl: OVERLAY_URL,
-  settingsPath: SETTINGS_PATH
-})
-logger.info(
-  { component: 'relay-poller', relayBaseUrl: RELAY_BASE_URL, overlayUrl: OVERLAY_URL },
-  'started'
 )

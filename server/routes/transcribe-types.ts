@@ -40,7 +40,7 @@ export type TranscribeContext = {
     fallbackAgent: string
   ) => Promise<LlmRouteResult>
 
-  // Message delivery — returns {ok:false} only when BOTH relay and cmux fail.
+  // Message delivery — relay-only. Returns {ok:false} when relay delivery fails.
   deliverMessage: (message: string, to: string) => Promise<DeliveryResult>
 
   // Optional override for the dedup-waiter deadline. Tests inject a small value
