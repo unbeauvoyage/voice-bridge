@@ -3,6 +3,7 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using VoiceBridge.Features.Compose;
 using VoiceBridge.Features.Compose.Clients;
+using VoiceBridge.Features.Health;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 builder.AddBackendDefaults();
@@ -36,7 +37,10 @@ builder.Services.AddHttpClient<IRelaySendClient, RelaySendClient>(client =>
 builder.Services.AddScoped<ComposeHandler>();
 
 WebApplication app = builder.Build();
-app.MapDefaultEndpoints();
+// MapDefaultEndpoints() intentionally omitted — its plain-text "Healthy"
+// body shape contradicts the {status, ts} contract voice-bridge-ts serves.
+// HealthEndpoint owns /health.
+app.MapHealthFeature();
 app.MapComposeFeature();
 
 await app.RunAsync();
