@@ -29,7 +29,7 @@ export async function getKnownAgents(deps: GetKnownAgentsDeps): Promise<string[]
   try {
     const res = await fetchFn(`${relayBaseUrl}/status`, { signal: AbortSignal.timeout(2000) })
     if (!res.ok) return []
-    const StatusSchema = z.object({ agents: z.record(z.string(), z.unknown()) }).passthrough()
+    const StatusSchema = z.object({ agents: z.record(z.string(), z.unknown()) }).loose()
     const data: unknown = await res.json()
     const parsed = StatusSchema.safeParse(data)
     if (!parsed.success) return []
@@ -54,7 +54,7 @@ const CORS_HEADERS = { 'Access-Control-Allow-Origin': '*' } as const
 // either plain strings (canonical agent names) or objects carrying at least
 // a `name` field. Anything else is treated as relay-broken.
 const RelayAgentsSchema = z.object({
-  agents: z.array(z.union([z.string(), z.object({ name: z.string() }).passthrough()]))
+  agents: z.array(z.union([z.string(), z.object({ name: z.string() }).loose()]))
 })
 
 export async function handleAgents(_req: Request, ctx: AgentsContext): Promise<Response> {
