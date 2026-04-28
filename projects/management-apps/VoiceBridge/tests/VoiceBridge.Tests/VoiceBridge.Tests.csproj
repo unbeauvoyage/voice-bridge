@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    User-story tests for VoiceBridge (the .NET sibling). xunit.v3 +
+    Aspire.Hosting.Testing's DistributedApplicationTestingBuilder. NO mocks
+    of the SUT — every test runs the real Aspire-hosted VoiceBridge binary
+    against per-test peer URLs (RELAY_URL/WHISPER_URL/CONTENT_SERVICE_URL).
+
+    Strict-regime status: this project lives under VoiceBridge/, so the
+    .editorconfig path-glob applies. We intentionally do NOT import
+    Backends.props here — analyzer packages would fire on xunit idioms
+    (test names with underscores → CA1707, fixture constructors → CA1062).
+    Mirrors ContentService.Tests.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>VoiceBridge.Tests</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Aspire.Hosting.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      ProjectReference to the test-only AppHost. The Aspire.Hosting.AppHost
+      SDK generates the strongly-typed `Projects.VoiceBridge_Tests_AppHost`
+      class that DistributedApplicationTestingBuilder<T> uses as the entry
+      point. We do NOT reference the main AppHost here — it pulls in
+      whisper-server, bun, python3, electron as runtime deps.
+    -->
+    <ProjectReference Include="..\VoiceBridge.Tests.AppHost\VoiceBridge.Tests.AppHost.csproj" />
+  </ItemGroup>
+
+</Project>

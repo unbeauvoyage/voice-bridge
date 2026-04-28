@@ -5,6 +5,14 @@
   <PropertyGroup>
     <RootNamespace>VoiceBridge</RootNamespace>
     <UserSecretsId>voicebridge-dotnet</UserSecretsId>
+    <!--
+      Companion test projects live at VoiceBridge/tests/. Without an exclusion,
+      the SDK's default Compile/Content/None glob (**/*) drags every .cs under
+      tests/ into THIS project too — yielding duplicate AssemblyInfo + duplicate
+      top-level statements. Excluding tests/** here keeps the boundaries clean.
+      Mirrors the ContentService pattern.
+    -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
