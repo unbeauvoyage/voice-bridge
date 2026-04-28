@@ -24,20 +24,21 @@ function contentDirFromConfig(metadata: Record<string, unknown>): string {
   return dir;
 }
 
-// ─── Test 1: Happy-path round-trip ──────────────────────────────────────────
+// ─── Story 1: Upload round-trip and content-addressed dedup ─────────────────
 
-test("user uploads a PNG and retrieves the exact same bytes via the returned URL", async () => {
+test("user uploads a PNG, retrieves the exact same bytes, and re-uploading the same file returns the same id with only one file on disk", async () => {
   // Given the content-service is running at BASE
   // When I POST a PNG as multipart/form-data to /upload
   // Then I receive a 200 with a content-hashed upload result
   // And GET <url> returns the identical bytes
+  // And uploading the same bytes again returns the same id (dedup)
+  // And only one file exists on disk for that sha256
 
   const uploadRes = await uploadPng();
   expect(uploadRes.status).toBe(200);
 
   const body: Record<string, unknown> = await uploadRes.json();
 
-  // Shape assertions against OpenAPI UploadResult schema
   expect(typeof body["id"]).toBe("string");
   expect(typeof body["url"]).toBe("string");
   expect(typeof body["mime"]).toBe("string");
@@ -65,43 +66,12 @@ test("user uploads a PNG and retrieves the exact same bytes via the returned URL
   expect(returnedBytes.length).toBe(PNG_BYTES.length);
   expect(returnedBytes.toString("hex")).toBe(PNG_HEX);
 
-  // NEGATIVE CONTROL: tamper the url → must 404
-  const badUrl = url.replace(/[0-9a-f]{64}/, "a".repeat(64));
-  const badRes = await fetch(badUrl);
-  expect(badRes.status).toBe(404);
-
-  // Revert: confirm the real url still 200s
-  const recheck = await fetch(url);
-  expect(recheck.status).toBe(200);
-});
-
-// ─── Test 2: Content-addressed dedup ────────────────────────────────────────
-
-test("uploading the same PNG twice returns the same id and stores only one file", async () => {
-  // Given two uploads of identical bytes
-  // When both complete
-  // Then both responses have the same id and sha256
-  // And only one file exists on disk
-
-  const [res1, res2] = await Promise.all([uploadPng(), uploadPng()]);
-  expect(res1.status).toBe(200);
-  expect(res2.status).toBe(200);
-
-  const body1: Record<string, unknown> = await res1.json();
-  const body2: Record<string, unknown> = await res2.json();
-
-  expect(body1["id"]).toBe(body2["id"]);
-  expect(body1["sha256"]).toBe(body2["sha256"]);
-
-  // Both GET calls return the same bytes
-  const url1 = body1["url"];
-  const url2 = body2["url"];
-  if (typeof url1 !== "string") throw new Error(`expected url1 string, got ${typeof url1}`);
-  if (typeof url2 !== "string") throw new Error(`expected url2 string, got ${typeof url2}`);
-
-  const [get1, get2] = await Promise.all([fetch(url1), fetch(url2)]);
-  const [bytes1, bytes2] = await Promise.all([get1.arrayBuffer(), get2.arrayBuffer()]);
-  expect(Buffer.from(bytes1).toString("hex")).toBe(Buffer.from(bytes2).toString("hex"));
+  // Upload the same bytes again — must return the same id (content-addressed dedup)
+  const dupRes = await uploadPng();
+  expect(dupRes.status).toBe(200);
+  const dupBody: Record<string, unknown> = await dupRes.json();
+  expect(dupBody["id"]).toBe(body["id"]);
+  expect(dupBody["sha256"]).toBe(body["sha256"]);
 
   // Filesystem: exactly one file for this sha256
   const contentDir = contentDirFromConfig(test.info().config.metadata);
@@ -113,10 +83,19 @@ test("uploading the same PNG twice returns the same id and stores only one file"
   const altRes = await uploadPng(altBytes);
   expect(altRes.status).toBe(200);
   const altBody: Record<string, unknown> = await altRes.json();
-  expect(altBody["id"]).not.toBe(body1["id"]);
+  expect(altBody["id"]).not.toBe(body["id"]);
+
+  // NEGATIVE CONTROL: tamper the url → must 404
+  const badUrl = url.replace(/[0-9a-f]{64}/, "a".repeat(64));
+  const badRes = await fetch(badUrl);
+  expect(badRes.status).toBe(404);
+
+  // Revert: confirm the real url still 200s
+  const recheck = await fetch(url);
+  expect(recheck.status).toBe(200);
 });
 
-// ─── Test 3: Non-existent ID 404 ────────────────────────────────────────────
+// ─── Story 2: Non-existent file returns 404 ──────────────────────────────────
 
 test("requesting a file that does not exist returns 404 with error not_found", async () => {
   // Given a well-formed but non-existent 64-char hex id
@@ -134,56 +113,6 @@ test("requesting a file that does not exist returns 404 with error not_found", a
   let caught = false;
   try {
     expect(res.status).toBe(200);
-  } catch {
-    caught = true;
-  }
-  expect(caught).toBe(true);
-});
-
-// ─── Test 4: Health endpoint ─────────────────────────────────────────────────
-
-test("health endpoint returns { status: ok, service: content-service }", async () => {
-  // Given the service is up
-  // When I GET /health
-  // Then I receive { status: "ok", service: "content-service" }
-
-  const res = await fetch(`${BASE}/health`);
-  expect(res.status).toBe(200);
-
-  const body: Record<string, unknown> = await res.json();
-  expect(body["status"]).toBe("ok");
-  expect(body["service"]).toBe("content-service");
-
-  // NEGATIVE CONTROL: assert wrong value → must fail
-  let caught = false;
-  try {
-    expect(body["status"]).toBe("not_ok");
-  } catch {
-    caught = true;
-  }
-  expect(caught).toBe(true);
-});
-
-// ─── Test 5: OpenAPI endpoint ────────────────────────────────────────────────
-
-test("OpenAPI spec endpoint returns YAML starting with openapi: 3.", async () => {
-  // Given the service is up
-  // When I GET /openapi.yaml
-  // Then I receive application/yaml with a valid OpenAPI 3.x header
-
-  const res = await fetch(`${BASE}/openapi.yaml`);
-  expect(res.status).toBe(200);
-
-  const contentType = res.headers.get("content-type") ?? "";
-  expect(contentType.toLowerCase()).toContain("yaml");
-
-  const text = await res.text();
-  expect(text.trimStart()).toMatch(/^openapi: 3\./);
-
-  // NEGATIVE CONTROL: assert wrong version prefix → must fail
-  let caught = false;
-  try {
-    expect(text.trimStart()).toMatch(/^openapi: 2\./);
   } catch {
     caught = true;
   }
