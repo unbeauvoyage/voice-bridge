@@ -24,6 +24,11 @@ internal static class SenderRegistry
     /// </param>
     public static bool IsAllowed(string senderName, string? discoveryDir = null)
     {
+        if (!AgentName.IsValid(senderName))
+        {
+            return false;
+        }
+
         if (string.Equals(senderName, "ceo", StringComparison.Ordinal))
         {
             return true;

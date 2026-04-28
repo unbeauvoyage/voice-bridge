@@ -30,7 +30,7 @@ internal static partial class RelaySecretMiddleware
             if (!string.IsNullOrEmpty(secret)
                 && ProtectedPaths.Contains(context.Request.Path.Value ?? string.Empty))
             {
-                string? rawHeader = context.Request.Headers["X-Relay-Secret"];
+                string? rawHeader = context.Request.Headers["X-Relay-Secret"].FirstOrDefault();
                 string provided = rawHeader ?? string.Empty;
                 if (!TimingSafeEquals(provided, secret))
                 {
