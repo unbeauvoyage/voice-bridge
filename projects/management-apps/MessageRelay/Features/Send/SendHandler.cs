@@ -35,12 +35,14 @@ internal static partial class SendHandler
 
     public static async Task<IResult> HandleAsync(
         SendRequest? request,
+        HttpContext httpContext,
         IDashboardBroadcaster broadcaster,
         TimeProvider timeProvider,
         IConfiguration configuration,
         ILogger<SendRequestMarker> logger,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(httpContext);
         ArgumentNullException.ThrowIfNull(broadcaster);
         ArgumentNullException.ThrowIfNull(timeProvider);
         ArgumentNullException.ThrowIfNull(configuration);
@@ -66,6 +68,9 @@ internal static partial class SendHandler
         string? discoveryDir = configuration["RELAY_DISCOVERY_DIR"];
         if (!SenderRegistry.IsAllowed(request.From, discoveryDir))
         {
+            string senderIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
+            await QuarantineLog.AppendAsync(
+                configuration["LOG_DIR"], request.From, request.To, type, senderIp, timeProvider, cancellationToken).ConfigureAwait(false);
             return SenderForbidden(activity, request.From, request.To, logger);
         }
 
