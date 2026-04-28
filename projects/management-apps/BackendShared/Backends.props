@@ -117,12 +117,22 @@
   </ItemGroup>
 
   <!--
+    BackendShared.Analyzers ships BSH0001 (null-forgiving `!` ban). Wired here
+    so every project that imports Backends.props gets the analyzer automatically
+    — BackendShared, MessageRelay, VoiceBridge, ContentService.
+    ReferenceOutputAssembly=false: the analyzer DLL is loaded by the compiler
+    but never lands in the output assemblies.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\BackendShared.Analyzers\BackendShared.Analyzers.csproj"
+                      ReferenceOutputAssembly="false"
+                      OutputItemType="Analyzer" />
+  </ItemGroup>
+
+  <!--
     Build-time bans the .NET SDK + analyzer ecosystem can't express
     (today: `dynamic` keyword). Lives in a sibling .targets file so every
     project picks it up via a single Backends.props import.
-
-    Followup: Task #25 — replace the grep target with a real custom Roslyn
-    analyzer in BackendShared.Analyzers (LSP-grade, IDE squiggles).
   -->
   <Import Project="Backends.targets" />
 

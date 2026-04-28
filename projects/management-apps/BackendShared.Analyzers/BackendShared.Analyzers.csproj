@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Custom Roslyn analyzer for the .NET backend strict regime.
+    Targets netstandard2.0 — required for the Roslyn host (compiler + VS) to
+    load this assembly. The consuming projects target net10.0 but the compiler
+    itself runs in a netstandard2.0-compatible context.
+
+    This project does NOT import Backends.props: Backends.props targets
+    net10.0 and imposes rules (var ban, file-scoped namespaces) that conflict
+    with the analyzer SDK and netstandard2.0 constraints.
+
+    Wired into BackendShared.csproj as:
+      <ProjectReference ... ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
+    so the analyzer DLL is loaded by the compiler but never lands in the output
+    assemblies of the consuming projects.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <RootNamespace>BackendShared.Analyzers</RootNamespace>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      PrivateAssets="all" + ExcludeAssets="runtime": pull in the CodeAnalysis
+      APIs for compilation but do NOT bundle the CodeAnalysis DLLs into the
+      output — the host (compiler / VS) already provides them at load time.
+    -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp"
+                      PrivateAssets="all"
+                      ExcludeAssets="runtime" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      RS2008 (EnforceExtendedAnalyzerRules) requires release-tracking files for
+      every DiagnosticDescriptor declared in the project.
+      - Shipped.md: empty — this analyzer has not shipped a versioned release.
+      - Unshipped.md: lists BSH0001 as an unreleased rule.
+    -->
+    <AdditionalFiles Include="AnalyzerReleases.Shipped.md" />
+    <AdditionalFiles Include="AnalyzerReleases.Unshipped.md" />
+  </ItemGroup>
+
+</Project>
