@@ -74,8 +74,6 @@ export async function deliverToAgent(transcript: string, to: string): Promise<Re
   if (data.status === 'queued') {
     // Message accepted by relay and queued for delivery — not an error.
     // The agent is offline but the relay will deliver when it reconnects.
-    // Returning ok:false here causes callers to fall back to cmux, which
-    // fails with "Access denied" for agents not started inside cmux.
     logger.info({ component: 'relay', to }, 'agent_offline_message_queued')
     return { ok: true, data: undefined }
   }
