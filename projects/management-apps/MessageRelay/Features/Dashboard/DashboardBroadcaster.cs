@@ -43,6 +43,8 @@ internal sealed partial class DashboardBroadcaster : IDashboardBroadcaster
         }
     }
 
+    public int ClientCount => this.subscribers.Count;
+
     public async Task BroadcastMessageAsync(StoredMessage message, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(message);
