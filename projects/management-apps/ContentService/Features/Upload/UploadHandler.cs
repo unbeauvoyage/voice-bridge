@@ -1,8 +1,8 @@
 using System.Buffers;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Primitives;
 
 namespace ContentService.Features.Upload;
@@ -23,7 +23,7 @@ namespace ContentService.Features.Upload;
 /// temp file, and return the same shape as a normal success — the existing
 /// bytes on disk are byte-identical to what the client just uploaded.
 /// </summary>
-internal static class UploadHandler
+internal static partial class UploadHandler
 {
     private const long MaxBytes = 25L * 1024L * 1024L;
     private const int CopyBufferSize = 81920;
@@ -39,6 +39,14 @@ internal static class UploadHandler
         };
 
     private static readonly string[] AllowedMimes = [.. ExtensionByMime.Keys];
+
+    // Validated before Path.Combine so taint analyzers (CA3003, SCS0018)
+    // recognise both path segments as sanitized inputs.
+    [GeneratedRegex("^[0-9a-f]{64}$", RegexOptions.NonBacktracking | RegexOptions.ExplicitCapture)]
+    private static partial Regex Sha256HexRegex();
+
+    [GeneratedRegex("^(?:png|jpg|webp|gif)$", RegexOptions.NonBacktracking | RegexOptions.ExplicitCapture)]
+    private static partial Regex FileExtensionRegex();
 
     public static async Task HandleAsync(
         HttpContext httpContext,
@@ -96,19 +104,23 @@ internal static class UploadHandler
         {
             return ValidationOutcome.Reject(ErrorResponse.NoFile());
         }
-        if (file.Length == 0)
+
+        // Mirror TS validation order: mime → too_large → empty.
+        // A 0-byte upload with an invalid MIME gets 415, not 400.
+        string contentType = file.ContentType ?? string.Empty;
+        if (!ExtensionByMime.TryGetValue(contentType, out string? extension))
         {
-            return ValidationOutcome.Reject(ErrorResponse.EmptyFile());
+            return ValidationOutcome.Reject(ErrorResponse.UnsupportedMime(contentType));
         }
+
         if (file.Length > MaxBytes)
         {
             return ValidationOutcome.Reject(ErrorResponse.TooLarge());
         }
 
-        string contentType = file.ContentType ?? string.Empty;
-        if (!ExtensionByMime.TryGetValue(contentType, out string? extension))
+        if (file.Length == 0)
         {
-            return ValidationOutcome.Reject(ErrorResponse.UnsupportedMime(contentType));
+            return ValidationOutcome.Reject(ErrorResponse.EmptyFile());
         }
 
         return ValidationOutcome.Accept(file, contentType, extension);
@@ -182,12 +194,18 @@ internal static class UploadHandler
         }
     }
 
-    [SuppressMessage("Security", "CA3003:File-path-injection",
-        Justification = "sha is a SHA-256 hex digest computed from request bytes (cannot contain '/'; cannot escape the directory). extension is a value looked up from a closed-set Dictionary keyed on a strict MIME allowlist (always one of: png, jpg, webp, gif). Neither input is user-controlled in a way that can produce a traversal. The taint analyzer cannot follow the dictionary-lookup flow.")]
-    [SuppressMessage("Security", "SCS0018:Path-traversal",
-        Justification = "Same as CA3003: sha is hash output, extension is constant-set lookup. No traversal is reachable.")]
     private static bool MoveOrDedup(string tempPath, string contentDir, string sha, string extension)
     {
+        // Regex guards satisfy CA3003 + SCS0018 taint tracking. Both values
+        // are provably safe at this point (sha = hash output, extension =
+        // closed-set dictionary value), but the analyzer cannot follow those
+        // flows. Explicit validation gives the analyzer an unambiguous signal.
+        if (!Sha256HexRegex().IsMatch(sha) || !FileExtensionRegex().IsMatch(extension))
+        {
+            throw new InvalidOperationException(
+                $"Rejected unsafe path segment: sha={sha.Length}chars, ext={extension}");
+        }
+
         string finalPath = Path.Combine(contentDir, $"{sha}.{extension}");
         try
         {

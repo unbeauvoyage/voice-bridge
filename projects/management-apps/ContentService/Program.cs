@@ -5,6 +5,7 @@ using ContentService.Features.Health;
 using ContentService.Features.OpenApi;
 using ContentService.Features.Upload;
 using ContentService.Features.Version;
+using Microsoft.AspNetCore.Http.Features;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 builder.AddBackendDefaults();
@@ -19,6 +20,13 @@ builder.AddBackendDefaults();
 builder.Services.AddOpenTelemetry()
     .WithTracing(tracing => tracing.AddSource(ContentServiceTelemetry.Name))
     .WithMetrics(metrics => metrics.AddMeter(ContentServiceTelemetry.Name));
+
+// Reject bodies above 25 MB at the multipart parser level — before any
+// handler buffering. Matches the TS sibling's `multipart limits: { fileSize: MAX_BYTES }`.
+builder.Services.Configure<FormOptions>(o =>
+{
+    o.MultipartBodyLengthLimit = 25L * 1024L * 1024L;
+});
 
 WebApplication app = builder.Build();
 

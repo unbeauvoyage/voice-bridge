@@ -14,6 +14,15 @@ namespace ContentService.Tests.Stories.GetFile;
 /// Then the response is 200, body is byte-identical to the pre-placed bytes,
 /// Content-Type is image/png, and Cache-Control is the immutable CDN policy.
 /// </summary>
+/// <remarks>
+/// Negative-control record (CEO directive — proven RED before GREEN):
+/// <list type="bullet">
+///   <item>2026-04-29: Corrupted first expected byte (<c>PngBytes[0] = 0xFF</c> in assertion).
+///     RED — "Assert.Equal() byte sequence mismatch at index 0". Reverted.</item>
+///   <item>2026-04-29: Changed expected MediaType to <c>"application/octet-stream"</c>.
+///     RED — MediaType mismatch. Reverted.</item>
+/// </list>
+/// </remarks>
 public sealed class FetchesStoredImage(ContentServiceFixture fixture) : IClassFixture<ContentServiceFixture>
 {
     private static readonly byte[] PngBytes =

@@ -27,6 +27,21 @@ namespace ContentService.Tests.Stories.CrossStack;
 ///   - Atomic-write race (TS writes partial → .NET fetches partial)
 ///   - MIME drift (TS accepts image/png, .NET rejects it, or vice versa)
 /// </summary>
+/// <remarks>
+/// Negative-control record (CEO directive — proven RED before GREEN):
+/// <list type="bullet">
+///   <item>2026-04-29: Changed <c>Assert.Equal(expectedSha, result.Id)</c> first
+///     char to assert a wrong SHA prefix. RED — SHA mismatch from TS response.
+///     Reverted.</item>
+///   <item>2026-04-29: Changed fetch path to <c>/files/{expectedSha}.jpg</c>
+///     (wrong extension). RED — .NET returned 404 (file not found on disk).
+///     Reverted. This specifically exercises the cross-stack filename-layout
+///     invariant.</item>
+///   <item>2026-04-29: Changed <c>Assert.Equal(PngBytes, fetchedBytes)</c> to
+///     a one-byte-longer array. RED — byte length mismatch on .NET fetch body.
+///     Reverted.</item>
+/// </list>
+/// </remarks>
 public sealed class TsUploadThenDotnetFetch(ContentServiceFixture fixture) : IClassFixture<ContentServiceFixture>
 {
     private static readonly byte[] PngBytes =

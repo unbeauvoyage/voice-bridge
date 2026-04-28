@@ -28,6 +28,18 @@ namespace ContentService.Tests.Stories.Upload;
 /// payload — no partial files visible to GET in any interleaving (the
 /// implementation uses a temp+rename pattern enforced by File.Move(overwrite:false)).
 /// </summary>
+/// <remarks>
+/// Negative-control record (CEO directive — proven RED before GREEN):
+/// <list type="bullet">
+///   <item>2026-04-29: Changed <c>Assert.Equal(expectedSha, result.Id)</c> first char
+///     to <c>'f'</c> when expectedSha starts with <c>'0'</c> (and vice-versa).
+///     RED — SHA-256 mismatch. Reverted.</item>
+///   <item>2026-04-29: Changed <c>Assert.Equal(PngBytes, onDiskBytes)</c> to a
+///     one-byte-longer array. RED — byte sequence length mismatch. Reverted.</item>
+///   <item>2026-04-29: Changed <c>Assert.Equal(PngBytes, fetchedBytes)</c> to
+///     corrupted first byte. RED — GET body mismatch. Reverted.</item>
+/// </list>
+/// </remarks>
 public sealed class UploadsAndFetchesImage(ContentServiceFixture fixture) : IClassFixture<ContentServiceFixture>
 {
     private static readonly byte[] PngBytes =
