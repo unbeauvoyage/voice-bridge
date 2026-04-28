@@ -29,7 +29,7 @@ export async function getKnownAgents(deps: GetKnownAgentsDeps): Promise<string[]
   try {
     const res = await fetchFn(`${relayBaseUrl}/status`, { signal: AbortSignal.timeout(2000) })
     if (!res.ok) return []
-    const StatusSchema = z.object({ agents: z.record(z.unknown()) }).passthrough()
+    const StatusSchema = z.object({ agents: z.record(z.string(), z.unknown()) }).passthrough()
     const data: unknown = await res.json()
     const parsed = StatusSchema.safeParse(data)
     if (!parsed.success) return []
