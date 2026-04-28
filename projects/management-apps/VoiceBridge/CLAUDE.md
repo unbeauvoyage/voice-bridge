@@ -8,7 +8,7 @@ The TS voice-bridge defines the wire contract for `/compose`, `/transcribe`, `/a
 
 ## Port
 
-`http://localhost:3031` (TS sibling is :3030; .NET is +1). AppHost emits both URLs as env vars to ceo-app (`VOICE_BRIDGE_URL_TS`, `VOICE_BRIDGE_URL_DOTNET`); ceo-app's settings toggle picks one.
+`http://localhost:8773` (fixed dev port from `Properties/launchSettings.json` so ceo-app's `VOICE_BRIDGE_BASE_DOTNET` default matches without env-var override). AppHost emits both URLs as env vars to ceo-app (`VOICE_BRIDGE_URL_TS`, `VOICE_BRIDGE_URL_DOTNET`); the settings toggle picks one. The TS sibling owns :3030; .NET took :8773 to keep all .NET ports in the 877x band (relay :8768, content :8771, voice :8773).
 
 ## Architecture — vertical slice
 
