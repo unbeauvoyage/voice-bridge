@@ -1,11 +1,18 @@
-// User story: A test sender posts a message to "ceo" and the live dashboard
-// WebSocket receives a `message` frame whose `data` matches the message that
-// was sent. This proves the to=="ceo" branch of POST /send broadcasts to the
-// /dashboard WebSocket — the contract documented in
-// `message-relay/docs/openapi.yaml` (paths./send + components.schemas.DashboardMessageFrame).
+// User story: POST /send broadcasts a `message` frame to /dashboard ONLY when
+// to == "ceo". For any other recipient, the broadcast path must NOT fire.
 //
-// Real services: in-process WebApplicationFactory<Program> (real ASP.NET pipeline,
-// real /send handler, real /dashboard WS upgrade, real broadcaster). No mocks.
+// Two assertions in one story (per reviewer 2026-04-29 — path-discriminating
+// negative control):
+//   1. Non-ceo POST (to="isolated-agent") → no /dashboard frame within 500ms.
+//      This proves the routing branch is the discriminator, not the body or
+//      any other field. (A test that only checks the ceo path could pass with
+//      the same assertions even if the broadcaster fired unconditionally.)
+//   2. Ceo POST (to="ceo") → /dashboard receives `{type:"message", data:<msg>}`
+//      whose body, id, etc. match the request.
+//
+// Real services: in-process WebApplicationFactory<Program> (real ASP.NET
+// pipeline, real /send handler, real /dashboard WS upgrade, real broadcaster).
+// No mocks of the SUT.
 
 using System.Globalization;
 using System.Net;
@@ -41,11 +48,20 @@ public sealed class CeoBroadcastsToDashboard : IClassFixture<RelayWebAppFactory>
         using CancellationTokenSource testCts = new(TimeSpan.FromSeconds(10));
         using WebSocket dashboard = await wsClient.ConnectAsync(dashboardUri, testCts.Token);
 
-        // When: an HTTP client POSTs to /send with to="ceo".
         using HttpClient http = factory.CreateClient();
 
-        SendRequestPayload request = new(From: "test-sender", To: "ceo", Body: "hello dashboard", Type: "message");
-        HttpResponseMessage httpResp = await http.PostAsJsonAsync("/send", request, JsonOpts, testCts.Token);
+        // ── Assertion 1 — path-discriminating negative control ─────────────────
+        // Non-ceo POST must not produce a /dashboard frame.
+        await AssertNonCeoDoesNotBroadcastAsync(http, dashboard, testCts.Token);
+
+        // ── Assertion 2 — happy path: ceo POST broadcasts a matching frame ─────
+        SendRequestPayload request = new(
+            From: "test-sender",
+            To: "ceo",
+            Body: "hello dashboard",
+            Type: "message");
+        HttpResponseMessage httpResp = await http.PostAsJsonAsync(
+            "/send", request, JsonOpts, testCts.Token);
 
         // Then: HTTP returns 200 + delivered with a UUID id.
         Assert.Equal(HttpStatusCode.OK, httpResp.StatusCode);
@@ -78,6 +94,43 @@ public sealed class CeoBroadcastsToDashboard : IClassFixture<RelayWebAppFactory>
         Assert.InRange(age.TotalSeconds, -5, 60);
 
         await dashboard.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", testCts.Token);
+    }
+
+    /// <summary>
+    /// Path-discriminating negative control: POST /send with a non-ceo recipient
+    /// and assert no /dashboard frame arrives within 500ms. Race a delay against
+    /// a WebSocket receive; the delay must win. Cancels the dangling receive so
+    /// the next caller can ReceiveAsync the WebSocket cleanly.
+    /// </summary>
+    private static async Task AssertNonCeoDoesNotBroadcastAsync(
+        HttpClient http, WebSocket dashboard, CancellationToken testToken)
+    {
+        SendRequestPayload nonCeoRequest = new(
+            From: "test-sender",
+            To: "isolated-agent",
+            Body: "should-not-broadcast",
+            Type: "message");
+        HttpResponseMessage nonCeoResp = await http.PostAsJsonAsync(
+            "/send", nonCeoRequest, JsonOpts, testToken);
+        Assert.Equal(HttpStatusCode.OK, nonCeoResp.StatusCode);
+
+        using CancellationTokenSource rogueCts = CancellationTokenSource.CreateLinkedTokenSource(testToken);
+        byte[] rogueBuffer = new byte[1024];
+        Task<WebSocketReceiveResult> rogueReceive = dashboard.ReceiveAsync(
+            new ArraySegment<byte>(rogueBuffer), rogueCts.Token);
+        Task delay = Task.Delay(TimeSpan.FromMilliseconds(500), rogueCts.Token);
+        Task firstCompleted = await Task.WhenAny(rogueReceive, delay);
+        Assert.Same(delay, firstCompleted);
+
+        await rogueCts.CancelAsync();
+        try
+        {
+            await rogueReceive;
+        }
+        catch (OperationCanceledException)
+        {
+            // expected — we cancelled the dangling receive after the delay won.
+        }
     }
 
     private static async Task<DashboardFramePayload> ReceiveJsonFrameAsync(WebSocket ws, CancellationToken ct)

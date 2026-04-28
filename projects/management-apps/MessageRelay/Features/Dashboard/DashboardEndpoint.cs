@@ -32,7 +32,10 @@ internal static partial class DashboardEndpoint
     {
         if (!context.WebSockets.IsWebSocketRequest)
         {
-            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            // Match the TypeScript canonical — Fastify has no plain-HTTP route
+            // for /dashboard, so a non-Upgrade GET falls through to Fastify's
+            // default 404. Emit the same code here.
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
             return;
         }
 
