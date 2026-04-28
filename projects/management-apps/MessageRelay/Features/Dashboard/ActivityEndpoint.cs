@@ -18,12 +18,7 @@ internal static class ActivityEndpoint
         IDashboardBroadcaster broadcaster,
         CancellationToken cancellationToken)
     {
-        if (request is null)
-        {
-            return Results.Json(new ErrorBody("Invalid agent name"), statusCode: StatusCodes.Status400BadRequest);
-        }
-
-        if (request.Name is not string name || !AgentName.IsValid(name))
+        if (request?.Name is not string name || !AgentName.IsValid(name))
         {
             return Results.Json(new ErrorBody("Invalid agent name"), statusCode: StatusCodes.Status400BadRequest);
         }

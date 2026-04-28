@@ -32,21 +32,31 @@ internal sealed partial class DashboardBroadcaster : IDashboardBroadcaster
         ArgumentNullException.ThrowIfNull(socket);
         Guid id = Guid.NewGuid();
 
-        if (fromIdentity is not null && this.namedClients.TryRemove(fromIdentity, out Guid existingId))
-        {
-            if (this.subscribers.TryRemove(existingId, out (WebSocket Socket, string? FromIdentity) existing))
-            {
-                try { existing.Socket.Abort(); }
-                catch (ObjectDisposedException) { }
-                Log.EvictedNamed(this.logger, fromIdentity, existingId);
-            }
-        }
-
-        this.subscribers[id] = (socket, fromIdentity);
         if (fromIdentity is not null)
         {
-            this.namedClients[fromIdentity] = id;
+            // Hold the lock for the full evict-old + register-new sequence so that
+            // two concurrent connects with the same fromIdentity cannot both win the
+            // TryRemove and leave a stale subscriber entry in the dictionary.
+            lock (this.namedClients)
+            {
+                if (this.namedClients.TryRemove(fromIdentity, out Guid existingId))
+                {
+                    if (this.subscribers.TryRemove(existingId, out (WebSocket Socket, string? FromIdentity) existing))
+                    {
+                        try { existing.Socket.Abort(); }
+                        catch (ObjectDisposedException) { }
+                        Log.EvictedNamed(this.logger, fromIdentity, existingId);
+                    }
+                }
+                this.subscribers[id] = (socket, fromIdentity);
+                this.namedClients[fromIdentity] = id;
+            }
         }
+        else
+        {
+            this.subscribers[id] = (socket, null);
+        }
+
         Log.Subscribed(this.logger, id, this.subscribers.Count);
         return id;
     }
@@ -85,7 +95,11 @@ internal sealed partial class DashboardBroadcaster : IDashboardBroadcaster
     {
         foreach (KeyValuePair<Guid, (WebSocket Socket, string? FromIdentity)> entry in this.subscribers)
         {
-            if (entry.Value.Socket.State != WebSocketState.Open)
+            bool isDead;
+            try { isDead = entry.Value.Socket.State != WebSocketState.Open; }
+            catch (ObjectDisposedException) { isDead = true; }
+
+            if (isDead)
             {
                 this.subscribers.TryRemove(entry.Key, out _);
                 if (entry.Value.FromIdentity is not null)
@@ -99,31 +113,36 @@ internal sealed partial class DashboardBroadcaster : IDashboardBroadcaster
     private async Task BroadcastPayloadAsync(byte[] payload, CancellationToken cancellationToken)
     {
         KeyValuePair<Guid, (WebSocket Socket, string? FromIdentity)>[] snapshot = [.. this.subscribers];
-        foreach (KeyValuePair<Guid, (WebSocket Socket, string? FromIdentity)> entry in snapshot)
+        if (snapshot.Length == 0) { return; }
+        await Task.WhenAll(Array.ConvertAll(
+            snapshot,
+            entry => this.SendToOneAsync(entry.Key, entry.Value.Socket, payload, cancellationToken)))
+            .ConfigureAwait(false);
+    }
+
+    private async Task SendToOneAsync(Guid id, WebSocket socket, byte[] payload, CancellationToken cancellationToken)
+    {
+        bool isDead;
+        try { isDead = socket.State != WebSocketState.Open; }
+        catch (ObjectDisposedException) { isDead = true; }
+
+        if (isDead)
         {
-            WebSocket socket = entry.Value.Socket;
-            if (socket.State != WebSocketState.Open)
-            {
-                this.subscribers.TryRemove(entry.Key, out _);
-                continue;
-            }
-            try
-            {
-                await socket.SendAsync(
-                    payload,
-                    WebSocketMessageType.Text,
-                    endOfMessage: true,
-                    cancellationToken).ConfigureAwait(false);
-            }
-            catch (WebSocketException ex)
-            {
-                Log.SendFailed(this.logger, entry.Key, ex);
-                this.subscribers.TryRemove(entry.Key, out _);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
+            this.subscribers.TryRemove(id, out _);
+            return;
+        }
+        try
+        {
+            await socket.SendAsync(payload, WebSocketMessageType.Text, endOfMessage: true, cancellationToken).ConfigureAwait(false);
+        }
+        catch (WebSocketException ex)
+        {
+            Log.SendFailed(this.logger, id, ex);
+            this.subscribers.TryRemove(id, out _);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
     }
 
