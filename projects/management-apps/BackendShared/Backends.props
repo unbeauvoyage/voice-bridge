@@ -1,0 +1,58 @@
+<Project>
+  <!--
+    Strict shared properties for the .NET backend experiment (MessageRelay,
+    VoiceBridge, ContentService, BackendShared). Imported explicitly by each
+    .csproj — NOT propagated via Directory.Build.props so that AppHost and
+    ServiceDefaults remain unaffected.
+
+    Strictness analogue to the TS side (strict tsconfig + ESLint banning
+    any/!/as): every warning is an error, the maximum analyzer level is on,
+    code style is enforced in build, nullability is enabled and every
+    nullable warning is an error.
+
+    To extend a Backend service later, modify this file ONCE — every project
+    that imports it picks up the change.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Null safety. Every nullable warning is an error (see .editorconfig). -->
+    <Nullable>enable</Nullable>
+
+    <!-- File-scoped namespaces; modern; less indentation. -->
+    <CSharpEnableFileScopedNamespaces>true</CSharpEnableFileScopedNamespaces>
+
+    <!-- Every warning is an error. No suppression list. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsAsErrors />
+    <WarningsNotAsErrors />
+    <NoWarn />
+
+    <!-- Maximum analyzer enforcement. AnalysisMode=All enables every CA rule;
+         AnalysisLevel=latest-all promotes all of them to warnings (then to
+         errors via TreatWarningsAsErrors above). -->
+    <AnalysisLevel>latest-all</AnalysisLevel>
+    <AnalysisMode>All</AnalysisMode>
+
+    <!-- Code style violations (.editorconfig) fail the build. -->
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+
+    <!-- Generate XML doc warnings; missing-doc warnings are then errors via TWAE. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <!-- CS1591: missing doc comment for public type/member. Demoted from error
+         because we don't currently demand XML docs on every public symbol;
+         doc-quality is a separate concern from compiler-level correctness. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <!-- Deterministic builds for reproducibility. -->
+    <Deterministic>true</Deterministic>
+
+    <!-- Treat unused references as errors. -->
+    <ErrorOnDuplicatePublishOutputFiles>true</ErrorOnDuplicatePublishOutputFiles>
+  </PropertyGroup>
+
+</Project>

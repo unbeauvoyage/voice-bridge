@@ -15,4 +15,16 @@
     <PackageReference Include="Aspire.Hosting.AppHost" Version="13.2.4" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      Project references for the .NET backend experiment. Each is wired in
+      Program.cs via AddProject<Projects.X>(...) with WithExplicitStart() so
+      the resource is visible in the Aspire dashboard but not started by
+      default — ceo-app's settings toggle starts it on demand.
+    -->
+    <ProjectReference Include="..\MessageRelay\MessageRelay.csproj" IsAspireProjectResource="true" />
+    <ProjectReference Include="..\VoiceBridge\VoiceBridge.csproj"   IsAspireProjectResource="true" />
+    <ProjectReference Include="..\ContentService\ContentService.csproj" IsAspireProjectResource="true" />
+  </ItemGroup>
+
 </Project>

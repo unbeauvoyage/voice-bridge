@@ -1,0 +1,18 @@
+## .NET build artifacts (top-level + per-project)
+**/bin/
+**/obj/
+*.user
+*.userprefs
+*.suo
+.vs/
+
+## .NET tool restore cache
+.dotnet/
+
+## OS
+.DS_Store
+
+## ServiceDefaults / per-project gitignores cover their own service trees;
+## this root file catches build artifacts in the new top-level .NET projects
+## (MessageRelay/, VoiceBridge/, ContentService/, BackendShared/) and any
+## future dotnet builds run at the repository root.

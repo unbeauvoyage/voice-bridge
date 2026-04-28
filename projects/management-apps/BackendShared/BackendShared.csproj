@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="Backends.props" />
+
+  <PropertyGroup>
+    <RootNamespace>BackendShared</RootNamespace>
+    <IsAspireSharedProject>true</IsAspireSharedProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      ServiceDefaults already provides OTel/health/resilience/service-discovery
+      via Aspire's blessed Extensions.AddServiceDefaults(). BackendShared layers
+      project-specific wire-format conventions on top: camelCase JSON,
+      ProblemDetails. Each backend service references both projects.
+    -->
+    <ProjectReference Include="..\ServiceDefaults\ManagementApps.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+</Project>

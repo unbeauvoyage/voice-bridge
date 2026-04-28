@@ -115,6 +115,32 @@ builder.AddExecutable(
         "run", "dev")
     .WaitFor(voiceBridgeServer);
 
+// ─── .NET backend experiment ─────────────────────────────────────────────────
+// PascalCase siblings to the kebab-case TS services. Strive for feature parity;
+// TS is canonical. AddProject<>() + WithExplicitStart() means each resource is
+// visible in the Aspire dashboard but NOT started automatically — ceo-app's
+// settings toggle (Task #13) flips RELAY_URL_TS ↔ RELAY_URL_DOTNET (etc.) at
+// runtime and starts the .NET sibling on demand.
+//
+// Ports offset by +1 from the TS sibling: relay 8767→8768, voice-bridge
+// 3030→3031, content 8770→8771. WithExplicitStart prevents port conflicts at
+// AppHost startup.
+
+var relayDotnet = builder.AddProject<Projects.MessageRelay>("relay-dotnet")
+    .WithHttpEndpoint(port: 8768, name: "http")
+    .WithExternalHttpEndpoints()
+    .WithExplicitStart();
+
+var voiceBridgeDotnet = builder.AddProject<Projects.VoiceBridge>("voice-bridge-dotnet")
+    .WithHttpEndpoint(port: 3031, name: "http")
+    .WithExternalHttpEndpoints()
+    .WithExplicitStart();
+
+var contentServiceDotnet = builder.AddProject<Projects.ContentService>("content-service-dotnet")
+    .WithHttpEndpoint(port: 8771, name: "http")
+    .WithExternalHttpEndpoints()
+    .WithExplicitStart();
+
 // ceo-app dev server (React Router / Vite via Bun). Vite respects --port flag
 // but not PORT env, so we pass --port 5175 as args. isProxied: false prevents
 // DCP from allocating a second port — the process binds 5175 directly.
@@ -124,6 +150,12 @@ builder.AddExecutable(
 // build time. The browser OTel SDK in app/otel.ts then sends OTLP/HTTP
 // to the Aspire dashboard. CORS must be allowed — see appsettings.Development.json
 // ASPIRE_DASHBOARD_OTLP__CORS__ALLOWEDORIGINS.
+//
+// Dual backend URLs: ceo-app sees both TS and .NET URLs at startup so the
+// settings toggle (Task #13) can flip between them at runtime without an
+// AppHost restart. Existing single-name vars (CONTENT_SERVICE_URL, VOICE_BRIDGE_URL)
+// kept as TS-aliases for backward-compat with code already reading them; new
+// code SHOULD read the explicit *_TS / *_DOTNET pair.
 builder.AddExecutable(
         "ceo-app",
         "bun",
@@ -140,6 +172,12 @@ builder.AddExecutable(
     .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
     .WithEnvironment("CONTENT_SERVICE_URL", contentService.GetEndpoint("http"))
     .WithEnvironment("VOICE_BRIDGE_URL", voiceBridgeServer.GetEndpoint("http"))
+    .WithEnvironment("RELAY_URL_TS", relay.GetEndpoint("http"))
+    .WithEnvironment("RELAY_URL_DOTNET", relayDotnet.GetEndpoint("http"))
+    .WithEnvironment("VOICE_BRIDGE_URL_TS", voiceBridgeServer.GetEndpoint("http"))
+    .WithEnvironment("VOICE_BRIDGE_URL_DOTNET", voiceBridgeDotnet.GetEndpoint("http"))
+    .WithEnvironment("CONTENT_SERVICE_URL_TS", contentService.GetEndpoint("http"))
+    .WithEnvironment("CONTENT_SERVICE_URL_DOTNET", contentServiceDotnet.GetEndpoint("http"))
     .WithHttpHealthCheck("/");
 
 builder.Build().Run();
