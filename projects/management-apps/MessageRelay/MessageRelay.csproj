@@ -7,8 +7,38 @@
     <UserSecretsId>messagerelay-dotnet</UserSecretsId>
   </PropertyGroup>
 
+  <!--
+    tests/ holds MessageRelay.StoryTests.csproj. Exclude its sources from this
+    project's default Compile/Content globs so the two .csproj files don't both
+    compile the same files. The test project ProjectReferences this one.
+  -->
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+    <Content Remove="tests/**/*" />
+    <None Remove="tests/**/*" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\BackendShared\BackendShared.csproj" />
+  </ItemGroup>
+
+  <!--
+    Prometheus scraping endpoint for /metrics parity with the TS sibling.
+    OpenTelemetry's MeterProvider feeds the same custom Meter into both
+    the OTLP exporter (for the Aspire dashboard) and the Prometheus exporter
+    (for `GET /metrics`).
+  -->
+  <ItemGroup>
+    <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" />
+  </ItemGroup>
+
+  <!--
+    Expose internals to the test project so test fixtures can reference
+    `Program` and the wire-level records without forcing them `public`
+    (CA1515 keeps internals internal where they belong).
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="MessageRelay.StoryTests" />
   </ItemGroup>
 
 </Project>
