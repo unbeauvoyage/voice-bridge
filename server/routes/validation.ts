@@ -3,13 +3,14 @@
  * request body at the boundary.
  *
  * Rationale: Stage-4 codex review flagged that the server silently accepted
- * malformed/hostile payloads (prototype-pollution in /mic, unbounded uploads
- * in /transcribe, arbitrary keys in /settings). Routes now parse with Zod at
- * the boundary and emit this consistent 400 shape so the client only has to
- * handle one error contract.
+ * malformed/hostile payloads (prototype-pollution in /mic, arbitrary keys
+ * in /settings). Routes now parse with Zod at the boundary and emit this
+ * consistent 400 shape so the client only has to handle one error contract.
  */
 
-import { z, type ZodIssue } from 'zod'
+import { z } from 'zod'
+
+type Issue = z.core.$ZodIssue
 
 export type ValidationErrorBody = {
   error: 'validation_failed'
@@ -18,12 +19,12 @@ export type ValidationErrorBody = {
 
 const CORS_HEADERS = { 'Access-Control-Allow-Origin': '*' } as const
 
-function issueToDetail(issue: ZodIssue): { path: string; message: string } {
+function issueToDetail(issue: Issue): { path: string; message: string } {
   const path = issue.path.map((p) => String(p)).join('.') || '(body)'
   return { path, message: issue.message }
 }
 
-export function validationError(issues: ZodIssue[]): Response {
+export function validationError(issues: Issue[]): Response {
   const body: ValidationErrorBody = {
     error: 'validation_failed',
     details: issues.map(issueToDetail)
@@ -44,7 +45,7 @@ export function parseJsonBody<T>(
   try {
     raw = JSON.parse(text)
   } catch {
-    const jsonIssue: ZodIssue = {
+    const jsonIssue: Issue = {
       code: 'custom',
       path: [],
       message: 'request body is not valid JSON',

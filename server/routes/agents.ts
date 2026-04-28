@@ -4,42 +4,10 @@
  * Relay-required: any failure (timeout, fetch throw, non-OK status, or
  * schema-invalid body) returns HTTP 502 with body { error: string, detail?: string }.
  * There is no fallback source — relay is the single authoritative source.
- *
- * Also exports getKnownAgents used by the /transcribe path to resolve agent names
- * for please-gate LLM routing. getKnownAgents is relay-only (no cmux fallback).
  */
 
 import { z } from 'zod'
 import { RELAY_TIMEOUT_MS } from '../config.ts'
-
-// ─── getKnownAgents business logic ────────────────────────────────────────────
-
-export type GetKnownAgentsDeps = {
-  relayBaseUrl: string
-  fetchFn: typeof fetch
-}
-
-/**
- * Returns all known agent names from the relay, normalized to lowercase.
- * Queries relay /status which returns {agents: {name: {workspace}, ...}}.
- * Returns [] when the relay is unreachable or returns unexpected data.
- */
-export async function getKnownAgents(deps: GetKnownAgentsDeps): Promise<string[]> {
-  const { relayBaseUrl, fetchFn } = deps
-  try {
-    const res = await fetchFn(`${relayBaseUrl}/status`, { signal: AbortSignal.timeout(2000) })
-    if (!res.ok) return []
-    const StatusSchema = z.object({ agents: z.record(z.string(), z.unknown()) }).loose()
-    const data: unknown = await res.json()
-    const parsed = StatusSchema.safeParse(data)
-    if (!parsed.success) return []
-    return Object.keys(parsed.data.agents)
-      .map((a) => a.toLowerCase())
-      .filter((a) => !a.includes('test') && !a.includes('probe'))
-  } catch {
-    return []
-  }
-}
 
 // ─── Route handler ────────────────────────────────────────────────────────────
 

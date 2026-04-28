@@ -103,24 +103,18 @@ def show_overlay(mode: str, text: str = "") -> None:
 
 
 def send_to_server(wav_bytes: bytes, server_url: str, target: str) -> None:
-    """POST recorded audio to voice-bridge /transcribe endpoint."""
+    """POST recorded audio to voice-bridge /compose endpoint."""
     delivered_to = target
     success = False
     try:
         res = requests.post(
-            f"{server_url}/transcribe",
+            f"{server_url}/compose",
             files={"audio": ("recording.wav", wav_bytes, "audio/wav")},
-            # No `to` field — server uses its persisted last-target so voice routing
-            # ("to productivitesse please...") sticks across subsequent requests.
-            # Sending a hardcoded startup target here overwrote the sticky every time.
+            data={"to": target},
             timeout=150,
         )
         if res.ok:
             data = res.json()
-            if data.get("cancelled"):
-                print(f"  [cancelled] transcript discarded (cancel word detected): {data.get('transcript', '')[:60]!r}")
-                show_overlay("cancelled", target)
-                return
             delivered_to = data.get("to", target)
             print(f"  → {delivered_to}: {data.get('transcript', '?')}")
             success = True

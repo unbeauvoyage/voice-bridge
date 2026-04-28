@@ -64,7 +64,7 @@ export const RELAY_POLL_TIMEOUT_MS = 5_000
 export const OVERLAY_TIMEOUT_MS = 3_000
 
 /**
- * Timeout for Ollama generate requests in llmRouter.ts.
+ * Timeout for Ollama generate requests.
  * 10 s is generous for a local quantised model.
  */
 export const OLLAMA_TIMEOUT_MS = 10_000

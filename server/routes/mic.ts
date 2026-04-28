@@ -11,7 +11,7 @@
  * fall through to a 404 path.
  *
  * Also exports the mic business-logic functions setMic, isMicOn, and
- * handleMicCommand used by server/index.ts and the transcribe pipeline.
+ * handleMicCommand used by server/index.ts.
  * index.ts is wiring-only per server-standards; business logic lives here.
  */
 

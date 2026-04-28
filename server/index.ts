@@ -3,9 +3,9 @@
  *
  * Endpoints:
  *   POST /compose      — multimodal CEO message (text + audio + attachments)
- *   POST /transcribe   — legacy voice-only pipeline (pending removal)
  *   GET  /health       — liveness check
  *   GET  /openapi.yaml — served at runtime for hey-api codegen
+ *   GET  /            — serve mobile recording UI
  *   GET/POST /mic      — mic state control (Electron + wake_word.py)
  *   GET/POST /settings — daemon settings (Electron settings page)
  *   POST /target       — relay target agent selection (Electron tray + wake_word.py)
@@ -25,18 +25,12 @@ import { atomicWriteFile } from './atomicWriteFile.ts'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync, spawn } from 'node:child_process'
-import { deliverToAgent } from './relay.ts'
-import { transcribeAudio } from './whisper.ts'
-import { llmRoute } from './llmRouter.ts'
-import { handleTranscribe, type TranscribeContext } from './routes/transcribe.ts'
 import { handleCompose } from './routes/compose.ts'
-import { type DedupEntry, hashAudioBuffer, evictStaleHashes } from './routes/dedup.ts'
 import { createWakeWordOsContext } from './wakeWordController.ts'
 import {
   handleMic,
   isMicOn,
   setMic,
-  handleMicCommand,
   type MicContext
 } from './routes/mic.ts'
 import { handleStatus, type StatusContext } from './routes/status.ts'
@@ -46,7 +40,7 @@ import {
   saveLastTarget,
   type TargetContext
 } from './routes/target.ts'
-import { handleAgents, getKnownAgents, type AgentsContext } from './routes/agents.ts'
+import { handleAgents, type AgentsContext } from './routes/agents.ts'
 import { handleSettings, type SettingsContext } from './routes/settings.ts'
 import { handleWakeWord } from './routes/wakeWord.ts'
 import { handleHealth, handleIndexHtml, type IndexHtmlContext } from './routes/meta.ts'
@@ -59,17 +53,10 @@ const PORT = Number(process.env['PORT'] ?? SERVER_PORT)
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '../public')
 const RELAY_BASE_URL = process.env['RELAY_BASE_URL'] ?? RELAY_BASE_URL_DEFAULT
 
-// Audio dedup — WKWebView retries fetches when Whisper is slow, causing duplicate relay delivery.
-// We hash audio bytes on arrival and reject same hash within 30s.
-const recentAudioHashes = new Map<string, DedupEntry>()
-
 // Chunk2-review HIGH2: Content-Length header is client-trusted. Bun.serve
 // maxRequestBodySize enforces at the parser level — Bun counts bytes as
 // they arrive and rejects over-size with 413 before any handler runs, so
-// lying/omitted Content-Length cannot buffer hostile bodies. Set slightly
-// above the /transcribe route cap (10 MiB) so the route-level preflight
-// gets a chance to produce the standard error shape for normal oversize;
-// this cap is the hard backstop against the streaming-attack case.
+// lying/omitted Content-Length cannot buffer hostile bodies.
 const MAX_REQUEST_BODY_BYTES = 11 * 1024 * 1024
 
 // Bind extracted functions to zero-arg signatures expected by route contexts.
@@ -79,11 +66,6 @@ const isMicOnBound = (): boolean => isMicOn()
 const setMicBound = (on: boolean): void => setMic(on)
 const loadLastTargetBound = (): string => loadLastTarget()
 const saveLastTargetBound = (target: string): void => saveLastTarget(target)
-const handleMicCommandBound = (transcript: string): { handled: true; state: 'on' | 'off' } | null =>
-  handleMicCommand(transcript)
-const getKnownAgentsBound = (): Promise<string[]> =>
-  getKnownAgents({ relayBaseUrl: RELAY_BASE_URL, fetchFn: fetch })
-
 const tracer = getTracer()
 
 async function handleRequest(req: Request): Promise<Response> {
@@ -142,36 +124,6 @@ async function handleRequest(req: Request): Promise<Response> {
   // ── Compose ───────────────────────────────────────────────────────────────
   if (req.method === 'POST' && url.pathname === '/compose') {
     return handleCompose(req)
-  }
-
-  // ── Transcribe ────────────────────────────────────────────────────────────
-  if (req.method === 'POST' && url.pathname === '/transcribe') {
-    const ctx: TranscribeContext = {
-      recentAudioHashes,
-      evictStaleHashes: () => evictStaleHashes(recentAudioHashes),
-      hashAudioBuffer,
-      loadLastTarget: loadLastTargetBound,
-      saveLastTarget: saveLastTargetBound,
-      handleMicCommand: handleMicCommandBound,
-      getKnownAgents: getKnownAgentsBound,
-      transcribeAudio,
-      llmRoute,
-      // Relay-only delivery. Queued (offline agent) counts as ok — relay
-      // will deliver when the agent comes online.
-      deliverMessage: async (message, to) => {
-        const relayResult = await deliverToAgent(message, to)
-        if (relayResult.ok) {
-          logger.info({ component: 'relay', to, message }, 'message_sent')
-          return { ok: true }
-        }
-        logger.error(
-          { component: 'voice-bridge', relayError: relayResult.error },
-          'relay_delivery_failed'
-        )
-        return { ok: false, error: relayResult.error }
-      }
-    }
-    return handleTranscribe(req, ctx)
   }
 
   // ── Mic control ──────────────────────────────────────────────────────────
