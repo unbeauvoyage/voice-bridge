@@ -1,6 +1,8 @@
 using System.Net.WebSockets;
 using System.Text.Json;
 
+using MessageRelay.Wire;
+
 namespace MessageRelay.Features.Dashboard;
 
 /// <summary>
@@ -46,7 +48,8 @@ internal static partial class DashboardEndpoint
         }
 
         string? fromRaw = context.Request.Query["from"];
-        string? fromIdentity = string.IsNullOrEmpty(fromRaw) ? null : fromRaw;
+        // Validate before use as eviction key — rejects path-traversal and injection strings.
+        string? fromIdentity = AgentName.IsValid(fromRaw) ? fromRaw : null;
 
         using WebSocket socket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
         Guid subscriberId = broadcaster.Subscribe(socket, fromIdentity);
