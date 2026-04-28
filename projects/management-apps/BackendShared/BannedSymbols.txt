@@ -1,0 +1,92 @@
+# BannedSymbols.txt — read by Microsoft.CodeAnalysis.BannedApiAnalyzers.
+#
+# Format: T:Type | M:Method | F:Field | P:Property; <message shown to coder>
+#
+# RS0030 (the BannedApi diagnostic ID) is promoted to error in the repo-root
+# .editorconfig — every entry below is a hard build break.
+#
+# Tests are NOT exempted. Test code uses ITestOutputHelper or ILogger, never
+# Console.*. Test code measures elapsed time via Stopwatch, never DateTime.Now.
+#
+# To grant a single justified exception: add `[SuppressMessage("ApiDesign",
+# "RS0030", Justification = "<reason>")]` at the call site. Suppression
+# without a reason is a defect.
+
+# ─── Logging — must use ILogger ──────────────────────────────────────────────
+M:System.Console.WriteLine; Use ILogger<T>.Log* — Console output bypasses the OTel log bridge.
+M:System.Console.WriteLine(System.String); Use ILogger<T>.Log*.
+M:System.Console.Write(System.String); Use ILogger<T>.Log*.
+M:System.Console.Error.WriteLine(System.String); Use ILogger<T>.LogError.
+M:System.Diagnostics.Trace.WriteLine(System.String); Use ILogger<T>.
+
+# ─── Time — TimeProvider only, never raw DateTime.* statics ─────────────────
+P:System.DateTime.Now; Use TimeProvider.System.GetLocalNow() (testable + UTC by default).
+P:System.DateTime.UtcNow; Use TimeProvider.System.GetUtcNow() so tests can fake time.
+P:System.DateTime.Today; Use DateOnly.FromDateTime(TimeProvider.System.GetUtcNow().UtcDateTime).
+P:System.DateTimeOffset.Now; Use DateTimeOffset.UtcNow (or TimeProvider).
+
+# ─── Sync-over-async — deadlock + thread-pool starvation ────────────────────
+M:System.Threading.Tasks.Task.Wait; Use await — .Wait deadlocks under sync contexts.
+M:System.Threading.Tasks.Task.Wait(System.Int32); Same.
+M:System.Threading.Tasks.Task.Wait(System.TimeSpan); Same.
+P:System.Threading.Tasks.Task`1.Result; Use await — .Result deadlocks under sync contexts.
+M:System.Threading.Thread.Sleep(System.Int32); Use await Task.Delay(ms, ct).
+M:System.Threading.Thread.Sleep(System.TimeSpan); Use await Task.Delay(span, ct).
+
+# ─── Process exits — escape graceful shutdown ───────────────────────────────
+M:System.Environment.Exit(System.Int32); Throw or call IHostApplicationLifetime.StopApplication.
+M:System.Environment.FailFast(System.String); Same.
+M:System.GC.Collect; Don't. The runtime knows better.
+
+# ─── Insecure crypto / RNG ───────────────────────────────────────────────────
+M:System.Random.#ctor; Use Random.Shared (thread-safe, properly-seeded) or RandomNumberGenerator for security. Random.Shared is allowed; only the parameterless ctor is banned.
+M:System.Random.#ctor(System.Int32); Same — fixed-seed Random has determinism uses but should be reasoned about; if you really need it, suppress with justification.
+T:System.Security.Cryptography.MD5; MD5 is broken — use SHA256+.
+T:System.Security.Cryptography.SHA1; SHA1 is broken — use SHA256+.
+
+# ─── Globalization-sensitive string ops ──────────────────────────────────────
+M:System.String.ToLower; Use ToLowerInvariant (or specify CultureInfo if you really need locale).
+M:System.String.ToUpper; Use ToUpperInvariant (or specify CultureInfo if you really need locale).
+P:System.Globalization.CultureInfo.CurrentCulture; Backend services run with InvariantGlobalization=true.
+
+# ─── String comparison — explicit StringComparison required ─────────────────
+# Default String.Equals/StartsWith/EndsWith is culture-aware on some runtimes.
+# For hashes, IDs, file paths — content correctness — pass StringComparison.Ordinal.
+M:System.String.Equals(System.String); Pass StringComparison.Ordinal explicitly.
+M:System.String.StartsWith(System.String); Pass StringComparison.Ordinal explicitly.
+M:System.String.EndsWith(System.String); Pass StringComparison.Ordinal explicitly.
+M:System.String.IndexOf(System.String); Pass StringComparison.Ordinal explicitly.
+M:System.String.Contains(System.String); Pass StringComparison.Ordinal explicitly.
+
+# ─── Sync IO — deadlock + thread-pool starvation, blocking IO in async ───────
+M:System.IO.File.ReadAllText(System.String); Use File.ReadAllTextAsync(path, ct).
+M:System.IO.File.ReadAllBytes(System.String); Use File.ReadAllBytesAsync(path, ct).
+M:System.IO.File.WriteAllText(System.String,System.String); Use File.WriteAllTextAsync(path, contents, ct).
+M:System.IO.File.WriteAllBytes(System.String,System.Byte[]); Use File.WriteAllBytesAsync(path, bytes, ct).
+M:System.IO.File.ReadAllLines(System.String); Use File.ReadAllLinesAsync(path, ct).
+M:System.IO.File.OpenRead(System.String); Use new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true).
+M:System.IO.File.OpenWrite(System.String); Use new FileStream with useAsync:true.
+M:System.IO.File.Create(System.String); Use new FileStream with useAsync:true.
+M:System.IO.File.Exists(System.String); TOCTOU — attempt the operation and catch IOException instead.
+
+# ─── Hashing — content-service correctness ───────────────────────────────────
+# content-service addresses files by SHA-256. .NET's HashCode.Combine and
+# String.GetHashCode are JIT-randomized per-process, so they cannot identify
+# content. The static SHA256.HashData / SHA256.HashDataAsync APIs are the
+# canonical hashing entry points.
+M:System.String.GetHashCode; Content addressing is SHA-256 — never the JIT-randomized runtime hash.
+M:System.HashCode.Combine; Content addressing is SHA-256 — never HashCode.Combine.
+
+# ─── Reflection escape hatches ───────────────────────────────────────────────
+M:System.Activator.CreateInstance(System.Type); Reflection escape hatch — use DI or a typed factory.
+T:System.Dynamic.DynamicObject; `dynamic` is the C# `any` — use a typed model.
+T:System.Dynamic.ExpandoObject; `dynamic` is the C# `any` — use a typed record.
+
+# ─── HTTP — IHttpClientFactory only ──────────────────────────────────────────
+# Direct HttpClient instantiation skips DNS rotation + the standard resilience
+# handler wired by ServiceDefaults. Ban the constructors; HttpClient as a type
+# (e.g. as an injected dependency from IHttpClientFactory.CreateClient) stays
+# allowed.
+M:System.Net.Http.HttpClient.#ctor; Use IHttpClientFactory.CreateClient(name) — direct construction skips DNS rotation + resilience.
+M:System.Net.Http.HttpClient.#ctor(System.Net.Http.HttpMessageHandler); Same.
+M:System.Net.Http.HttpClient.#ctor(System.Net.Http.HttpMessageHandler,System.Boolean); Same.

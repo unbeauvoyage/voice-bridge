@@ -4,7 +4,6 @@
 
   <PropertyGroup>
     <RootNamespace>BackendShared</RootNamespace>
-    <IsAspireSharedProject>true</IsAspireSharedProject>
   </PropertyGroup>
 
   <ItemGroup>

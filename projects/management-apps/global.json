@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json.schemastore.org/global",
+  "_comment": "Reproducible builds. Without this file, a future SDK upgrade silently changes analyzer behavior. rollForward=latestPatch lets us pick up bug-fix patches but not minor/major changes that could shift analyzer behavior under our feet.",
+  "sdk": {
+    "version": "10.0.100",
+    "rollForward": "latestPatch",
+    "allowPrerelease": false
+  }
+}
