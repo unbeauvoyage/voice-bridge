@@ -25,8 +25,8 @@ internal static class SessionFinder
 
     /// <summary>
     /// Finds all JSONL files for <paramref name="agentName"/>, newest first.
-    /// Combines cwd-matched sessions from <c>~/.claude/sessions/</c> with a
-    /// historical scan limited to <paramref name="daysBack"/> days.
+    /// Prefers active sessions from <c>~/.claude/sessions/</c> (sessionId-matched);
+    /// falls back to a historical cwd scan if no active sessions are found.
     /// </summary>
     public static async Task<IReadOnlyList<SessionFile>> FindForAgentAsync(
         string agentName,
@@ -42,14 +42,17 @@ internal static class SessionFinder
         List<SessionFile> result = [];
         HashSet<string> seen = new(StringComparer.Ordinal);
 
-        IReadOnlyList<string> agentCwds = await GetAgentCwdsAsync(agentName, cancellationToken)
-            .ConfigureAwait(false);
-        CollectCwdMatches(agentCwds, cutoff, seen, result);
-
         IReadOnlyDictionary<string, string> sessionMap =
             await BuildSessionToAgentMapAsync(cancellationToken).ConfigureAwait(false);
         await CollectSessionMatchesAsync(agentName, sessionMap, cutoff, seen, result, cancellationToken)
             .ConfigureAwait(false);
+
+        if (result.Count == 0)
+        {
+            IReadOnlyList<string> agentCwds = await GetAgentCwdsAsync(agentName, cancellationToken)
+                .ConfigureAwait(false);
+            CollectCwdMatches(agentCwds, cutoff, seen, result);
+        }
 
         result.Sort(static (a, b) => b.LastWriteUtc.CompareTo(a.LastWriteUtc));
         return result;

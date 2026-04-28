@@ -12,19 +12,41 @@ namespace MessageRelay.Features.Version;
 /// </summary>
 internal static class VersionEndpoint
 {
-    private static readonly VersionResponse Response = BuildResponse();
+    private static volatile VersionResponse? _cached;
+    private static readonly SemaphoreSlim InitLock = new(1, 1);
 
     public static IEndpointRouteBuilder MapVersionFeature(this IEndpointRouteBuilder app)
     {
         ArgumentNullException.ThrowIfNull(app);
-        app.MapGet("/version", static () => Results.Json(Response));
+        app.MapGet("/version", HandleAsync);
         return app;
     }
 
-    private static VersionResponse BuildResponse()
+    private static async Task<IResult> HandleAsync()
     {
-        string branch = RunGitSync("rev-parse --abbrev-ref HEAD");
-        string sha = RunGitSync("rev-parse --short HEAD");
+        VersionResponse? response = _cached;
+        if (response is not null)
+        {
+            return Results.Json(response);
+        }
+
+        await InitLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            VersionResponse built = await BuildResponseAsync().ConfigureAwait(false);
+            _cached = built;
+            return Results.Json(built);
+        }
+        finally
+        {
+            InitLock.Release();
+        }
+    }
+
+    private static async Task<VersionResponse> BuildResponseAsync()
+    {
+        string branch = await RunGitAsync("rev-parse --abbrev-ref HEAD").ConfigureAwait(false);
+        string sha = await RunGitAsync("rev-parse --short HEAD").ConfigureAwait(false);
         string startedAt = DateTimeOffset.UtcNow.ToString("o", CultureInfo.InvariantCulture);
 
         return new VersionResponse(
@@ -43,7 +65,7 @@ internal static class VersionEndpoint
             ]);
     }
 
-    private static string RunGitSync(string args)
+    private static async Task<string> RunGitAsync(string args)
     {
         try
         {
@@ -55,16 +77,9 @@ internal static class VersionEndpoint
                 CreateNoWindow = true,
             };
             p.Start();
-            // Version is computed once at startup — blocking wait is acceptable
-            // (startup path, not request path). MA0045 applies to hot paths;
-            // ProcessStartInfo.RedirectStandardOutput requires sync read here
-            // because p.StandardOutput.ReadToEndAsync + WaitForExitAsync would
-            // need an async context that the static field initializer cannot provide.
-#pragma warning disable MA0045
-            string output = p.StandardOutput.ReadToEnd().Trim();
-            p.WaitForExit();
-#pragma warning restore MA0045
-            return string.IsNullOrEmpty(output) ? "unknown" : output;
+            string output = await p.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+            await p.WaitForExitAsync().ConfigureAwait(false);
+            return string.IsNullOrWhiteSpace(output) ? "unknown" : output.Trim();
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {

@@ -27,9 +27,13 @@ internal static class DiscoveryDirectory
         return !string.IsNullOrEmpty(env) ? env : DefaultPath;
     }
 
+    private static readonly HashSet<string> ExcludedNames =
+        new(["*", "", "ceo", "relay"], StringComparer.Ordinal);
+
     /// <summary>
     /// Lists all valid agent names that have a <c>.port</c> file in
-    /// <paramref name="dir"/>. Invalid names and I/O errors are silently skipped.
+    /// <paramref name="dir"/>. Invalid names, system names (<c>*</c>, <c>ceo</c>,
+    /// <c>relay</c>), and I/O errors are silently skipped.
     /// </summary>
     public static IReadOnlyList<string> ListAgentNames(string dir)
     {
@@ -44,7 +48,7 @@ internal static class DiscoveryDirectory
             foreach (string file in Directory.GetFiles(dir, "*.port"))
             {
                 string name = Path.GetFileNameWithoutExtension(file);
-                if (AgentName.IsValid(name))
+                if (AgentName.IsValid(name) && !ExcludedNames.Contains(name))
                 {
                     result.Add(name);
                 }

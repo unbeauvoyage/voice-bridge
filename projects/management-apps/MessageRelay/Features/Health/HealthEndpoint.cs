@@ -31,7 +31,7 @@ internal static class HealthEndpoint
 
         return Results.Json(new HealthResponse(
             Ok: true,
-            Relay: "dotnet",
+            Relay: "lean",
             Port: port,
             Host: host,
             Clients: broadcaster.ClientCount,
