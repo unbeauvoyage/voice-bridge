@@ -27,6 +27,7 @@ import { llmRoute } from './llmRouter.ts'
 import { startRelayPoller } from './relay-poller.ts'
 import { drainVoiceBridgeQueue } from './queue-drain.ts'
 import { handleTranscribe, type TranscribeContext } from './routes/transcribe.ts'
+import { handleCompose } from './routes/compose.ts'
 import { type DedupEntry, hashAudioBuffer, evictStaleHashes } from './routes/dedup.ts'
 import { createWakeWordOsContext } from './wakeWordController.ts'
 import { handleMessages, type MessagesContext } from './routes/messages.ts'
@@ -119,6 +120,11 @@ async function handleRequest(req: Request): Promise<Response> {
         'Access-Control-Max-Age': '86400'
       }
     })
+  }
+
+  // ── Compose ───────────────────────────────────────────────────────────────
+  if (req.method === 'POST' && url.pathname === '/compose') {
+    return handleCompose(req)
   }
 
   // ── Transcribe ────────────────────────────────────────────────────────────

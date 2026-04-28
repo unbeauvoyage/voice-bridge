@@ -1,6 +1,6 @@
 # voice-bridge2
 
-Electron + Bun server for voice capture, Whisper transcription, and relay delivery. Also runs a wake-word daemon.
+CEO-input bridge. Named "voice-bridge" historically, but its actual job is to bridge **CEO input — any modality (text, audio, image, future video) —** into the message shape the relay expects, then call relay `/send`. **One-way: nothing comes back to the CEO from this service.** The CEO sees agent responses through Claude Code's JSONL files → relay tail → WebSocket → ceo-app feed. (See `~/environment/proposals/2026-04-28-compose-architecture.md` for the full architectural decision and decision log.)
 
 ## Role
 You are the **team-lead** for voice-bridge2. Spawn coders for implementation; stay available for coordination. Report to chief-of-staff via relay (`relay_reply to: "chief-of-staff"`).
@@ -11,12 +11,31 @@ You are the **team-lead** for voice-bridge2. Spawn coders for implementation; st
 - Wake-word: Python daemon (`daemon/wake_word.py`). Target: `chief-of-staff`.
 - OTel: `server/otel.ts` — SimpleSpanProcessor + PeriodicExportingMetricReader → Aspire dashboard port 18890. Env vars injected by AppHost.
 
+## Endpoints
+- **`POST /compose`** — primary endpoint for any CEO message. Multimodal envelope `{ to, text?, audio?, attachments?[] }`. Orchestrates whisper-server (transcription) + content-service (attachment upload) + relay `/send` (final delivery). All-or-nothing transactional: any sub-step failure → 4xx/5xx with error stage; never a partial send.
+- `POST /transcribe` — legacy, pending removal. Same direction as /compose but voice-only and auto-delivers to relay. Stays alive until ceo-app cuts over to /compose; deletion is a separate iteration.
+- `GET /health` — AppHost liveness check (must keep returning 200).
+- Wake-word + Electron mic UI — separate concerns; remain as today.
+
+## OpenAPI
+- Hand-rolled spec at `docs/openapi.yaml`. Add to it whenever an endpoint changes.
+- ceo-app generates its client from this spec via hey-api. **No hand-rolled Zod alongside.** OpenAPI is the contract; types and react-query hooks are derived.
+
+## Compose library shape (portability constraint)
+`server/compose/` is a self-contained library — orchestrator + injected clients. The route handler is parse-and-respond only. This makes /compose liftable into the relay later (or portable to .NET) by copying the directory and swapping the relay client for an in-process call. See proposal § "Folder shape (portability constraint)".
+
 ## Active work
-1. **Hey Jarvis wake word**: not working — investigate `daemon/wake_word.py` + `server/routes/wakeWord.ts`.
-2. **OTel**: `server/otel.ts` + `server/index.ts` restored (were lost in rebase). Verify Aspire shows `voice-bridge-server` traces.
+1. **`POST /compose`**: implementation in flight (chief-of-staff coordinating). Tracks proposal `2026-04-28-compose-architecture.md`.
+2. **Hey Jarvis wake word**: not working — investigate `daemon/wake_word.py` + `server/routes/wakeWord.ts`.
+3. **OTel**: `server/otel.ts` + `server/index.ts` restored (were lost in rebase). Verify Aspire shows `voice-bridge-server` traces.
 
 ## Key rules
 - `server/index.ts` is the AppHost entry point — keep it runnable.
 - `/health` endpoint must return 200 (AppHost health check).
-- Story tests only (`tests/stories/`). No unit tests.
+- **Story tests only** (`tests/stories/`). No unit tests. No mocks.
+- **No `unknown`/`any`/`as` casts.** OpenAPI is the contract; types follow.
+- **No hand-rolled Zod** — OpenAPI is the source of truth; consumers (ceo-app) generate types via hey-api.
 - Surgical changes — don't restructure route files.
+
+## Naming caveat
+The name will outgrow itself as more CEO-input modalities land. Rename when it stops fitting (e.g. `message-bridge`, `compose-service`); not a blocker until then.
