@@ -48,6 +48,11 @@ public sealed class CeoBroadcastsToDashboard : IClassFixture<RelayWebAppFactory>
         using CancellationTokenSource testCts = new(TimeSpan.FromSeconds(10));
         using WebSocket dashboard = await wsClient.ConnectAsync(dashboardUri, testCts.Token);
 
+        // Drain the snapshot frame /dashboard sends immediately on connect —
+        // it must not count as the "rogue broadcast" in the race assertion below.
+        byte[] snapshotBuf = new byte[4096];
+        await dashboard.ReceiveAsync(new ArraySegment<byte>(snapshotBuf), testCts.Token);
+
         using HttpClient http = factory.CreateClient();
 
         // ── Assertion 1 — path-discriminating negative control ─────────────────

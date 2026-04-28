@@ -61,6 +61,7 @@ app.MapVersionFeature();
 app.MapHistoryFeature();
 app.MapRawFeature();
 app.MapEventsFeature();
+app.MapActivityFeature();
 app.MapDashboardFeature();
 app.MapSendFeature();
 

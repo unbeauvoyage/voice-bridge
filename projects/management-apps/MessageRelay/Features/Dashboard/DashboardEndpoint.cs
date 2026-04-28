@@ -1,4 +1,5 @@
 using System.Net.WebSockets;
+using System.Text.Json;
 
 namespace MessageRelay.Features.Dashboard;
 
@@ -9,11 +10,16 @@ namespace MessageRelay.Features.Dashboard;
 /// </summary>
 internal static partial class DashboardEndpoint
 {
+    private static readonly byte[] SnapshotBytes =
+        JsonSerializer.SerializeToUtf8Bytes(
+            new DashboardFrame<SnapshotData>("snapshot", new SnapshotData([])));
+
     public static TBuilder AddDashboardFeature<TBuilder>(this TBuilder builder)
         where TBuilder : IHostApplicationBuilder
     {
         ArgumentNullException.ThrowIfNull(builder);
         builder.Services.AddSingleton<IDashboardBroadcaster, DashboardBroadcaster>();
+        builder.Services.AddHostedService<DashboardHeartbeatService>();
         return builder;
     }
 
@@ -39,10 +45,14 @@ internal static partial class DashboardEndpoint
             return;
         }
 
+        string? fromRaw = context.Request.Query["from"];
+        string? fromIdentity = string.IsNullOrEmpty(fromRaw) ? null : fromRaw;
+
         using WebSocket socket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
-        Guid subscriberId = broadcaster.Subscribe(socket);
+        Guid subscriberId = broadcaster.Subscribe(socket, fromIdentity);
         try
         {
+            await socket.SendAsync(SnapshotBytes, WebSocketMessageType.Text, endOfMessage: true, cancellationToken).ConfigureAwait(false);
             await DrainUntilClosedAsync(socket, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)

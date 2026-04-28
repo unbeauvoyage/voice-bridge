@@ -12,7 +12,8 @@ namespace MessageRelay.Features.Dashboard;
 [SuppressMessage("Performance", "CA1812", Justification = "Instantiated via DI in AddDashboardFeature.")]
 internal sealed partial class DashboardBroadcaster : IDashboardBroadcaster
 {
-    private readonly ConcurrentDictionary<Guid, WebSocket> subscribers = new();
+    private readonly ConcurrentDictionary<Guid, (WebSocket Socket, string? FromIdentity)> subscribers = new();
+    private readonly ConcurrentDictionary<string, Guid> namedClients = new(StringComparer.Ordinal);
     private readonly JsonSerializerOptions jsonOptions;
     private readonly ILogger<DashboardBroadcaster> logger;
 
@@ -26,19 +27,38 @@ internal sealed partial class DashboardBroadcaster : IDashboardBroadcaster
         this.logger = logger;
     }
 
-    public Guid Subscribe(WebSocket socket)
+    public Guid Subscribe(WebSocket socket, string? fromIdentity)
     {
         ArgumentNullException.ThrowIfNull(socket);
         Guid id = Guid.NewGuid();
-        this.subscribers[id] = socket;
+
+        if (fromIdentity is not null && this.namedClients.TryRemove(fromIdentity, out Guid existingId))
+        {
+            if (this.subscribers.TryRemove(existingId, out (WebSocket Socket, string? FromIdentity) existing))
+            {
+                try { existing.Socket.Abort(); }
+                catch (ObjectDisposedException) { }
+                Log.EvictedNamed(this.logger, fromIdentity, existingId);
+            }
+        }
+
+        this.subscribers[id] = (socket, fromIdentity);
+        if (fromIdentity is not null)
+        {
+            this.namedClients[fromIdentity] = id;
+        }
         Log.Subscribed(this.logger, id, this.subscribers.Count);
         return id;
     }
 
     public void Unsubscribe(Guid id)
     {
-        if (this.subscribers.TryRemove(id, out _))
+        if (this.subscribers.TryRemove(id, out (WebSocket Socket, string? FromIdentity) entry))
         {
+            if (entry.FromIdentity is not null)
+            {
+                this.namedClients.TryRemove(new KeyValuePair<string, Guid>(entry.FromIdentity, id));
+            }
             Log.Unsubscribed(this.logger, id, this.subscribers.Count);
         }
     }
@@ -50,12 +70,38 @@ internal sealed partial class DashboardBroadcaster : IDashboardBroadcaster
         ArgumentNullException.ThrowIfNull(message);
         DashboardFrame<StoredMessage> frame = new(Type: "message", Data: message);
         byte[] payload = JsonSerializer.SerializeToUtf8Bytes(frame, this.jsonOptions);
+        await this.BroadcastPayloadAsync(payload, cancellationToken).ConfigureAwait(false);
+    }
 
-        // Snapshot to avoid mutation during iteration; Send is per-socket.
-        KeyValuePair<Guid, WebSocket>[] snapshot = [.. this.subscribers];
-        foreach (KeyValuePair<Guid, WebSocket> entry in snapshot)
+    public async Task BroadcastActivityAsync(ActivityFrame data, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        DashboardFrame<ActivityFrame> frame = new(Type: "activity", Data: data);
+        byte[] payload = JsonSerializer.SerializeToUtf8Bytes(frame, this.jsonOptions);
+        await this.BroadcastPayloadAsync(payload, cancellationToken).ConfigureAwait(false);
+    }
+
+    public void EvictDeadClients()
+    {
+        foreach (KeyValuePair<Guid, (WebSocket Socket, string? FromIdentity)> entry in this.subscribers)
         {
-            WebSocket socket = entry.Value;
+            if (entry.Value.Socket.State != WebSocketState.Open)
+            {
+                this.subscribers.TryRemove(entry.Key, out _);
+                if (entry.Value.FromIdentity is not null)
+                {
+                    this.namedClients.TryRemove(new KeyValuePair<string, Guid>(entry.Value.FromIdentity, entry.Key));
+                }
+            }
+        }
+    }
+
+    private async Task BroadcastPayloadAsync(byte[] payload, CancellationToken cancellationToken)
+    {
+        KeyValuePair<Guid, (WebSocket Socket, string? FromIdentity)>[] snapshot = [.. this.subscribers];
+        foreach (KeyValuePair<Guid, (WebSocket Socket, string? FromIdentity)> entry in snapshot)
+        {
+            WebSocket socket = entry.Value.Socket;
             if (socket.State != WebSocketState.Open)
             {
                 this.subscribers.TryRemove(entry.Key, out _);
@@ -91,5 +137,8 @@ internal sealed partial class DashboardBroadcaster : IDashboardBroadcaster
 
         [LoggerMessage(EventId = 102, Level = LogLevel.Warning, Message = "dashboard send failed for {SubscriberId} — evicting")]
         public static partial void SendFailed(ILogger logger, Guid subscriberId, Exception exception);
+
+        [LoggerMessage(EventId = 103, Level = LogLevel.Debug, Message = "evicted named client {FromIdentity}/{ExistingId} on reconnect")]
+        public static partial void EvictedNamed(ILogger logger, string fromIdentity, Guid existingId);
     }
 }
