@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace VoiceBridge.Features.Compose;
 
 /// <summary>
@@ -7,28 +9,12 @@ namespace VoiceBridge.Features.Compose;
 /// the correct HTTP status + wire response without re-classifying. Mirrors
 /// voice-bridge2/server/compose/envelope.ts's StageError.
 /// </summary>
+[SuppressMessage("Design", "CA1032:ImplementStandardExceptionConstructors",
+    Justification = "Domain-specific ctor only. CA1032/RCS1194 stubs would silently default Code to ValidationFailed.")]
+[SuppressMessage("Roslynator", "RCS1194:ImplementExceptionConstructors",
+    Justification = "Domain-specific ctor only. CA1032/RCS1194 stubs would silently default Code to ValidationFailed.")]
 internal sealed class ComposeException : Exception
 {
-    public ComposeException()
-    {
-        Code = ComposeErrorCode.ValidationFailed;
-        Stage = ComposeStage.Validate;
-    }
-
-    public ComposeException(string message)
-        : base(message)
-    {
-        Code = ComposeErrorCode.ValidationFailed;
-        Stage = ComposeStage.Validate;
-    }
-
-    public ComposeException(string message, Exception innerException)
-        : base(message, innerException)
-    {
-        Code = ComposeErrorCode.ValidationFailed;
-        Stage = ComposeStage.Validate;
-    }
-
     public ComposeException(ComposeErrorCode code, ComposeStage stage, string message)
         : base(message)
     {

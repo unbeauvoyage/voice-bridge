@@ -61,17 +61,7 @@ internal static class ComposeEndpoint
             Text: form.TryGetValue("text", out StringValues text) ? text.ToString() : null,
             ReplyTo: form.TryGetValue("replyTo", out StringValues replyTo) ? replyTo.ToString() : null,
             Audio: form.Files.GetFile("audio"),
-            Attachments: ToReadOnlyList(form.Files.GetFiles("attachments")));
-
-    private static IFormFile[] ToReadOnlyList(IReadOnlyList<IFormFile> files)
-    {
-        IFormFile[] copy = new IFormFile[files.Count];
-        for (int i = 0; i < files.Count; i++)
-        {
-            copy[i] = files[i];
-        }
-        return copy;
-    }
+            Attachments: form.Files.GetFiles("attachments"));
 
     private static int ToHttpStatus(ComposeErrorCode code) =>
         code switch

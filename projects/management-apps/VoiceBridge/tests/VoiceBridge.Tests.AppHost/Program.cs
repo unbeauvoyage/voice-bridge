@@ -23,6 +23,9 @@ IDistributedApplicationBuilder builder = DistributedApplication.CreateBuilder(ar
 builder.AddProject<Projects.VoiceBridge>("voice-bridge-dotnet")
     .WithEnvironment(ctx =>
     {
+        // RelayUrl / WhisperUrl / ContentServiceUrl are populated by ComposeFixture
+        // via DistributedApplicationTestingBuilder's shared IConfiguration (in-process
+        // only — a separate-process AppHost would not see these keys).
         ctx.EnvironmentVariables["RELAY_URL"] =
             builder.Configuration["RelayUrl"] ?? "http://127.0.0.1:8767";
         ctx.EnvironmentVariables["WHISPER_URL"] =
