@@ -1,11 +1,10 @@
 /**
  * WhisperClient — interface + HTTP implementation.
  *
- * Calls whisper-server /inference endpoint (same as server/whisper.ts but
- * encapsulated behind an interface for portability + dependency injection).
+ * Calls whisper-server /inference endpoint, encapsulated behind an interface
+ * for portability + dependency injection.
  *
- * The existing server/whisper.ts stays alive for /transcribe. This client
- * is used exclusively by the compose orchestrator.
+ * Used exclusively by the compose orchestrator.
  */
 
 import { randomUUID } from 'node:crypto'

@@ -13,8 +13,9 @@ You are the **team-lead** for voice-bridge2. Spawn coders for implementation; st
 
 ## Endpoints
 - **`POST /compose`** — primary endpoint for any CEO message. Multimodal envelope `{ to, text?, audio?, attachments?[] }`. Orchestrates whisper-server (transcription) + content-service (attachment upload) + relay `/send` (final delivery). All-or-nothing transactional: any sub-step failure → 4xx/5xx with error stage; never a partial send.
-- `POST /transcribe` — legacy, pending removal. Same direction as /compose but voice-only and auto-delivers to relay. Stays alive until ceo-app cuts over to /compose; deletion is a separate iteration.
 - `GET /health` — AppHost liveness check (must keep returning 200).
+- `GET /openapi.yaml` — spec served at runtime for hey-api codegen.
+- Electron-bound: `/mic`, `/settings`, `/target`, `/agents`, `/status`, `/wake-word*`.
 - Wake-word + Electron mic UI — separate concerns; remain as today.
 
 ## OpenAPI
