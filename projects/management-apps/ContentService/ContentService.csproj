@@ -5,10 +5,31 @@
   <PropertyGroup>
     <RootNamespace>ContentService</RootNamespace>
     <UserSecretsId>contentservice-dotnet</UserSecretsId>
+    <!--
+      Companion test projects live at ContentService/tests/. Without an
+      exclusion, the SDK's default Compile/Content/None glob (**/*) drags
+      every .cs under tests/ into THIS project too — yielding duplicate
+      AssemblyInfo + duplicate top-level statements. Excluding tests/** here
+      keeps the boundaries clean: tests/ContentService.Tests.AppHost and
+      tests/ContentService.Tests are independent SDK projects with their
+      own build context.
+    -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\BackendShared\BackendShared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The TS sibling is canonical on the wire contract. We serve the SAME
+      bytes at GET /openapi.yaml so spec drift is impossible — there is one
+      source of truth, owned by content-service/. Linked here at build time;
+      copied to the output directory so the file is reachable via
+      ContentRootFileProvider at runtime.
+    -->
+    <Content Include="..\content-service\docs\openapi.yaml" Link="docs\openapi.yaml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -11,6 +11,22 @@ namespace BackendShared;
 /// <c>ManagementApps.ServiceDefaults</c> project — camelCase JSON, ProblemDetails,
 /// rejection of unknown JSON properties.
 /// </summary>
+/// <remarks>
+/// OBSERVABILITY REGISTRATION CAVEAT — ServiceDefaults registers
+/// <c>tracing.AddSource(ApplicationName)</c> implicitly, but ApplicationName drifts
+/// when a service runs under a test-only AppHost (the test entry-point assembly
+/// becomes the ApplicationName, not the SUT). The Meter scope is not registered
+/// by ServiceDefaults at all. Each service that declares its own
+/// <c>ActivitySource</c>/<c>Meter</c> MUST register them explicitly in
+/// <c>Program.cs</c> after <c>AddBackendDefaults()</c>:
+/// <code>
+/// builder.Services.ConfigureOpenTelemetryTracerProvider(t =&gt; t.AddSource("MyService"));
+/// builder.Services.ConfigureOpenTelemetryMeterProvider(m =&gt; m.AddMeter("MyService"));
+/// </code>
+/// Belt-and-suspenders. Discovered by content-service-dotnet during cross-stack
+/// test harness setup — implicit registration silently drops spans/metrics in
+/// Tests.AppHost runs.
+/// </remarks>
 public static class BackendDefaults
 {
     /// <summary>
