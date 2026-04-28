@@ -29,6 +29,7 @@ builder.Services.Configure<FormOptions>(o =>
 });
 
 WebApplication app = builder.Build();
+app.UseCors(BackendDefaults.CorsPolicyName);
 
 // NOTE: We intentionally do NOT call MapDefaultEndpoints(). ServiceDefaults'
 // implementation maps a text-body /health in development that would

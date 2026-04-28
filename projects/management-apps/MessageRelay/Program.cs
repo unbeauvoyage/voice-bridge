@@ -41,6 +41,7 @@ builder.Services.ConfigureOpenTelemetryMeterProvider(meter =>
 
 WebApplication app = builder.Build();
 app.UseWebSockets();
+app.UseCors(BackendDefaults.CorsPolicyName);
 app.UseRelaySecretGuard();
 
 // NOTE: MapDefaultEndpoints() is intentionally omitted — its /health shape

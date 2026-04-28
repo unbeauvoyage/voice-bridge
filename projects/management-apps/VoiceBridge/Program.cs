@@ -37,6 +37,7 @@ builder.Services.AddHttpClient<IRelaySendClient, RelaySendClient>(client =>
 builder.Services.AddScoped<ComposeHandler>();
 
 WebApplication app = builder.Build();
+app.UseCors(BackendDefaults.CorsPolicyName);
 // MapDefaultEndpoints() intentionally omitted — its plain-text "Healthy"
 // body shape contradicts the {status, ts} contract voice-bridge-ts serves.
 // HealthEndpoint owns /health.
