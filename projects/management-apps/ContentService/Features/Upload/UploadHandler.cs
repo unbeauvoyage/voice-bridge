@@ -63,9 +63,12 @@ internal static partial class UploadHandler
             return;
         }
 
-        IFormFile file = validation.File!;
-        string contentType = validation.ContentType!;
-        string extension = validation.Extension!;
+        IFormFile file = validation.File
+            ?? throw new InvalidOperationException("ValidationOutcome.File must be set when ErrorResponse is null");
+        string contentType = validation.ContentType
+            ?? throw new InvalidOperationException("ValidationOutcome.ContentType must be set when ErrorResponse is null");
+        string extension = validation.Extension
+            ?? throw new InvalidOperationException("ValidationOutcome.Extension must be set when ErrorResponse is null");
 
         string contentDir = ResolveContentDir(configuration);
         Directory.CreateDirectory(contentDir);
