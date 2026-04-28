@@ -122,22 +122,21 @@ builder.AddExecutable(
 // settings toggle (Task #13) flips RELAY_URL_TS ↔ RELAY_URL_DOTNET (etc.) at
 // runtime and starts the .NET sibling on demand.
 //
-// Ports offset by +1 from the TS sibling: relay 8767→8768, voice-bridge
-// 3030→3031, content 8770→8771. WithExplicitStart prevents port conflicts at
-// AppHost startup.
+// Ports come from each project's Properties/launchSettings.json — Aspire
+// auto-discovers them as the endpoint named "http". MessageRelay :8768,
+// VoiceBridge :3031, ContentService :8771 (all TS-port +1).
+// WithExternalHttpEndpoints exposes the discovered endpoint to the host so
+// ceo-app's browser bundle can hit it directly via the GetEndpoint("http") URL.
 
 var relayDotnet = builder.AddProject<Projects.MessageRelay>("relay-dotnet")
-    .WithHttpEndpoint(port: 8768, name: "http")
     .WithExternalHttpEndpoints()
     .WithExplicitStart();
 
 var voiceBridgeDotnet = builder.AddProject<Projects.VoiceBridge>("voice-bridge-dotnet")
-    .WithHttpEndpoint(port: 3031, name: "http")
     .WithExternalHttpEndpoints()
     .WithExplicitStart();
 
 var contentServiceDotnet = builder.AddProject<Projects.ContentService>("content-service-dotnet")
-    .WithHttpEndpoint(port: 8771, name: "http")
     .WithExternalHttpEndpoints()
     .WithExplicitStart();
 
