@@ -1,6 +1,8 @@
 import { test, expect } from "@playwright/test";
 import { readdirSync } from "node:fs";
 
+const BASE = "http://127.0.0.1:8771";
+
 // Minimal valid 1x1 red PNG (63 bytes) — generated offline, stable fixture
 const PNG_HEX =
   "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de" +
@@ -11,7 +13,7 @@ const PNG_SHA256 = "c19b45b1a6e247471ea82b674f5eb58e52d7bb71ffcf2403030b88e1322c
 async function uploadPng(bytes = PNG_BYTES): Promise<globalThis.Response> {
   const form = new FormData();
   form.append("file", new Blob([bytes], { type: "image/png" }), "test.png");
-  return fetch("http://127.0.0.1:8771/upload", { method: "POST", body: form });
+  return fetch(`${BASE}/upload`, { method: "POST", body: form });
 }
 
 function contentDirFromConfig(metadata: Record<string, unknown>): string {
@@ -25,7 +27,7 @@ function contentDirFromConfig(metadata: Record<string, unknown>): string {
 // ─── Test 1: Happy-path round-trip ──────────────────────────────────────────
 
 test("user uploads a PNG and retrieves the exact same bytes via the returned URL", async () => {
-  // Given the content-service is running at port 8771
+  // Given the content-service is running at BASE
   // When I POST a PNG as multipart/form-data to /upload
   // Then I receive a 200 with a content-hashed upload result
   // And GET <url> returns the identical bytes
@@ -33,7 +35,7 @@ test("user uploads a PNG and retrieves the exact same bytes via the returned URL
   const uploadRes = await uploadPng();
   expect(uploadRes.status).toBe(200);
 
-  const body = await uploadRes.json() as Record<string, unknown>;
+  const body: Record<string, unknown> = await uploadRes.json();
 
   // Shape assertions against OpenAPI UploadResult schema
   expect(typeof body["id"]).toBe("string");
@@ -49,7 +51,8 @@ test("user uploads a PNG and retrieves the exact same bytes via the returned URL
   expect(body["id"]).toBe(body["sha256"]);
   expect(body["sha256"]).toBe(PNG_SHA256);
 
-  const url = body["url"] as string;
+  const url = body["url"];
+  if (typeof url !== "string") throw new Error(`expected url string, got ${typeof url}`);
   expect(url).toMatch(/^http:\/\//);
   expect(url).toContain("/files/");
 
@@ -84,17 +87,19 @@ test("uploading the same PNG twice returns the same id and stores only one file"
   expect(res1.status).toBe(200);
   expect(res2.status).toBe(200);
 
-  const body1 = await res1.json() as Record<string, unknown>;
-  const body2 = await res2.json() as Record<string, unknown>;
+  const body1: Record<string, unknown> = await res1.json();
+  const body2: Record<string, unknown> = await res2.json();
 
   expect(body1["id"]).toBe(body2["id"]);
   expect(body1["sha256"]).toBe(body2["sha256"]);
 
   // Both GET calls return the same bytes
-  const [get1, get2] = await Promise.all([
-    fetch(body1["url"] as string),
-    fetch(body2["url"] as string),
-  ]);
+  const url1 = body1["url"];
+  const url2 = body2["url"];
+  if (typeof url1 !== "string") throw new Error(`expected url1 string, got ${typeof url1}`);
+  if (typeof url2 !== "string") throw new Error(`expected url2 string, got ${typeof url2}`);
+
+  const [get1, get2] = await Promise.all([fetch(url1), fetch(url2)]);
   const [bytes1, bytes2] = await Promise.all([get1.arrayBuffer(), get2.arrayBuffer()]);
   expect(Buffer.from(bytes1).toString("hex")).toBe(Buffer.from(bytes2).toString("hex"));
 
@@ -106,7 +111,8 @@ test("uploading the same PNG twice returns the same id and stores only one file"
   // NEGATIVE CONTROL: upload different bytes → different id
   const altBytes = Buffer.concat([PNG_BYTES, Buffer.from([0x00])]);
   const altRes = await uploadPng(altBytes);
-  const altBody = await altRes.json() as Record<string, unknown>;
+  expect(altRes.status).toBe(200);
+  const altBody: Record<string, unknown> = await altRes.json();
   expect(altBody["id"]).not.toBe(body1["id"]);
 });
 
@@ -118,10 +124,10 @@ test("requesting a file that does not exist returns 404 with error not_found", a
   // Then I get 404 and { error: "not_found" }
 
   const ghostId = "0".repeat(64);
-  const res = await fetch(`http://127.0.0.1:8771/files/${ghostId}.png`);
+  const res = await fetch(`${BASE}/files/${ghostId}.png`);
   expect(res.status).toBe(404);
 
-  const body = await res.json() as Record<string, unknown>;
+  const body: Record<string, unknown> = await res.json();
   expect(body["error"]).toBe("not_found");
 
   // NEGATIVE CONTROL: assert 200 → must fail
@@ -141,10 +147,10 @@ test("health endpoint returns { status: ok, service: content-service }", async (
   // When I GET /health
   // Then I receive { status: "ok", service: "content-service" }
 
-  const res = await fetch("http://127.0.0.1:8771/health");
+  const res = await fetch(`${BASE}/health`);
   expect(res.status).toBe(200);
 
-  const body = await res.json() as Record<string, unknown>;
+  const body: Record<string, unknown> = await res.json();
   expect(body["status"]).toBe("ok");
   expect(body["service"]).toBe("content-service");
 
@@ -165,7 +171,7 @@ test("OpenAPI spec endpoint returns YAML starting with openapi: 3.", async () =>
   // When I GET /openapi.yaml
   // Then I receive application/yaml with a valid OpenAPI 3.x header
 
-  const res = await fetch("http://127.0.0.1:8771/openapi.yaml");
+  const res = await fetch(`${BASE}/openapi.yaml`);
   expect(res.status).toBe(200);
 
   const contentType = res.headers.get("content-type") ?? "";

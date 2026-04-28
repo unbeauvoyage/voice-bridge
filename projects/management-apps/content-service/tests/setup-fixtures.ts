@@ -1,5 +1,4 @@
 import { test as base } from "@playwright/test";
-import { readdirSync } from "node:fs";
 
 /**
  * Extends the base Playwright test with a `contentDir` fixture that exposes
@@ -11,7 +10,7 @@ import { readdirSync } from "node:fs";
  */
 export const test = base.extend<{ contentDir: string }>({
   contentDir: async ({ }, use) => {
-    const dir = test.info().config.metadata["contentDir"] as string | undefined;
+    const dir = test.info().config.metadata["contentDir"];
     if (typeof dir !== "string") {
       throw new Error("contentDir not set in playwright.config.ts metadata");
     }
@@ -20,11 +19,3 @@ export const test = base.extend<{ contentDir: string }>({
 });
 
 export { expect } from "@playwright/test";
-
-export function listContentFiles(dir: string): string[] {
-  try {
-    return readdirSync(dir);
-  } catch {
-    return [];
-  }
-}
