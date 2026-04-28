@@ -1,0 +1,50 @@
+<Project>
+
+  <!--
+    Central Package Management (CPM) for the management-apps repo.
+
+    All NuGet package versions live HERE. Per-csproj <PackageReference> entries
+    must NOT carry Version="…" attributes — they look up the version from this
+    file. This prevents version drift across the four backend projects + the
+    Aspire infrastructure projects (AppHost, ServiceDefaults).
+
+    Adding a new package: add a <PackageVersion Include="X" Version="Y" /> here,
+    then reference from the consuming .csproj as <PackageReference Include="X" />
+    (no Version attribute).
+
+    Bumping a version: edit ONE line here. Every consumer picks it up on next
+    restore.
+  -->
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup Label="Aspire">
+    <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.2.4" />
+  </ItemGroup>
+
+  <ItemGroup Label="Microsoft.Extensions">
+    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.5.0" />
+    <PackageVersion Include="Microsoft.Extensions.ServiceDiscovery" Version="10.5.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="OpenTelemetry">
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.15.3" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.15.3" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.15.2" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.15.1" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.15.1" />
+  </ItemGroup>
+
+  <ItemGroup Label="Analyzers (PrivateAssets=all in consuming csprojs — no runtime impact)">
+    <PackageVersion Include="Roslynator.Analyzers" Version="4.13.1" />
+    <PackageVersion Include="Roslynator.Formatting.Analyzers" Version="4.13.1" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="3.3.4" />
+    <PackageVersion Include="Microsoft.VisualStudio.Threading.Analyzers" Version="17.13.61" />
+    <PackageVersion Include="Meziantou.Analyzer" Version="2.0.211" />
+    <PackageVersion Include="SecurityCodeScan.VS2019" Version="5.6.7" />
+  </ItemGroup>
+
+</Project>

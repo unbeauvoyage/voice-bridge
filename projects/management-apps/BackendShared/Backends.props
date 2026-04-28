@@ -2,16 +2,18 @@
   <!--
     Strict shared properties for the .NET backend experiment (MessageRelay,
     VoiceBridge, ContentService, BackendShared). Imported explicitly by each
-    .csproj — NOT propagated via Directory.Build.props so that AppHost and
-    ServiceDefaults remain unaffected.
+    backend .csproj — NOT propagated via Directory.Build.props so AppHost and
+    ServiceDefaults remain unaffected by the strict regime.
 
     Strictness analogue to the TS side (strict tsconfig + ESLint banning
-    any/!/as): every warning is an error, the maximum analyzer level is on,
-    code style is enforced in build, nullability is enabled and every
-    nullable warning is an error.
+    any/!/as): every warning is an error, every CA + IDE analyzer enabled,
+    code style enforced in build, every nullable warning is an error,
+    third-party analyzers (Roslynator, Meziantou, BannedApi, VS Threading,
+    SecurityCodeScan) all wired and tuned.
 
-    To extend a Backend service later, modify this file ONCE — every project
-    that imports it picks up the change.
+    Versions live in /management-apps/Directory.Packages.props (Central
+    Package Management). PackageReference entries here MUST NOT carry
+    Version attributes.
   -->
 
   <PropertyGroup>
@@ -25,40 +27,102 @@
     <!-- File-scoped namespaces; modern; less indentation. -->
     <CSharpEnableFileScopedNamespaces>true</CSharpEnableFileScopedNamespaces>
 
-    <!-- Every warning is an error. No suppression list. -->
+    <!-- Every warning is an error. CS1591 (missing XML doc) is the only
+         silenced warning — backend services are not consumer libraries, so
+         documentation-as-policy is cargo-cult. CS1574/1580/1581/1584 (broken
+         cref) stay at error so existing docs don't rot. -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <WarningsAsErrors />
-    <WarningsNotAsErrors />
-    <NoWarn />
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
 
-    <!-- Maximum analyzer enforcement. AnalysisMode=All enables every CA rule;
-         AnalysisLevel=latest-all promotes all of them to warnings (then to
-         errors via TreatWarningsAsErrors above). -->
+    <!-- Maximum analyzer enforcement. AnalysisLevel=latest-all + AnalysisMode=All
+         enables every CA + IDE rule shipped with the .NET SDK; TreatWarningsAsErrors
+         then promotes them to errors. .editorconfig adjusts severities for
+         specific rules (silencing inappropriate ones, promoting others to error
+         even when their default is warning/info). -->
     <AnalysisLevel>latest-all</AnalysisLevel>
     <AnalysisMode>All</AnalysisMode>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
 
-    <!-- Code style violations (.editorconfig) fail the build. -->
+    <!-- .editorconfig style violations fail the build. -->
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
 
-    <!-- Generate XML doc warnings; missing-doc warnings are then errors via TWAE. -->
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Stricter analyzer-author rules; helpful if BackendShared ever ships a
+         custom analyzer (e.g. Task #25 — null-forgiving `!` ban). -->
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
 
-    <!-- CS1591: missing doc comment for public type/member. Demoted from error
-         because we don't currently demand XML docs on every public symbol;
-         doc-quality is a separate concern from compiler-level correctness. -->
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- Source-generated configuration binding. Catches IConfiguration.Get<T>()
+         binding errors at compile and removes runtime reflection surprise. -->
+    <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
+
+    <!-- Backend services don't need locale data. InvariantGlobalization=true
+         loads no ICU/NLS data, rejects culture-dependent string ops at startup,
+         and prevents prod-vs-dev divergence when CurrentCulture differs. The
+         BannedSymbols ban on CurrentCulture (in BannedSymbols.txt) is a
+         half-measure without this flag. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <!-- Generate XML doc warnings; missing-doc warnings are demoted via NoWarn
+         above. Keeping the doc generation on lets CS1574/CS1580/CS1581/CS1584
+         (broken cref) fire as errors so existing docs don't silently rot. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
 
     <!-- Deterministic builds for reproducibility. -->
     <Deterministic>true</Deterministic>
 
-    <!-- Treat unused references as errors. -->
     <ErrorOnDuplicatePublishOutputFiles>true</ErrorOnDuplicatePublishOutputFiles>
+
+    <!-- Lock-file restore. Generates packages.lock.json per project; CI restores
+         in locked mode (fails fast if lockfile is stale). Local dev restores
+         normally so lockfile updates flow naturally. Supply-chain hardening:
+         transitive deps are pinned, cannot drift between machines. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(ContinuousIntegrationBuild)' == 'true'">true</RestoreLockedMode>
   </PropertyGroup>
+
+  <!--
+    Analyzer packages. PrivateAssets="all" so they flow into consumers as
+    analyzers (via the analyzer asset selector) but DO NOT appear as runtime
+    package dependencies. Versions come from Directory.Packages.props (CPM).
+
+    What each catches:
+    - Roslynator + Roslynator.Formatting: RCS-prefixed rules, including RCS1206
+      (avoid dangerous `as` cast — the C# analogue of the TS ban on `as`).
+    - Microsoft.CodeAnalysis.BannedApiAnalyzers: BannedSymbols.txt — compile-time
+      ban on Console.WriteLine, DateTime.Now, Thread.Sleep, sync File.* IO,
+      MD5/SHA1, etc. See BannedSymbols.txt for the full list.
+    - Microsoft.VisualStudio.Threading.Analyzers: VSTHRD-prefixed rules. Catches
+      sync-over-async (Task.Result, Task.Wait), async void, missing await — all
+      CVE-class for ASP.NET Core services.
+    - Meziantou.Analyzer: MA0xxx rules. Particularly MA0040 (cancel-token
+      forwarding), MA0042 (no blocking calls in async), MA0011 (IFormatProvider).
+    - SecurityCodeScan: backends parse JSON, will hit databases/file IO; catches
+      XSS/SQLi/insecure-deserialization patterns the .NET SDK doesn't.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Roslynator.Analyzers" PrivateAssets="all" />
+    <PackageReference Include="Roslynator.Formatting.Analyzers" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.VisualStudio.Threading.Analyzers" PrivateAssets="all" />
+    <PackageReference Include="Meziantou.Analyzer" PrivateAssets="all" />
+    <PackageReference Include="SecurityCodeScan.VS2019" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!--
+    BannedSymbols.txt is read by Microsoft.CodeAnalysis.BannedApiAnalyzers.
+    Lives next to Backends.props in BackendShared/. Visible="false" hides it
+    from project explorers; it's policy, not a source file.
+  -->
+  <ItemGroup>
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.txt" Visible="false" />
+  </ItemGroup>
 
   <!--
     Build-time bans the .NET SDK + analyzer ecosystem can't express
     (today: `dynamic` keyword). Lives in a sibling .targets file so every
     project picks it up via a single Backends.props import.
+
+    Followup: Task #25 — replace the grep target with a real custom Roslyn
+    analyzer in BackendShared.Analyzers (LSP-grade, IDE squiggles).
   -->
   <Import Project="Backends.targets" />
 

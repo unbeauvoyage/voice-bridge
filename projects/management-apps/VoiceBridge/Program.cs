@@ -11,4 +11,4 @@ app.MapDefaultEndpoints();
 // line per feature: app.MapComposeFeature(); app.MapTranscribeFeature(); etc.
 // See CLAUDE.md for the vertical-slice convention.
 
-app.Run();
+await app.RunAsync();
