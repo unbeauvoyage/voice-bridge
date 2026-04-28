@@ -21,6 +21,16 @@ You are the **team-lead** for voice-bridge2. Spawn coders for implementation; st
 - Hand-rolled spec at `docs/openapi.yaml`. Add to it whenever an endpoint changes.
 - ceo-app generates its client from this spec via hey-api. **No hand-rolled Zod alongside.** OpenAPI is the contract; types and react-query hooks are derived.
 
+## Branch policy (voice-bridge2-specific exception)
+`main` is the canonical CEO branch for voice-bridge2 today. PRs target `main` (PR #2 was the established precedent).
+
+`origin/dev` exists as a divergent legacy archive — it carries the full pre-management-apps lineage of voice-bridge v1 + v2 development and shares **no common ancestor** with `origin/main`. Treat it as a read-only artifact:
+- Do not delete origin/dev.
+- Do not retarget PRs to origin/dev.
+- Do not force-push origin/dev (no `dev := main` rewrite without explicit CEO authorization).
+
+The standard agency `dev`-branch convention from `~/environment/projects/management-apps/CLAUDE.md` is **deferred** for voice-bridge2 until the legacy lineage is properly handled (likely path: rename origin/dev → origin/legacy-history-archive, then create new dev from main — but that's a CEO-authorized op).
+
 ## Compose library shape (portability constraint)
 `server/compose/` is a self-contained library — orchestrator + injected clients. The route handler is parse-and-respond only. This makes /compose liftable into the relay later (or portable to .NET) by copying the directory and swapping the relay client for an in-process call. See proposal § "Folder shape (portability constraint)".
 
