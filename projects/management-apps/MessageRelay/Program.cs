@@ -2,6 +2,7 @@ using BackendShared;
 
 using MessageRelay.Features.Dashboard;
 using MessageRelay.Features.Send;
+using MessageRelay.Middleware;
 using MessageRelay.Telemetry;
 
 using OpenTelemetry.Metrics;
@@ -31,6 +32,7 @@ builder.Services.ConfigureOpenTelemetryMeterProvider(meter =>
 
 WebApplication app = builder.Build();
 app.UseWebSockets();
+app.UseRelaySecretGuard();
 app.MapDefaultEndpoints();
 
 // Prometheus text-format exposition at GET /metrics — parity with the TS
