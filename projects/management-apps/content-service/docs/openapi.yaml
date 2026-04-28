@@ -1,0 +1,212 @@
+openapi: 3.1.0
+info:
+  title: content-service
+  version: 0.1.0
+  description: |
+    File-content store. Accepts binary uploads (clipboard images, screenshots,
+    future video frames) and returns content-hashed URLs that callers embed
+    in messages or other artifacts. Serves the bytes back via GET /files/:id.
+
+    Content-hashed filenames give free deduplication and immutable cache
+    semantics — the same bytes produce the same URL, ever.
+
+    Not a queue, not a relay, not a message store. Just file content.
+
+servers:
+  - url: http://127.0.0.1:8770
+    description: Local development (Aspire-orchestrated)
+
+paths:
+  /health:
+    get:
+      operationId: health
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthOk'
+
+  /version:
+    get:
+      operationId: version
+      summary: Service identity
+      responses:
+        '200':
+          description: Service identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionInfo'
+
+  /upload:
+    post:
+      operationId: uploadFile
+      summary: Upload a binary file; receive content-hashed URL
+      description: |
+        Multipart upload with a single `file` field. The server computes
+        sha256, stores the bytes at <STORAGE_ROOT>/<sha256>.<ext>, and
+        returns the absolute URL the file is served from.
+
+        Limits: 25 MB max. Allowed mimes: image/png, image/jpeg, image/webp, image/gif.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The binary file to upload
+      responses:
+        '200':
+          description: Upload accepted and stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResult'
+        '400':
+          description: Missing file or empty payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadError'
+        '413':
+          description: File exceeds 25 MB limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadError'
+        '415':
+          description: Mime type not in the allow-list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadError'
+
+  /files/{idWithExt}:
+    get:
+      operationId: getFile
+      summary: Fetch stored bytes by content-hash id
+      parameters:
+        - in: path
+          name: idWithExt
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{64}\.(png|jpg|webp|gif)$'
+          description: sha256 hex digest plus extension
+      responses:
+        '200':
+          description: File bytes with the original Content-Type
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+            image/gif:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: 'public, max-age=31536000, immutable'
+        '404':
+          description: No file with that id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileNotFound'
+
+components:
+  schemas:
+    HealthOk:
+      type: object
+      required: [status, service]
+      properties:
+        status:
+          type: string
+          const: ok
+        service:
+          type: string
+          const: content-service
+
+    VersionInfo:
+      type: object
+      required: [name, version]
+      properties:
+        name:
+          type: string
+          const: content-service
+        version:
+          type: string
+          description: SemVer
+
+    UploadResult:
+      type: object
+      required: [id, url, mime, bytes, sha256]
+      properties:
+        id:
+          type: string
+          description: Same value as sha256
+          pattern: '^[0-9a-f]{64}$'
+        url:
+          type: string
+          format: uri
+          description: Absolute URL where the file is served from
+        mime:
+          type: string
+          enum: [image/png, image/jpeg, image/webp, image/gif]
+        bytes:
+          type: integer
+          minimum: 1
+          description: Size of the stored file in bytes
+        sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: sha256 of the stored bytes
+
+    UploadError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum:
+            - no_file
+            - empty_file
+            - too_large
+            - unsupported_media_type
+        message:
+          type: string
+        maxBytes:
+          type: integer
+          description: Present when error is `too_large`
+        allowed:
+          type: array
+          description: Present when error is `unsupported_media_type`
+          items:
+            type: string
+
+    FileNotFound:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          const: not_found

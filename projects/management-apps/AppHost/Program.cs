@@ -54,9 +54,28 @@ var whisper = builder.AddExecutable(
     .WithExternalHttpEndpoints()
     .WithHttpHealthCheck("/");
 
+// content-service (Bun + Fastify). File-content store for ceo-app — clipboard images,
+// screenshots. Storage at ~/.claude/content/ with sha256 content-hash filenames.
+// Reads PORT env. isProxied:false binds 8770 directly so the URL handed to ceo-app
+// matches the URL the browser will hit (no DCP proxy hop on the upload return URL).
+// Declared before voice-bridge-server so the variable is in scope for WaitFor/WithEnvironment.
+var contentService = builder.AddExecutable(
+        "content-service",
+        "bun",
+        workingDirectory: "../content-service",
+        "--hot", "run", "src/index.ts")
+    .WithHttpEndpoint(port: 8770, name: "http", env: "PORT", isProxied: false)
+    .WithExternalHttpEndpoints()
+    .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint)
+    .WithEnvironment("OTEL_EXPORTER_OTLP_HEADERS", otlpHeaders)
+    .WithEnvironment("OTEL_SERVICE_NAME", "content-service")
+    .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+    .WithHttpHealthCheck("/health");
+
 // voice-bridge2 server (Bun). Reads PORT from env, so env-injection works.
 // --hot enables Bun hot-module-reload for dev-time iteration.
 // WaitFor(whisper) ensures whisper-server is bound before voice-bridge accepts audio.
+// WaitFor(contentService) + CONTENT_SERVICE_URL wires the content store for attachment uploads.
 var voiceBridgeServer = builder.AddExecutable(
         "voice-bridge-server",
         "bun",
@@ -66,6 +85,8 @@ var voiceBridgeServer = builder.AddExecutable(
     .WithExternalHttpEndpoints()
     .WaitFor(relay)
     .WaitFor(whisper)
+    .WaitFor(contentService)
+    .WithEnvironment("CONTENT_SERVICE_URL", contentService.GetEndpoint("http"))
     .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint)
     .WithEnvironment("OTEL_EXPORTER_OTLP_HEADERS", otlpHeaders)
     .WithEnvironment("OTEL_SERVICE_NAME", "voice-bridge-server")
@@ -111,10 +132,14 @@ builder.AddExecutable(
     .WithHttpEndpoint(port: 5175, name: "http", isProxied: false)
     .WithExternalHttpEndpoints()
     .WaitFor(relay)
+    .WaitFor(contentService)
+    .WaitFor(voiceBridgeServer)
     .WithEnvironment("OTEL_EXPORTER_OTLP_ENDPOINT", otlpEndpoint)
     .WithEnvironment("OTEL_EXPORTER_OTLP_HEADERS", otlpHeaders)
     .WithEnvironment("OTEL_SERVICE_NAME", "ceo-app")
     .WithEnvironment("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+    .WithEnvironment("CONTENT_SERVICE_URL", contentService.GetEndpoint("http"))
+    .WithEnvironment("VOICE_BRIDGE_URL", voiceBridgeServer.GetEndpoint("http"))
     .WithHttpHealthCheck("/");
 
 builder.Build().Run();
