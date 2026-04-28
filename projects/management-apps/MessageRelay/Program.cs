@@ -1,7 +1,15 @@
 using BackendShared;
 
+using MessageRelay.Features.Agents;
+using MessageRelay.Features.Channels;
 using MessageRelay.Features.Dashboard;
+using MessageRelay.Features.Events;
+using MessageRelay.Features.Health;
+using MessageRelay.Features.History;
+using MessageRelay.Features.Raw;
 using MessageRelay.Features.Send;
+using MessageRelay.Features.Status;
+using MessageRelay.Features.Version;
 using MessageRelay.Middleware;
 using MessageRelay.Telemetry;
 
@@ -33,7 +41,10 @@ builder.Services.ConfigureOpenTelemetryMeterProvider(meter =>
 WebApplication app = builder.Build();
 app.UseWebSockets();
 app.UseRelaySecretGuard();
-app.MapDefaultEndpoints();
+
+// NOTE: MapDefaultEndpoints() is intentionally omitted — its /health shape
+// (plain-text ASP.NET Health Checks) conflicts with the relay-specific JSON
+// shape { ok, relay, port, host, clients, uptime }. HealthEndpoint owns /health.
 
 // Prometheus text-format exposition at GET /metrics — parity with the TS
 // sibling's `relay_sends_total` / `relay_queue_depth_total` metrics surface.
@@ -42,6 +53,14 @@ app.MapPrometheusScrapingEndpoint();
 // Endpoint registrations live in Features/<FeatureName>/<FeatureName>Endpoint.cs
 // as static extension methods on IEndpointRouteBuilder. Wire them here, one
 // line per feature. See CLAUDE.md for the vertical-slice convention.
+app.MapHealthFeature();
+app.MapStatusFeature();
+app.MapAgentsFeature();
+app.MapChannelsFeature();
+app.MapVersionFeature();
+app.MapHistoryFeature();
+app.MapRawFeature();
+app.MapEventsFeature();
 app.MapDashboardFeature();
 app.MapSendFeature();
 

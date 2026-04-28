@@ -17,4 +17,7 @@ internal interface IDashboardBroadcaster
 
     /// <summary>Broadcast a <c>DashboardMessageFrame</c> (<c>{ type:"message", data:&lt;message&gt; }</c>) to every subscriber.</summary>
     public Task BroadcastMessageAsync(StoredMessage message, CancellationToken cancellationToken);
+
+    /// <summary>Current count of connected WebSocket subscribers.</summary>
+    public int ClientCount { get; }
 }
