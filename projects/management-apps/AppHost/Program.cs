@@ -145,14 +145,22 @@ builder.AddExecutable(
 // PascalCase project siblings (MessageRelay, VoiceBridge, ContentService) under
 // management-apps/. Strive for feature parity with TS; TS is canonical.
 //
-// AddProject<>() + WithExplicitStart() means each resource is visible in the
-// Aspire dashboard but NOT started automatically — ceo-app's settings toggle
-// (Task #13) starts the .NET sibling on demand and flips its base URL via
-// the *_TS / *_DOTNET env-var pair below.
+// AddProject<>() registers each project as an auto-started resource. ceo-app's
+// settings toggle (Task #13) flips its base URL between the TS and .NET sibling
+// via the *_TS / *_DOTNET env-var pair below; both stacks are running so the
+// flip is instant from the user's perspective.
 //
-// Ports come from each project's Properties/launchSettings.json — Aspire
-// auto-discovers them as the endpoint named "http". MessageRelay :8768,
-// VoiceBridge :3031, ContentService :8771 (all TS-port +1).
+// Ports are pinned in each project's Properties/launchSettings.json so that
+// ceo-app's BACKEND_URL_DOTNET defaults match without an AppHost-injected
+// override. Aspire auto-discovers the "http" endpoint from launchSettings.
+// MessageRelay :8768, ContentService :8771, VoiceBridge :8773 — all in the
+// 877x band. The TS siblings keep their historic ports (8767, 8770, 3030).
+//
+// Auto-start: the .NET stack starts alongside the TS stack on `dotnet run`
+// of the AppHost so the CEO can flip the ceo-app backend toggle at runtime
+// without first manually starting resources from the dashboard. (Earlier
+// design used WithExplicitStart() for opt-in; CEO 2026-04-29 directive is
+// that the .NET stack must always be running for the toggle to be useful.)
 //
 // Dependency graph mirrors the TS side: voice-bridge-dotnet WaitFor whisper,
 // relay-dotnet, content-service-dotnet — keeps dashboard topology parallel.
@@ -160,16 +168,13 @@ builder.AddExecutable(
 // overriding env vars manually; the default wiring is fully-parallel.
 
 var relayDotnet = builder.AddProject<Projects.MessageRelay>("relay-dotnet")
-    .WithExternalHttpEndpoints()
-    .WithExplicitStart();
+    .WithExternalHttpEndpoints();
 
 var contentServiceDotnet = builder.AddProject<Projects.ContentService>("content-service-dotnet")
-    .WithExternalHttpEndpoints()
-    .WithExplicitStart();
+    .WithExternalHttpEndpoints();
 
 var voiceBridgeDotnet = builder.AddProject<Projects.VoiceBridge>("voice-bridge-dotnet")
     .WithExternalHttpEndpoints()
-    .WithExplicitStart()
     .WaitFor(relayDotnet)
     .WaitFor(whisper)
     .WaitFor(contentServiceDotnet)
