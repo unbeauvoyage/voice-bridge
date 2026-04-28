@@ -23,6 +23,13 @@
 
   <ItemGroup Label="Aspire">
     <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.2.4" />
+    <PackageVersion Include="Aspire.Hosting.Testing" Version="13.2.4" />
+  </ItemGroup>
+
+  <ItemGroup Label="Test framework">
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.5.1" />
+    <PackageVersion Include="xunit.v3" Version="3.2.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
   </ItemGroup>
 
   <ItemGroup Label="Microsoft.Extensions">

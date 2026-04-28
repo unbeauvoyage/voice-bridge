@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Sdk Name="Aspire.AppHost.Sdk" Version="13.2.4" />
+
+  <!--
+    Test-only AppHost. Spins up ONLY voice-bridge-dotnet (no whisper, no
+    relay, no content-service, no ceo-app, no Bun/Python/Electron). The
+    fixture forwards RELAY_URL, WHISPER_URL, CONTENT_SERVICE_URL via
+    builder.Configuration so each test class can choose where /compose's
+    upstream calls go (TS peers today; .NET peers later via env-var flip).
+
+    Mirrors ContentService/tests/ContentService.Tests.AppHost/.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsAspireHost>true</IsAspireHost>
+    <RootNamespace>VoiceBridge.Tests.AppHost</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.AppHost" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\VoiceBridge.csproj" IsAspireProjectResource="true" />
+  </ItemGroup>
+
+</Project>
