@@ -94,6 +94,23 @@ async function handleRequest(req: Request): Promise<Response> {
     return handleHealth()
   }
 
+  // ── OpenAPI spec — served at runtime so consumers (hey-api in ceo-app) ────
+  // can pull it via URL. File lives at docs/openapi.yaml.
+  if (req.method === 'GET' && url.pathname === '/openapi.yaml') {
+    try {
+      const yaml = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'docs', 'openapi.yaml'), 'utf8')
+      return new Response(yaml, {
+        status: 200,
+        headers: { 'Content-Type': 'application/yaml; charset=utf-8' }
+      })
+    } catch {
+      return new Response(JSON.stringify({ error: 'spec_unavailable' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+  }
+
   // ── Mobile UI ─────────────────────────────────────────────────────────────
   if (req.method === 'GET' && url.pathname === '/') {
     const indexCtx: IndexHtmlContext = {
