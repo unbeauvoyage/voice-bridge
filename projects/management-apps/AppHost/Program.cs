@@ -47,9 +47,23 @@ var relayTs = builder.AddExecutable(
     .WithHttpHealthCheck("/health");
 
 // whisper-server (whisper.cpp). Binds 127.0.0.1:8766 directly; isProxied: false
-// prevents DCP from allocating a second port — the process owns 8766. No
-// /health endpoint — health check polls "/" which returns 200 when ready.
-// Shared dependency: both voice-bridge-ts and voice-bridge-dotnet wait for it.
+// prevents DCP from allocating a second port — the process owns 8766.
+//
+// Health check: GET /health returns {"status":"ok"} (200) once the model is
+// loaded, {"status":"loading model"} (503) while still loading. ggml-medium.bin
+// takes 30-60 s on first start — WaitFor(whisper) in downstream resources waits
+// for this 200 before starting, so voice-bridge-{ts,dotnet} never receive audio
+// before whisper is inference-ready. Do NOT change this to "/" — the root path
+// responds as soon as the HTTP server binds (before the model loads), which
+// gives a false-healthy signal.
+//
+// WHISPER_URL path note: AppHost injects the BASE URL only (e.g.
+// "http://localhost:8766" — no trailing path). whisper.cpp serves inference at
+// POST /inference and health at GET /health. Any client that receives
+// WHISPER_URL MUST append the path explicitly; do not POST to BaseAddress.
+// voice-bridge-ts does NOT receive WHISPER_URL from AppHost — it reads its own
+// config.ts default (which already includes the path). voice-bridge-dotnet
+// receives WHISPER_URL below; see WhisperClient.cs for the path append.
 var whisper = builder.AddExecutable(
         "whisper-server",
         "whisper-server",
@@ -61,7 +75,7 @@ var whisper = builder.AddExecutable(
         "--translate")
     .WithHttpEndpoint(port: 8766, name: "http", isProxied: false)
     .WithExternalHttpEndpoints()
-    .WithHttpHealthCheck("/");
+    .WithHttpHealthCheck("/health");
 
 // content-service-ts (Bun + Fastify). File-content store for ceo-app — clipboard
 // images, screenshots. Storage at ~/.claude/content/ with sha256 content-hash
@@ -160,6 +174,8 @@ var voiceBridgeDotnet = builder.AddProject<Projects.VoiceBridge>("voice-bridge-d
     .WaitFor(whisper)
     .WaitFor(contentServiceDotnet)
     .WithEnvironment("RELAY_URL", relayDotnet.GetEndpoint("http"))
+    // Base URL only — no path. WhisperClient must POST to /inference explicitly.
+    // See whisper block comment above for the full WHISPER_URL path note.
     .WithEnvironment("WHISPER_URL", whisper.GetEndpoint("http"))
     .WithEnvironment("CONTENT_SERVICE_URL", contentServiceDotnet.GetEndpoint("http"));
 
