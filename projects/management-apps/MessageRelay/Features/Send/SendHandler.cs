@@ -50,13 +50,16 @@ internal static partial class SendHandler
             return ValidationError(activity, "Missing request body");
         }
 
-        IResult? validationFailure = ValidateAndTag(request, activity);
+        // Resolve the wire-default for `type` once and thread it through —
+        // both the activity-tag step and the enum-validity check need it.
+        string type = request.Type ?? MessageType.Message;
+
+        IResult? validationFailure = ValidateAndTag(request, type, activity);
         if (validationFailure is not null)
         {
             return validationFailure;
         }
 
-        string type = request.Type ?? MessageType.Message;
         string id = Guid.NewGuid().ToString();
         string ts = timeProvider.GetUtcNow().ToString("o", CultureInfo.InvariantCulture);
 
@@ -85,11 +88,11 @@ internal static partial class SendHandler
             Error: "agent delivery not yet implemented in dotnet sibling"));
     }
 
-    private static IResult? ValidateAndTag(SendRequest request, Activity? activity)
+    private static IResult? ValidateAndTag(SendRequest request, string type, Activity? activity)
     {
         activity?.SetTag("relay.from", request.From);
         activity?.SetTag("relay.to", request.To);
-        activity?.SetTag("relay.type", request.Type ?? MessageType.Message);
+        activity?.SetTag("relay.type", type);
 
         if (!AgentName.IsValid(request.From))
         {
@@ -103,7 +106,6 @@ internal static partial class SendHandler
         {
             return ValidationError(activity, "Cannot send to self");
         }
-        string type = request.Type ?? MessageType.Message;
         if (!MessageType.IsValid(type))
         {
             return ValidationError(activity, $"Invalid type: {type}");
