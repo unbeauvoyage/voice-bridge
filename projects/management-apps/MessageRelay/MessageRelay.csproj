@@ -41,4 +41,16 @@
     <InternalsVisibleTo Include="MessageRelay.StoryTests" />
   </ItemGroup>
 
+  <!--
+    Serve the byte-identical TS openapi.yaml at GET /openapi.yaml. The TS
+    sibling is canonical on the wire contract; we link the same file into
+    the build output so spec drift is impossible — there is one source of
+    truth, owned by message-relay/. CopyToOutputDirectory deposits it at
+    $(OutDir)/docs/openapi.yaml, which OpenApiEndpoint resolves via
+    AppContext.BaseDirectory.
+  -->
+  <ItemGroup>
+    <Content Include="..\message-relay\docs\openapi.yaml" Link="docs\openapi.yaml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
