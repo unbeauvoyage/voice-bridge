@@ -30,11 +30,20 @@ namespace BackendShared;
 public static class BackendDefaults
 {
     /// <summary>
+    /// Named CORS policy registered by <see cref="AddBackendDefaults"/>. Each
+    /// service's <c>Program.cs</c> activates it via
+    /// <c>app.UseCors(BackendDefaults.CorsPolicyName)</c> after build, before
+    /// any <c>MapXxxFeature()</c> call.
+    /// </summary>
+    public const string CorsPolicyName = "ceo-app";
+
+    /// <summary>
     /// Calls <c>builder.AddServiceDefaults()</c> (Aspire OTel + health + resilience
     /// + service discovery) and adds:
     /// <list type="bullet">
     ///   <item>System.Text.Json camelCase property naming + strict deserialization</item>
     ///   <item>RFC 9457 ProblemDetails for error responses</item>
+    ///   <item>Named CORS policy <see cref="CorsPolicyName"/> permitting ceo-app's dev origin</item>
     /// </list>
     /// Call once from <c>Program.cs</c> before <c>builder.Build()</c>.
     /// </summary>
@@ -57,6 +66,20 @@ public static class BackendDefaults
         });
 
         builder.Services.AddProblemDetails();
+
+        // ceo-app's browser bundle (served by Vite at :5175) calls these backends
+        // cross-origin. Without CORS the preflight OPTIONS returns 405 and every
+        // GET/POST fails with "Failed to fetch" — breaking the runtime backend
+        // toggle. Mirrors the TS sibling's @fastify/cors config (allow ceo-app
+        // origin + the specific request headers we use, allow credentials).
+        builder.Services.AddCors(options =>
+            options.AddPolicy(CorsPolicyName, policy => policy
+                .WithOrigins(
+                    "http://localhost:5175",
+                    "http://127.0.0.1:5175")
+                .WithMethods("GET", "POST", "OPTIONS")
+                .WithHeaders("Content-Type", "X-Relay-Secret", "traceparent", "tracestate")
+                .AllowCredentials()));
 
         return builder;
     }
