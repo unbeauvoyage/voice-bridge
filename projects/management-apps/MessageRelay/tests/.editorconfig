@@ -1,0 +1,19 @@
+# Test-project–scoped overrides on top of the repo-root strict regime.
+# Each suppression below names the production rule that legitimately does not
+# apply to user-story test code.
+
+[*.cs]
+
+# CA1515 — make types internal: test fixtures + test classes are public so
+# xunit's discovery + WebApplicationFactory<TEntryPoint> can reach them.
+dotnet_diagnostic.CA1515.severity = none
+
+# CA1812 — uninstantiated internal class: JSON-DTO records used only in
+# Deserialize<T> calls are instantiated via reflection, which the analyzer
+# cannot observe.
+dotnet_diagnostic.CA1812.severity = none
+
+# IDE0130 — namespace must match folder: tests use the lowercase
+# `tests/stories/<feature>/` layout per `~/environment/CLAUDE.md` (one
+# convention shared with the TypeScript siblings).
+dotnet_diagnostic.IDE0130.severity = none
