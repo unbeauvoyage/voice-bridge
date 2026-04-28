@@ -55,4 +55,11 @@
     <ErrorOnDuplicatePublishOutputFiles>true</ErrorOnDuplicatePublishOutputFiles>
   </PropertyGroup>
 
+  <!--
+    Build-time bans the .NET SDK + analyzer ecosystem can't express
+    (today: `dynamic` keyword). Lives in a sibling .targets file so every
+    project picks it up via a single Backends.props import.
+  -->
+  <Import Project="Backends.targets" />
+
 </Project>

@@ -1,0 +1,50 @@
+<Project>
+  <!--
+    Build-time bans the .NET SDK + analyzer ecosystem can't express.
+
+    For symbol-level bans (Console.WriteLine, DateTime.Now, Task.Result, ...)
+    use Microsoft.CodeAnalysis.BannedApiAnalyzers + BannedSymbols.txt — those
+    are referenced in Backends.props and DO have a real analyzer.
+
+    What lives HERE is the residual: keyword-level bans that no shipping
+    analyzer flags. Today: the `dynamic` keyword (TS-ban-on-`any` analogue).
+
+    Imported by Backends.props so every project that imports Backends.props
+    also imports these targets — single import-chain entry point per csproj.
+
+    Platform: Unix (macOS + Linux) only. The CEO's dev machine and CI run
+    Unix; Windows support would require a different mechanism (PowerShell
+    Select-String or a RoslynCodeTaskFactory inline task) and is not on the
+    experiment timeline. The Condition below makes the target a no-op on
+    Windows rather than a build break.
+  -->
+
+  <Target Name="BanDynamicKeyword"
+          BeforeTargets="CoreCompile"
+          Condition="'$(OS)' == 'Unix'">
+    <!--
+      Recursively grep the project's .cs sources for the `dynamic` keyword.
+      Excludes obj/ and bin/ (generated code may legitimately ship `dynamic`
+      and we don't audit it).
+
+      Capture grep's output into a property so we can fail the build via the
+      <Error> task with the actual offending lines visible — easier to fix
+      than "BanDynamicKeyword failed, exit code 1".
+
+      Known false-positive: a string literal containing "dynamic" (e.g. a
+      log message or doc comment with the word as text) trips the ban. If
+      this becomes painful, narrow the regex to e.g. `\bdynamic\s+(object|var|[A-Z])`
+      to require a type-position context. Per chief-of-staff: "don't pre-optimize."
+    -->
+    <Exec Command="grep -rn '\bdynamic\b' --include='*.cs' --exclude-dir=obj --exclude-dir=bin '$(MSBuildProjectDirectory)' || true"
+          ConsoleToMSBuild="true"
+          IgnoreExitCode="true"
+          StandardOutputImportance="Low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_BanDynamicKeywordHits" />
+    </Exec>
+
+    <Error Condition="'$(_BanDynamicKeywordHits)' != ''"
+           Text="Banned: the `dynamic` keyword is not allowed in .NET backend services (analogue to TS ban on `any`). Use a concrete type or `object` + pattern matching. Offending lines:%0A$(_BanDynamicKeywordHits)" />
+  </Target>
+
+</Project>
