@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using VoiceBridge.Tests.Fixtures;
 using Xunit;
 
@@ -61,17 +62,26 @@ public sealed class SendsMultimodalMessageStory(ComposeFixture fixture)
         HttpResponseMessage response = await client.PostAsync(
             new Uri("/compose", UriKind.Relative), form, cancellationToken);
 
-        string body = await response.Content.ReadAsStringAsync(cancellationToken);
+        string responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
 
-        // Then the response is 200 OK with delivered:true and a body containing all three modalities.
+        // Then the response is 200 OK with delivered:true and a body containing
+        // all three modalities. Parse as JSON so the assertions are robust to
+        // pretty-printed dev formatting (BackendDefaults.WriteIndented = true
+        // when ASPNETCORE_ENVIRONMENT is Development).
         Assert.True(
             response.StatusCode == HttpStatusCode.OK,
-            $"Expected 200 OK from /compose; got {(int)response.StatusCode} {response.StatusCode}. Body: {body}");
+            $"Expected 200 OK from /compose; got {(int)response.StatusCode} {response.StatusCode}. Body: {responseJson}");
 
-        Assert.Contains("\"delivered\":true", body, StringComparison.Ordinal);
-        Assert.Contains($"\"to\":\"{Recipient}\"", body, StringComparison.Ordinal);
-        Assert.Contains(TextLiteral, body, StringComparison.Ordinal);
-        Assert.Contains(AttachmentMarker, body, StringComparison.Ordinal);
+        using JsonDocument doc = JsonDocument.Parse(responseJson);
+        JsonElement root = doc.RootElement;
+
+        Assert.True(root.GetProperty("delivered").GetBoolean(), "delivered must be true");
+        Assert.Equal(Recipient, root.GetProperty("to").GetString());
+
+        string? composedBody = root.GetProperty("body").GetString();
+        Assert.NotNull(composedBody);
+        Assert.Contains(TextLiteral, composedBody, StringComparison.Ordinal);
+        Assert.Contains(AttachmentMarker, composedBody, StringComparison.Ordinal);
     }
 
     private static byte[] BuildSilenceWav(int durationSeconds, int sampleRate)

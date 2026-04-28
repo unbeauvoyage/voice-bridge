@@ -56,7 +56,7 @@ internal sealed partial class WhisperClient : IWhisperClient
         try
         {
             using HttpResponseMessage response = await http.PostAsync(
-                requestUri: (Uri?)null,
+                new Uri("/inference", UriKind.Relative),
                 form,
                 cancellationToken);
 
