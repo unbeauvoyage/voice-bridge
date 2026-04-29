@@ -47,6 +47,8 @@ The standard agency `dev`-branch convention from `~/environment/projects/managem
 - **No `unknown`/`any`/`as` casts.** OpenAPI is the contract; types follow.
 - **No hand-rolled Zod** — OpenAPI is the source of truth; consumers (ceo-app) generate types via hey-api.
 - Surgical changes — don't restructure route files.
+- **Service restarts are your job, not the CEO's.** Bun `--hot` usually auto-reloads; if not, kill and restart the process yourself. Never tell the CEO to restart.
+- **Merge to dev when done.** Branch/worktree only for parallelism. The moment a task is verified (commit hook passes + story tests green), merge to main (voice-bridge2 convention) and delete the branch + worktree immediately.
 
 ## Naming caveat
 The name will outgrow itself as more CEO-input modalities land. Rename when it stops fitting (e.g. `message-bridge`, `compose-service`); not a blocker until then.
