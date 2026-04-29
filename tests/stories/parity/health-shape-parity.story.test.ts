@@ -43,6 +43,10 @@ function isHealthRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isNumber(value: unknown): value is number {
+  return typeof value === 'number';
+}
+
 // ── Story test ────────────────────────────────────────────────────────────────
 
 test(
@@ -100,10 +104,12 @@ test(
     // (after 2020-01-01 and before 2100-01-01)
     const MIN_MS = 1_577_836_800_000; // 2020-01-01
     const MAX_MS = 4_102_444_800_000; // 2100-01-01
-    expect(tsTimestamp as number).toBeGreaterThan(MIN_MS);
-    expect(tsTimestamp as number).toBeLessThan(MAX_MS);
-    expect(dotnetTimestamp as number).toBeGreaterThan(MIN_MS);
-    expect(dotnetTimestamp as number).toBeLessThan(MAX_MS);
+    if (!isNumber(tsTimestamp)) throw new Error(`ts from TS stack is not a number: ${JSON.stringify(tsTimestamp)}`);
+    if (!isNumber(dotnetTimestamp)) throw new Error(`ts from .NET stack is not a number: ${JSON.stringify(dotnetTimestamp)}`);
+    expect(tsTimestamp).toBeGreaterThan(MIN_MS);
+    expect(tsTimestamp).toBeLessThan(MAX_MS);
+    expect(dotnetTimestamp).toBeGreaterThan(MIN_MS);
+    expect(dotnetTimestamp).toBeLessThan(MAX_MS);
 
     // ── Key presence: exactly the two canonical keys must exist on BOTH stacks ─
     const requiredKeys: ReadonlyArray<string> = ['status', 'ts'];
