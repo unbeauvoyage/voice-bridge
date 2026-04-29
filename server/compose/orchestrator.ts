@@ -14,11 +14,14 @@
  * envelope types. Copy-paste this file into relay or .NET when migrating.
  */
 
+import { trace, SpanStatusCode } from '@opentelemetry/api'
 import type { ComposeEnvelope, ComposeResult, ComposedAttachment } from './envelope.ts'
 import type { IWhisperClient } from './clients/WhisperClient.ts'
 import type { IContentServiceClient } from './clients/ContentServiceClient.ts'
 import type { IRelaySendClient } from './clients/RelaySendClient.ts'
 import { TooLargeError, UnsupportedMimeError } from './clients/ContentServiceClient.ts'
+
+const tracer = trace.getTracer('voice-bridge-server')
 
 // ── Internal helpers ───────────────────────────────────────────────────────────
 
@@ -103,18 +106,24 @@ export async function composeMessage(
   const taggedPromises: Array<Promise<TaggedResult>> = []
 
   if (hasAudio) {
+    const transcribeSpan = tracer.startSpan('compose.transcribe', {
+      attributes: { 'audio.size_bytes': audio.buffer.byteLength },
+    })
     taggedPromises.push(
       deps.whisper
         .transcribe(audio.buffer, audio.mime)
-        .then(
-          (r): TaggedResult => ({
-            stage: 'transcribe',
-            transcript: r.transcript.length > 0 ? r.transcript : undefined
-          })
-        )
+        .then((r): TaggedResult => {
+          const t = r.transcript.length > 0 ? r.transcript : undefined
+          transcribeSpan.setAttribute('whisper.transcript', (t ?? '').slice(0, 200))
+          transcribeSpan.end()
+          return { stage: 'transcribe', transcript: t }
+        })
         .catch((err: unknown) => {
-          // Rethrow wrapped with stage so we can classify below.
-          throw new StageError('transcribe', err instanceof Error ? err.message : String(err))
+          const e = err instanceof Error ? err : new Error(String(err))
+          transcribeSpan.recordException(e)
+          transcribeSpan.setStatus({ code: SpanStatusCode.ERROR, message: e.message })
+          transcribeSpan.end()
+          throw new StageError('transcribe', e.message)
         })
     )
   }
@@ -122,12 +131,22 @@ export async function composeMessage(
   for (let i = 0; i < attachments.length; i++) {
     const att = attachments[i]
     if (att === undefined) continue
+    const uploadSpan = tracer.startSpan('compose.upload-attachment', {
+      attributes: { 'content.mime': att.mime, 'content.bytes': att.buffer.byteLength },
+    })
     taggedPromises.push(
       deps.contentService
         .upload(att.buffer, att.mime, att.filename)
-        .then((attachment): TaggedResult => ({ stage: 'upload', index: i, attachment }))
+        .then((attachment): TaggedResult => {
+          uploadSpan.setAttribute('content.sha256', attachment.sha256)
+          uploadSpan.end()
+          return { stage: 'upload', index: i, attachment }
+        })
         .catch((err: unknown) => {
-          // Re-throw preserving original error type for TooLargeError / UnsupportedMimeError.
+          const e = err instanceof Error ? err : new Error(String(err))
+          uploadSpan.recordException(e)
+          uploadSpan.setStatus({ code: SpanStatusCode.ERROR, message: e.message })
+          uploadSpan.end()
           throw err
         })
     )
@@ -225,16 +244,27 @@ export async function composeMessage(
   }
 
   // ── Deliver via relay ──────────────────────────────────────────────────────
-  let relayResult: { id: string; status: 'delivered' | 'queued' }
+  let relayResult: { id: string; status: 'delivered' | 'queued' } | undefined
+  let relayErr: Error | undefined
+  const deliverSpan = tracer.startSpan('compose.deliver', { attributes: { 'relay.to': to } })
   try {
     relayResult = await deps.relay.send({ from: 'ceo', to, body, type: 'message' })
+    deliverSpan.setAttribute('relay.message_id', relayResult.id)
+    deliverSpan.setAttribute('relay.status', relayResult.status)
   } catch (err) {
+    relayErr = err instanceof Error ? err : new Error(String(err))
+    deliverSpan.recordException(relayErr)
+    deliverSpan.setStatus({ code: SpanStatusCode.ERROR, message: relayErr.message })
+  } finally {
+    deliverSpan.end()
+  }
+  if (relayErr !== undefined || relayResult === undefined) {
     return {
       ok: false,
       httpStatus: 502,
       error: {
         error: 'relay_unavailable',
-        message: err instanceof Error ? err.message : String(err),
+        message: relayErr?.message ?? 'relay send returned no result',
         stage: 'deliver'
       }
     }

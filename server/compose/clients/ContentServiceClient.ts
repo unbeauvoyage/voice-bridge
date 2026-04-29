@@ -5,6 +5,7 @@
  * Returns the URL, mime, bytes, and sha256 of the stored file.
  */
 
+import { propagation, context } from '@opentelemetry/api'
 import type { ComposedAttachment } from '../envelope.ts'
 
 // ── Interface ──────────────────────────────────────────────────────────────────
@@ -62,8 +63,12 @@ export class HttpContentServiceClient implements IContentServiceClient {
     const form = new FormData()
     form.append('file', new Blob([buffer], { type: mime }), filename)
 
+    const headers: Record<string, string> = {}
+    propagation.inject(context.active(), headers)
+
     const res = await fetch(`${this.baseUrl}/upload`, {
       method: 'POST',
+      headers,
       body: form,
       signal: AbortSignal.timeout(this.timeoutMs)
     })

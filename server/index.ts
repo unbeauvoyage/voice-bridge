@@ -47,7 +47,7 @@ import { handleHealth, handleIndexHtml, type IndexHtmlContext } from './routes/m
 import { SERVER_PORT, RELAY_BASE_URL_DEFAULT } from './config.ts'
 import { logger } from './logger.ts'
 import { getTracer } from './otel.ts'
-import { SpanStatusCode } from '@opentelemetry/api'
+import { propagation, context, trace, SpanKind, SpanStatusCode } from '@opentelemetry/api'
 
 const PORT = Number(process.env['PORT'] ?? SERVER_PORT)
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '../public')
@@ -68,8 +68,7 @@ const loadLastTargetBound = (): string => loadLastTarget()
 const saveLastTargetBound = (target: string): void => saveLastTarget(target)
 const tracer = getTracer()
 
-async function handleRequest(req: Request): Promise<Response> {
-  const url = new URL(req.url)
+async function handleRequest(req: Request, url: URL): Promise<Response> {
 
   // ── Health ────────────────────────────────────────────────────────────────
   if (url.pathname === '/health') {
@@ -201,31 +200,47 @@ const server = Bun.serve({
   maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
   async fetch(req) {
     const url = new URL(req.url)
-    const span = tracer.startSpan(`${req.method} ${url.pathname}`, {
-      attributes: {
-        'http.method': req.method,
-        'http.url': req.url,
-        'http.scheme': url.protocol.replace(':', ''),
-        'net.host.name': url.hostname
+
+    // Extract W3C traceparent from incoming headers so browser/ceo-app spans link here.
+    const carrier: Record<string, string> = {}
+    req.headers.forEach((v, k) => { carrier[k] = v })
+    const parentCtx = propagation.extract(context.active(), carrier)
+
+    const span = tracer.startSpan(
+      `${req.method} ${url.pathname}`,
+      {
+        kind: SpanKind.SERVER,
+        attributes: {
+          'http.method': req.method,
+          'http.url': req.url,
+          'http.target': url.pathname,
+          'http.scheme': url.protocol.replace(':', ''),
+          'net.host.name': url.hostname,
+        },
+      },
+      parentCtx,
+    )
+
+    return context.with(trace.setSpan(parentCtx, span), async () => {
+      try {
+        const response = await handleRequest(req, url)
+        span.setAttribute('http.status_code', response.status)
+        if (response.status >= 500) {
+          span.setStatus({ code: SpanStatusCode.ERROR })
+        }
+        response.headers.set('Access-Control-Allow-Origin', '*')
+        return response
+      } catch (err) {
+        span.recordException(err instanceof Error ? err : new Error(String(err)))
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: err instanceof Error ? err.message : String(err),
+        })
+        throw err
+      } finally {
+        span.end()
       }
     })
-    try {
-      const response = await handleRequest(req)
-      span.setAttribute('http.status_code', response.status)
-      if (response.status >= 500) {
-        span.setStatus({ code: SpanStatusCode.ERROR })
-      }
-      response.headers.set('Access-Control-Allow-Origin', '*')
-      return response
-    } catch (err) {
-      span.setStatus({
-        code: SpanStatusCode.ERROR,
-        message: err instanceof Error ? err.message : String(err)
-      })
-      throw err
-    } finally {
-      span.end()
-    }
   }
 })
 

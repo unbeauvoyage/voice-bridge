@@ -43,6 +43,8 @@ function isRelaySendResponse(
   )
 }
 
+import { propagation, context } from '@opentelemetry/api'
+
 // ── HTTP implementation ────────────────────────────────────────────────────────
 
 export class HttpRelaySendClient implements IRelaySendClient {
@@ -55,9 +57,12 @@ export class HttpRelaySendClient implements IRelaySendClient {
   }
 
   async send(params: RelaySendParams): Promise<RelaySendResult> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    propagation.inject(context.active(), headers)
+
     const res = await fetch(`${this.baseUrl}/send`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(params),
       signal: AbortSignal.timeout(this.timeoutMs)
     })

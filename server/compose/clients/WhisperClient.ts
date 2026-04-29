@@ -7,6 +7,7 @@
  * Used exclusively by the compose orchestrator.
  */
 
+import { propagation, context } from '@opentelemetry/api'
 import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { writeFileSync, readFileSync, unlinkSync, mkdirSync } from 'node:fs'
@@ -117,9 +118,14 @@ export class HttpWhisperClient implements IWhisperClient {
     const bodyBuffer = new ArrayBuffer(bodyBuf.byteLength)
     new Uint8Array(bodyBuffer).set(bodyBuf)
 
+    const headers: Record<string, string> = {
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+    }
+    propagation.inject(context.active(), headers)
+
     const response = await fetch(this.url, {
       method: 'POST',
-      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      headers,
       body: bodyBuffer,
       signal: AbortSignal.timeout(this.timeoutMs)
     })
