@@ -2,16 +2,11 @@
  * voice-bridge Bun HTTP server
  *
  * Endpoints:
- *   POST /compose      — multimodal CEO message (text + audio + attachments)
- *   POST /transcribe   — legacy voice-only pipeline (pending removal)
- *   GET  /health       — liveness check
- *   GET  /openapi.yaml — served at runtime for hey-api codegen
- *   GET/POST /mic      — mic state control (Electron + wake_word.py)
- *   GET/POST /settings — daemon settings (Electron settings page)
- *   POST /target       — relay target agent selection (Electron tray + wake_word.py)
- *   GET  /agents       — relay-required agent list
- *   GET  /status       — current session state (target + mic)
- *   GET/POST /wake-word* — wake word process control
+ *   GET  /           — mobile recording UI
+ *   POST /transcribe — receives audio, transcribes via Whisper, delivers to relay
+ *   GET  /health     — liveness check
+ *   GET  /mic        — { state: "on"|"off" }
+ *   POST /mic        — { state: "on"|"off" } → set mic state
  *
  * This file is wiring-only: construct ctx, mount routes, start Bun.serve.
  * No business logic lives here — see the route files for extracted functions.
@@ -22,21 +17,24 @@ import './otel.ts' // must be first — initializes OTel SDK before any other mo
 import { readFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import { atomicWriteFile } from './atomicWriteFile.ts'
-import { join, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import { spawnSync, spawn } from 'node:child_process'
+import { listWorkspaceNames } from './cmux.ts'
 import { deliverToAgent } from './relay.ts'
 import { transcribeAudio } from './whisper.ts'
 import { llmRoute } from './llmRouter.ts'
+import { startRelayPoller } from './relay-poller.ts'
+import { drainVoiceBridgeQueue } from './queue-drain.ts'
 import { handleTranscribe, type TranscribeContext } from './routes/transcribe.ts'
-import { handleCompose } from './routes/compose.ts'
 import { type DedupEntry, hashAudioBuffer, evictStaleHashes } from './routes/dedup.ts'
 import { createWakeWordOsContext } from './wakeWordController.ts'
+import { handleMessages, type MessagesContext } from './routes/messages.ts'
 import {
   handleMic,
   isMicOn,
   setMic,
   handleMicCommand,
+  cleanStaleTtsPauseTokens,
   type MicContext
 } from './routes/mic.ts'
 import { handleStatus, type StatusContext } from './routes/status.ts'
@@ -50,13 +48,13 @@ import { handleAgents, getKnownAgents, type AgentsContext } from './routes/agent
 import { handleSettings, type SettingsContext } from './routes/settings.ts'
 import { handleWakeWord } from './routes/wakeWord.ts'
 import { handleHealth, handleIndexHtml, type IndexHtmlContext } from './routes/meta.ts'
-import { SERVER_PORT, RELAY_BASE_URL_DEFAULT } from './config.ts'
+import { SERVER_PORT, RELAY_BASE_URL_DEFAULT, OVERLAY_URL_DEFAULT } from './config.ts'
 import { logger } from './logger.ts'
 import { getTracer } from './otel.ts'
 import { SpanStatusCode } from '@opentelemetry/api'
 
 const PORT = Number(process.env['PORT'] ?? SERVER_PORT)
-const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '../public')
+const PUBLIC_DIR = join(import.meta.dir, '../public')
 const RELAY_BASE_URL = process.env['RELAY_BASE_URL'] ?? RELAY_BASE_URL_DEFAULT
 
 // Audio dedup — WKWebView retries fetches when Whisper is slow, causing duplicate relay delivery.
@@ -82,166 +80,153 @@ const saveLastTargetBound = (target: string): void => saveLastTarget(target)
 const handleMicCommandBound = (transcript: string): { handled: true; state: 'on' | 'off' } | null =>
   handleMicCommand(transcript)
 const getKnownAgentsBound = (): Promise<string[]> =>
-  getKnownAgents({ relayBaseUrl: RELAY_BASE_URL, fetchFn: fetch })
+  getKnownAgents({ relayBaseUrl: RELAY_BASE_URL, fetchFn: fetch, listWorkspaceNames })
 
 const tracer = getTracer()
 
 async function handleRequest(req: Request): Promise<Response> {
-  const url = new URL(req.url)
+    const url = new URL(req.url)
 
-  // ── Health ────────────────────────────────────────────────────────────────
-  if (url.pathname === '/health') {
-    return handleHealth()
-  }
+    // ── Health ────────────────────────────────────────────────────────────────
+    if (url.pathname === '/health') {
+      return handleHealth()
+    }
 
-  // ── OpenAPI spec — served at runtime so consumers (hey-api in ceo-app) ────
-  // can pull it via URL. File lives at docs/openapi.yaml.
-  if (req.method === 'GET' && url.pathname === '/openapi.yaml') {
-    try {
-      const yaml = await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', 'docs', 'openapi.yaml'), 'utf8')
-      return new Response(yaml, {
-        status: 200,
-        headers: { 'Content-Type': 'application/yaml; charset=utf-8' }
+    // ── Mobile UI ─────────────────────────────────────────────────────────────
+    if (req.method === 'GET' && url.pathname === '/') {
+      const indexCtx: IndexHtmlContext = {
+        loadIndexHtml: async () => {
+          try {
+            const buf = await readFile(join(PUBLIC_DIR, 'index.html'))
+            return buf.toString('utf8')
+          } catch {
+            return null
+          }
+        }
+      }
+      return handleIndexHtml(indexCtx)
+    }
+
+    // ── CORS preflight — allow dashboard (localhost:5173) to call voice-bridge ──
+    if (req.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Access-Control-Max-Age': '86400'
+        }
       })
-    } catch {
-      return new Response(JSON.stringify({ error: 'spec_unavailable' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
+    }
+
+    // ── Transcribe ────────────────────────────────────────────────────────────
+    if (req.method === 'POST' && url.pathname === '/transcribe') {
+      const ctx: TranscribeContext = {
+        recentAudioHashes,
+        evictStaleHashes: () => evictStaleHashes(recentAudioHashes),
+        hashAudioBuffer,
+        loadLastTarget: loadLastTargetBound,
+        saveLastTarget: saveLastTargetBound,
+        handleMicCommand: handleMicCommandBound,
+        getKnownAgents: getKnownAgentsBound,
+        transcribeAudio,
+        llmRoute,
+        // Relay-only delivery. Queued (offline agent) counts as ok — relay
+        // will deliver when the agent comes online. cmux fallback removed:
+        // voice-bridge2 is not a cmux process, so deliverViaCmux always
+        // throws "Access denied" and was never useful here.
+        deliverMessage: async (message, to) => {
+          const relayResult = await deliverToAgent(message, to)
+          if (relayResult.ok) {
+            logger.info({ component: 'relay', to, message }, 'message_sent')
+            return { ok: true }
+          }
+          logger.error(
+            { component: 'voice-bridge', relayError: relayResult.error },
+            'relay_delivery_failed'
+          )
+          return { ok: false, error: relayResult.error }
+        }
+      }
+      return handleTranscribe(req, ctx)
+    }
+
+    // ── Messages proxy ────────────────────────────────────────────────────────
+    if (req.method === 'GET' && url.pathname === '/messages') {
+      const ctx: MessagesContext = { relayBaseUrl: RELAY_BASE_URL }
+      return handleMessages(req, ctx)
+    }
+
+    // ── Mic control ──────────────────────────────────────────────────────────
+    // GET  /mic         — { state: "on"|"off" }
+    // POST /mic         — { state: "on"|"off" } → toggle
+    if (url.pathname === '/mic') {
+      const micCtx: MicContext = { isMicOn: isMicOnBound, setMic: setMicBound }
+      const res = await handleMic(req, micCtx)
+      if (res) return res
+    }
+
+    // ── Agents list ───────────────────────────────────────────────────────────
+    if (req.method === 'GET' && url.pathname === '/agents') {
+      const ctx: AgentsContext = {
+        relayBaseUrl: RELAY_BASE_URL,
+        listWorkspaceNames,
+        fetchFn: fetch
+      }
+      return handleAgents(req, ctx)
+    }
+
+    // ── Status ───────────────────────────────────────────────────────────────
+    if (req.method === 'GET' && url.pathname === '/status') {
+      const ctx: StatusContext = { loadLastTarget: loadLastTargetBound, isMicOn: isMicOnBound }
+      return handleStatus(ctx)
+    }
+
+    // ── Target control ────────────────────────────────────────────────────────
+    if (req.method === 'POST' && url.pathname === '/target') {
+      const ctx: TargetContext = { saveLastTarget: saveLastTargetBound }
+      return handleTarget(req, ctx)
+    }
+
+    // ── Settings ─────────────────────────────────────────────────────────────
+    if (url.pathname === '/settings') {
+      const settingsPath = join(import.meta.dir, '../daemon/settings.json')
+      const ctx: SettingsContext = {
+        readSettings: () => {
+          try {
+            return readFileSync(settingsPath, 'utf8')
+          } catch (err) {
+            // ENOENT = file missing (legitimate first-time use) → return null so
+            // the handler gives a 404 on GET or merges onto {} on POST.
+            // Any other error (EACCES, EISDIR, EIO) is a real problem → re-throw
+            // so the handler surfaces it as 500 instead of silently treating it
+            // as "no settings file" and potentially overwriting with fresh {}.
+            if (err instanceof Error && 'code' in err && err.code === 'ENOENT') return null
+            throw err
+          }
+        },
+        writeSettings: (content: string) => {
+          atomicWriteFile(settingsPath, content)
+        }
+      }
+      const res = await handleSettings(req, ctx)
+      if (res) return res
+    }
+
+    // ── Wake word process control ─────────────────────────────────────────────
+    if (url.pathname === '/wake-word' || url.pathname.startsWith('/wake-word/')) {
+      const daemonDir = join(import.meta.dir, '../daemon')
+      const wakeCtx = createWakeWordOsContext(daemonDir, loadLastTargetBound, {
+        spawnSync,
+        spawn: (cmd, args, opts) => spawn(cmd, [...args], opts),
+        env: process.env
       })
+      const res = handleWakeWord(req, wakeCtx)
+      if (res) return res
     }
-  }
 
-  // ── Mobile UI ─────────────────────────────────────────────────────────────
-  if (req.method === 'GET' && url.pathname === '/') {
-    const indexCtx: IndexHtmlContext = {
-      loadIndexHtml: async () => {
-        try {
-          const buf = await readFile(join(PUBLIC_DIR, 'index.html'))
-          return buf.toString('utf8')
-        } catch {
-          return null
-        }
-      }
-    }
-    return handleIndexHtml(indexCtx)
-  }
-
-  // ── CORS preflight — allow dashboard (localhost:5173) to call voice-bridge ──
-  if (req.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'Access-Control-Max-Age': '86400'
-      }
-    })
-  }
-
-  // ── Compose ───────────────────────────────────────────────────────────────
-  if (req.method === 'POST' && url.pathname === '/compose') {
-    return handleCompose(req)
-  }
-
-  // ── Transcribe ────────────────────────────────────────────────────────────
-  if (req.method === 'POST' && url.pathname === '/transcribe') {
-    const ctx: TranscribeContext = {
-      recentAudioHashes,
-      evictStaleHashes: () => evictStaleHashes(recentAudioHashes),
-      hashAudioBuffer,
-      loadLastTarget: loadLastTargetBound,
-      saveLastTarget: saveLastTargetBound,
-      handleMicCommand: handleMicCommandBound,
-      getKnownAgents: getKnownAgentsBound,
-      transcribeAudio,
-      llmRoute,
-      // Relay-only delivery. Queued (offline agent) counts as ok — relay
-      // will deliver when the agent comes online.
-      deliverMessage: async (message, to) => {
-        const relayResult = await deliverToAgent(message, to)
-        if (relayResult.ok) {
-          logger.info({ component: 'relay', to, message }, 'message_sent')
-          return { ok: true }
-        }
-        logger.error(
-          { component: 'voice-bridge', relayError: relayResult.error },
-          'relay_delivery_failed'
-        )
-        return { ok: false, error: relayResult.error }
-      }
-    }
-    return handleTranscribe(req, ctx)
-  }
-
-  // ── Mic control ──────────────────────────────────────────────────────────
-  // GET  /mic         — { state: "on"|"off" }
-  // POST /mic         — { state: "on"|"off" } → toggle
-  if (url.pathname === '/mic') {
-    const micCtx: MicContext = { isMicOn: isMicOnBound, setMic: setMicBound }
-    const res = await handleMic(req, micCtx)
-    if (res) return res
-  }
-
-  // ── Agents list ───────────────────────────────────────────────────────────
-  if (req.method === 'GET' && url.pathname === '/agents') {
-    const ctx: AgentsContext = {
-      relayBaseUrl: RELAY_BASE_URL,
-      fetchFn: fetch
-    }
-    return handleAgents(req, ctx)
-  }
-
-  // ── Status ───────────────────────────────────────────────────────────────
-  if (req.method === 'GET' && url.pathname === '/status') {
-    const ctx: StatusContext = { loadLastTarget: loadLastTargetBound, isMicOn: isMicOnBound }
-    return handleStatus(ctx)
-  }
-
-  // ── Target control ────────────────────────────────────────────────────────
-  if (req.method === 'POST' && url.pathname === '/target') {
-    const ctx: TargetContext = { saveLastTarget: saveLastTargetBound }
-    return handleTarget(req, ctx)
-  }
-
-  // ── Settings ─────────────────────────────────────────────────────────────
-  if (url.pathname === '/settings') {
-    const settingsPath = join(dirname(fileURLToPath(import.meta.url)), '../daemon/settings.json')
-    const ctx: SettingsContext = {
-      readSettings: () => {
-        try {
-          return readFileSync(settingsPath, 'utf8')
-        } catch (err) {
-          // ENOENT = file missing (legitimate first-time use) → return null so
-          // the handler gives a 404 on GET or merges onto {} on POST.
-          // Any other error (EACCES, EISDIR, EIO) is a real problem → re-throw
-          // so the handler surfaces it as 500 instead of silently treating it
-          // as "no settings file" and potentially overwriting with fresh {}.
-          if (err instanceof Error && 'code' in err && err.code === 'ENOENT') return null
-          throw err
-        }
-      },
-      writeSettings: (content: string) => {
-        atomicWriteFile(settingsPath, content)
-      }
-    }
-    const res = await handleSettings(req, ctx)
-    if (res) return res
-  }
-
-  // ── Wake word process control ─────────────────────────────────────────────
-  if (url.pathname === '/wake-word' || url.pathname.startsWith('/wake-word/')) {
-    const daemonDir = join(dirname(fileURLToPath(import.meta.url)), '../daemon')
-    const wakeCtx = createWakeWordOsContext(daemonDir, loadLastTargetBound, {
-      spawnSync,
-      spawn: (cmd, args, opts) => spawn(cmd, [...args], opts),
-      env: process.env
-    })
-    const res = handleWakeWord(req, wakeCtx)
-    if (res) return res
-  }
-
-  return new Response('Not found', { status: 404 })
+    return new Response('Not found', { status: 404 })
 }
 
 const server = Bun.serve({
@@ -254,8 +239,8 @@ const server = Bun.serve({
         'http.method': req.method,
         'http.url': req.url,
         'http.scheme': url.protocol.replace(':', ''),
-        'net.host.name': url.hostname
-      }
+        'net.host.name': url.hostname,
+      },
     })
     try {
       const response = await handleRequest(req)
@@ -265,16 +250,18 @@ const server = Bun.serve({
       }
       return response
     } catch (err) {
-      span.setStatus({
-        code: SpanStatusCode.ERROR,
-        message: err instanceof Error ? err.message : String(err)
-      })
+      span.setStatus({ code: SpanStatusCode.ERROR, message: err instanceof Error ? err.message : String(err) })
       throw err
     } finally {
       span.end()
     }
-  }
+  },
 })
+
+// Clean up stale TTS pause tokens left by a previous crash. Must run before the
+// relay poller or any TTS cycle can create new tokens, so the daemon starts with
+// a clean slate and voice pickup works immediately.
+cleanStaleTtsPauseTokens()
 
 logger.info(
   { component: 'server', port: server.port, url: `http://localhost:${server.port}` },
@@ -283,4 +270,32 @@ logger.info(
 logger.info(
   { component: 'server', note: 'HTTPS required for non-localhost access — use mkcert' },
   'mobile_ui_note'
+)
+
+// Drain voice-bridge's own relay queue — messages sent while offline are not lost
+drainVoiceBridgeQueue(RELAY_BASE_URL, (msg) => {
+  logger.info(
+    {
+      component: 'queue-drain',
+      from: msg.from,
+      type: msg.type,
+      body: msg.body
+    },
+    'startup_message_received'
+  )
+}).catch(() => {
+  /* drain errors already logged inside drainVoiceBridgeQueue */
+})
+
+// Start relay response poller — agent replies appear as overlay message toasts
+const OVERLAY_URL = process.env['OVERLAY_URL'] ?? OVERLAY_URL_DEFAULT
+const SETTINGS_PATH = join(import.meta.dir, '../daemon/settings.json')
+startRelayPoller({
+  relayBaseUrl: RELAY_BASE_URL,
+  overlayUrl: OVERLAY_URL,
+  settingsPath: SETTINGS_PATH
+})
+logger.info(
+  { component: 'relay-poller', relayBaseUrl: RELAY_BASE_URL, overlayUrl: OVERLAY_URL },
+  'started'
 )
