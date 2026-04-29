@@ -5,9 +5,9 @@
  * And the voice-bridge2 server is started with OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:<port>
  * When a client calls GET /health on the voice-bridge2 server
  * Then the local OTLP receiver receives at least one POST to /v1/traces
- * And the request body is non-empty (real span payload)
+ * And the request body contains service.name = "voice-bridge-server"
  *
- * Run: bun test ./tests/stories/otel/server-emits-spans.story.ts
+ * Run: bun test ./tests/stories/otel/server-emits-spans.story.test.ts
  */
 
 import { test, expect, beforeAll, afterAll } from 'bun:test';
@@ -27,6 +27,7 @@ if (PRODUCTION_PORTS.has(VB_TEST_PORT)) {
 let serverProcess: ChildProcess | null = null;
 let otlpServer: Server | null = null;
 const receivedPaths: string[] = [];
+const receivedBodies: string[] = [];
 
 async function waitFor(fn: () => boolean, timeoutMs = 15_000, intervalMs = 100): Promise<void> {
   const start = Date.now();
@@ -59,6 +60,7 @@ beforeAll(async () => {
       req.on('end', () => {
         if (req.method === 'POST') {
           receivedPaths.push(req.url ?? '');
+          receivedBodies.push(Buffer.concat(chunks).toString('utf8'));
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end('{}');
@@ -77,7 +79,7 @@ beforeAll(async () => {
         ...process.env,
         PORT: String(VB_TEST_PORT),
         OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${OTLP_TEST_PORT}`,
-        OTEL_SERVICE_NAME: 'voice-bridge-story-test',
+        OTEL_SERVICE_NAME: 'voice-bridge-server',
         NODE_ENV: 'test',
       },
       stdio: 'pipe',
@@ -102,20 +104,20 @@ afterAll(async () => {
   });
 });
 
-test('voice-bridge2 server emits OTLP trace spans to the configured endpoint when /health is called', async () => {
-  // Negative control: verify no spans before the request
-  const pathsBeforeRequest = [...receivedPaths];
-  expect(pathsBeforeRequest.length).toBe(0);
+test('voice-bridge2 server emits OTLP spans carrying service.name "voice-bridge-server" when /health is called', async () => {
+  // Negative control: no exports received before the request
+  expect(receivedPaths.length).toBe(0);
 
   // When: hit /health to trigger a request span
   const res = await fetch(`${VB_URL}/health`);
   expect(res.status).toBe(200);
 
-  // Then: wait for at least one OTLP trace export POST
-  await waitFor(() => receivedPaths.some(p => p.includes('traces') || p.includes('metrics') || p.includes('logs')), 10_000);
-
-  const exportPaths = receivedPaths.filter(p =>
-    p.includes('traces') || p.includes('metrics') || p.includes('logs')
+  // Then: wait for an OTLP export whose body mentions the service name
+  await waitFor(
+    () => receivedBodies.some(b => b.includes('voice-bridge-server')),
+    10_000
   );
-  expect(exportPaths.length).toBeGreaterThan(0);
+
+  const matching = receivedBodies.filter(b => b.includes('voice-bridge-server'));
+  expect(matching.length).toBeGreaterThan(0);
 });
