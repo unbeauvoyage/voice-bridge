@@ -47,7 +47,7 @@ internal sealed partial class WhisperClient : IWhisperClient
         using StringContent language = new("auto");
         using StringContent noContext = new("1");
 
-        file.Headers.ContentType = new MediaTypeHeaderValue(mime);
+        file.Headers.ContentType = MediaTypeHeaderValue.Parse(mime);
         form.Add(file, "file", filename);
         form.Add(responseFormat, "response_format");
         form.Add(language, "language");
