@@ -31,7 +31,17 @@ const app = Fastify({
   bodyLimit: MAX_BYTES + 1024,
 });
 
-await app.register(cors, { origin: true, credentials: false });
+await app.register(cors, { 
+  origin: ['http://localhost:5175', 'http://127.0.0.1:5175'],
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type'],
+});
+
+// Add Vary header to all responses for cache correctness
+app.addHook('onSend', async (_req, reply) => {
+  reply.header('Vary', 'Origin');
+});
 await app.register(multipart, {
   limits: { fileSize: MAX_BYTES, files: 1 },
 });
