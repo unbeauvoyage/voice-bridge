@@ -61,7 +61,7 @@ export class HttpContentServiceClient implements IContentServiceClient {
 
   async upload(buffer: Buffer, mime: string, filename: string): Promise<ComposedAttachment> {
     const form = new FormData()
-    form.append('file', new Blob([buffer], { type: mime }), filename)
+    form.append('file', new Blob([new Uint8Array(buffer)], { type: mime }), filename)
 
     const headers: Record<string, string> = {}
     propagation.inject(context.active(), headers)

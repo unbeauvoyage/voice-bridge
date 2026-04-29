@@ -275,7 +275,7 @@ export async function composeMessage(
     value: {
       delivered: true,
       to,
-      transcript,
+      ...(transcript !== undefined ? { transcript } : {}),
       attachmentUrls: attachmentResults,
       body,
       messageId: relayResult.id,

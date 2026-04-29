@@ -97,7 +97,13 @@ async function parseEnvelope(
     }
   }
 
-  const envelope: ComposeEnvelope = { to, text, audio, attachments, replyTo }
+  const envelope: ComposeEnvelope = {
+    to,
+    attachments,
+    ...(text !== undefined ? { text } : {}),
+    ...(audio !== undefined ? { audio } : {}),
+    ...(replyTo !== undefined ? { replyTo } : {}),
+  }
   return { ok: true, envelope }
 }
 
