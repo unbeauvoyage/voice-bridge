@@ -215,6 +215,7 @@ const server = Bun.serve({
       if (response.status >= 500) {
         span.setStatus({ code: SpanStatusCode.ERROR })
       }
+      response.headers.set('Access-Control-Allow-Origin', '*')
       return response
     } catch (err) {
       span.setStatus({
