@@ -52,3 +52,7 @@ The standard agency `dev`-branch convention from `~/environment/projects/managem
 
 ## Naming caveat
 The name will outgrow itself as more CEO-input modalities land. Rename when it stops fitting (e.g. `message-bridge`, `compose-service`); not a blocker until then.
+
+## Recovery hints
+- **"Cannot find module './cmux.ts' / './relay.ts' / './llmRouter.ts' / './relay-poller.ts' / './queue-drain.ts'"** when running or testing voice-bridge2: those modules were deleted in Phase A and Phase C; the live tree is reverted relative to the post-Phase-C state. Diagnose with `git status -sb` + `git diff HEAD server/index.ts` (do not assume a forward in-flight WIP). Restore with `git checkout HEAD -- server/index.ts CLAUDE.md .gitignore src/main/index.ts`. The pre-commit guard in `~/environment/.husky/pre-commit` catches this at commit time and prints the same restore command.
+- **Stale `.claude/worktrees/agent-*` directories** locked under a previous claude session pid: confirm no work-in-flight (`git -C <path> status -sb` + reflog), then `git worktree unlock <path> && git worktree remove --force <path>`. Locks held by your own pid do not protect work — check the lock target before assuming.
