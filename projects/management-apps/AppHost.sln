@@ -21,7 +21,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ContentService.Tests.AppHos
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ContentService.Tests", "ContentService\tests\ContentService.Tests\ContentService.Tests.csproj", "{A50AEF01-0584-4567-B82F-3B7B41991E7D}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "VoiceBridge", "VoiceBridge", "{96A83FF9-F834-860C-6B89-3F871EC19856}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "DotnetServices", "DotnetServices", "{96A83FF9-F834-860C-6B89-3F871EC19856}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{6CB5FA2C-EE44-EA77-3F4D-0EE62069EF03}"
 EndProject
